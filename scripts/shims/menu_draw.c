@@ -121,6 +121,7 @@
 #include "menu_zone.h"
 #include "side_zone.h"         /* the edge drawers: which is out, and its geometry */
 #include "side_paint.h"        /* ...and the image it is drawn with */
+#include "deckbadge_plane.h"  /* the play ring on the deck badge, on its own plane */
 #include "rbp_transport.h"   /* ...and the deck state its SYNC/CUE/PLAY report. NOT rbp_led.h:
                               * that is compiled into knobshim.so, which is loaded AFTER
                               * fbshim.so, so this file must not name its symbols at all. */
@@ -545,6 +546,7 @@ static int menu_band_setup_from_page(void)
 {
     if (g.band_off)
         return 0;
+    drm_band_want_rank(DRM_RANK_BAND);
     if (drm_band_setup(&g.band, g.view.dw, menu_panel_ph(), g.view.bpp) != 0)
         return -1;
     /* The band's own rectangle, and no longer the picture's: the plane is placed on
@@ -725,6 +727,7 @@ static int menu_window_plane_up(void)
         drm_band_teardown(&g.win);
         g.win_ok = g.win_on = 0;
     }
+    drm_band_want_rank(DRM_RANK_WINDOW);
     if (drm_band_setup(&g.win, w, h, g.view.bpp) != 0) {
         pointsrc_log("window: no plane for a %dx%d window -- it cannot be drawn on"
                      " this unit", w, h);
@@ -1204,6 +1207,7 @@ static void menu_side_plane_sync(void)
          * not go up on the next tick either, and an unguarded retry would be a
          * setup/teardown pair at the tick period, on the thread rbp presents from. */
         if (!g.side_ok[i] && !g.side_fail[i] && !g.band_off) {
+            drm_band_want_rank(DRM_RANK_DRAWER);
             if (drm_band_setup(&g.side[i], menu_side_pw(), g.view.dh, g.view.bpp) != 0)
                 g.side_fail[i] = 1;
             else {
@@ -1536,6 +1540,7 @@ static void menu_prompt_plane_sync(void)
     }
 
     if (!g.prompt_ok && !g.prompt_fail) {
+        drm_band_want_rank(DRM_RANK_PROMPT);
         if (drm_band_setup(&g.prompt, menu_prompt_pw(), menu_prompt_ph(),
                            g.view.bpp) != 0) {
             g.prompt_fail = 1;
@@ -1799,6 +1804,7 @@ static void menu_fxlist_plane_sync(void)
     }
 
     if (!g.fxlist_ok && !g.fxlist_fail) {
+        drm_band_want_rank(DRM_RANK_FXLIST);
         if (drm_band_setup(&g.fxlist, menu_fxlist_pw(), menu_fxlist_ph(),
                            g.view.bpp) != 0) {
             g.fxlist_fail = 1;
@@ -1969,6 +1975,7 @@ static void menu_fxpad_plane_sync(void)
     }
 
     if (!g.fxp_ok && !g.fxp_fail) {
+        drm_band_want_rank(DRM_RANK_FXPAD);
         if (drm_band_setup(&g.fxp, menu_fxp_pw(), menu_fxp_ph(), g.view.bpp) != 0) {
             g.fxp_fail = 1;
             pointsrc_log("fxpad: no plane for the pad -- its HUD goes on the page");
@@ -2745,6 +2752,37 @@ void menu_frame_tick(void)
     pthread_mutex_unlock(&g_lock);
 }
 
+/* THE DECK BADGES' PLAY RING (deckbadge_plane.h), on an overlay plane of its own -- the band's
+ * route and the drawers' route, and for the reason drmband.h gives for both: rbp presents its own
+ * buffer, so anything painted into it is erased by the next present or flickers against it. Two
+ * earlier attempts painted into it and neither reached the glass at all.
+ *
+ * CALLED EVERY TICK AND CHEAP, because the module is idempotent: a plane that is already up is not
+ * touched (rbp cannot reach it), so a ring going up costs one copy from rbp's buffer and then
+ * nothing until the deck stops. Coming down is `drm_band_hide()`, which is what lets rbp's own
+ * badge show through untouched.
+ *
+ * THE PERFORMANCE SCREEN IS PART OF THE GATE and it is the TOUCH thread's answer that is asked for
+ * (pointsrc.c's rbp_perf_screen, exported for this): the badge exists on that screen, and a plane
+ * left on any other would be a green box round whatever else is drawn at those rows. */
+static void menu_badge_build(void)
+{
+    int playing[2];
+    int deck;
+
+    for (deck = 0; deck < 2; deck++) {
+        int tr = rbp_transport_get(deck);
+
+        /* BIT 3 IS PLAY_SOLID, NOT BIT 2. Bit 2 is what the drawer's PLAY button lights from --
+         * lit while playing and BLINKING while paused, because that is what the hardware's button
+         * does. A ring that means "this deck is playing" must not follow that: it would blink for
+         * a paused deck, and a plane following a blink is the flicker this cost an evening. A
+         * failed read is -1, whose bit 3 is SET on a two's-complement int, so it is tested for. */
+        playing[deck] = (tr < 0) ? 0 : ((tr >> 3) & 1);
+    }
+    deckbadge_plane_sync(playing, rbp_perf_screen());
+}
+
 static void *menu_thread(void *arg)
 {
     long period_us;
@@ -2783,6 +2821,9 @@ static void *menu_thread(void *arg)
          * A drawer that is shut returns immediately. */
         menu_side_build(SZ_LEFT);
         menu_side_build(SZ_RIGHT);
+        /* Then the deck badges' play rings, on the page like the drawers and in the same place in
+         * the loop. See menu_badge_build(). */
+        menu_badge_build();
         /* Then the chooser's box, on the same terms and in the same place: built off
          * the lock, before the tick, so the tick publishes what this iteration just
          * made. A shut box returns immediately. It is built here and not in the touch

@@ -504,6 +504,9 @@ static void led_transport_update(void)
                bits |= RBP_TRANSPORT_CUE;
           if (playing || (loaded && led_blink_for(LEDSTAT_PLAY, ch)))
                bits |= RBP_TRANSPORT_PLAY;
+          /* The same `playing`, with the blink stripped out -- see RBP_TRANSPORT_PLAY_SOLID. */
+          if (playing)
+               bits |= RBP_TRANSPORT_PLAY_SOLID;
           rbp_transport_set(i, bits);
      }
 }

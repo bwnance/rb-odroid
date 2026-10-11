@@ -73,6 +73,7 @@ typedef signed int         __s32;
 #define DRM_IOCTL_MODE_GETPLANE         DRM_IOWR(0xB6, struct drm_mode_get_plane)
 #define DRM_IOCTL_MODE_SETPLANE         DRM_IOWR(0xB7, struct drm_mode_set_plane)
 #define DRM_IOCTL_MODE_OBJ_GETPROPERTIES DRM_IOWR(0xB9, struct drm_mode_obj_get_properties)
+#define DRM_IOCTL_MODE_OBJ_SETPROPERTIES DRM_IOW(0xBC, struct drm_mode_obj_set_property)
 
 /* The "type" property's enum ordinals. libdrm spells these in xf86drmMode.h,
  * which is a library header and not uapi; they are the kernel enum's order. */
@@ -200,6 +201,16 @@ struct drm_mode_obj_get_properties {
     __u32 obj_type;
 };
 
+/* The one SET ioctl this shim needs, for the stacking order below. Same provenance as the rest:
+ * read out of libdrm's uapi rather than typed from memory, and frozen because the ioctl number
+ * encodes the struct's size. */
+struct drm_mode_obj_set_property {
+    __u64 value;
+    __u32 prop_id;
+    __u32 obj_id;
+    __u32 obj_type;
+};
+
 /* ------------------------------------------------------------------- band */
 
 /* One overlay plane, held open, with a buffer the band is drawn into. Filled in
@@ -238,6 +249,40 @@ struct drm_band {
  * logger, so a machine that cannot have the plane says WHY in the log the rest of
  * the display code already writes to. */
 int  drm_band_setup(struct drm_band *b, int w, int h, int bpp);
+
+/* ------------------------------------------------------------- the stacking order
+ *
+ * HIGHER SCANS OUT ON TOP, and rbp's own picture is 0. These are ASKED FOR, and the asking is the
+ * whole point: the kernel's default zpos is the plane's INDEX, so without this the order is
+ * whichever order the planes happened to be picked in -- which put the top menu band UNDER the
+ * deck badges' play rings, and would move again the first time a surface was created in a
+ * different sequence. Set with drm_band_want_z() immediately before the band's drm_band_setup().
+ *
+ * The order, and why: the rings are over rbp's picture and under everything the shim draws, so a
+ * panel sliding out covers them; the panels are under the boxes that sit on top of them; and the
+ * band is over all of them, which is what the operator asked for by name ("the band should be
+ * above deck 1, 2 rings") -- it spans the full width at the top, so the drawers' full-height edge
+ * panels would otherwise cover its ends. The browser window is a window: it goes over the lot. */
+#define DRM_RANK_RING      0     /* the first free overlay -- the LOWEST, so panels cover it */
+#define DRM_RANK_DRAWER    2
+#define DRM_RANK_PROMPT    3
+#define DRM_RANK_FXLIST    4
+#define DRM_RANK_FXPAD     5
+#define DRM_RANK_BAND      6     /* the operator's ask: above both deck rings */
+#define DRM_RANK_WINDOW    7
+
+/* The ranking the NEXT drm_band_setup() in this process will ask for: it takes the (n+1)-th free
+ * overlay rather than the first. Consumed by that call, so it cannot leak onto a later band.
+ *
+ * WHY A RANK AND NOT A zpos. The obvious way is to SET the plane's zpos property, and an earlier
+ * version of this asked for exactly that -- the kernel refused it with EINVAL on all three planes,
+ * so nothing was enforced and the order was whatever the planes happened to be picked in. What is
+ * MEASURED instead, from /sys/kernel/debug/dri/1/state with the surfaces up, is that the driver's
+ * DEFAULT zpos follows the plane's index: our three planes read normalized-zpos 1, 2 and 3 in the
+ * order they were taken. So taking a later plane is taking a higher one, and that is a fact about
+ * this driver rather than a hope -- but a driver that ordered them differently would show it as a
+ * surface in the wrong place, so if that ever happens, this is the assumption to re-measure. */
+void drm_band_want_rank(unsigned int n);
 
 /* Put the plane on the glass at crtc position (x, y), showing the whole buffer.
  * The buffer must already hold the image. Idempotent while it is already on at

@@ -62,4 +62,13 @@ void pointsrc_log(const char *fmt, ...);
  * is not static. See prompt_zone.h for the derivation of the walk. */
 int pointsrc_usb_state(struct prompt_state *S);
 
+
+/* Is rbp on the PERFORMANCE screen -- the one it draws the deck badges and the pads on?
+ *
+ * EXPORTED, and it is the touch thread's own answer: menu_draw.c's paint thread gates the deck
+ * badges' play ring on it, and a second read of rbp's browse mode up there would be a second
+ * spelling of one question. 0 when rbp is not the reader, or the mode cannot be asked -- every
+ * failure answers "not the screen", so nothing is drawn on a guess. */
+int rbp_perf_screen(void);
+
 #endif /* RBPI4B_POINTSRC_H */

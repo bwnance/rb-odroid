@@ -158,6 +158,15 @@ SCHEMA = [
          label="Beat FX touch zones", help="CH SELECT and effect-name touch areas."),
     dict(key="RB_POINT_HOTCUE_TOUCH", group="advanced", type=B, restart="player", risk="low",
          label="Hot cue pad touch", help="Triggers registered cues on a touch."),
+    dict(key="RB_POINT_PADMODE_TAP", group="advanced", type=B, restart="player", risk="low",
+         label="Pad mode tap",
+         help="Tapping rbp's own pad-mode caption -- the label line above the pads -- cycles that "
+              "deck's pad mode, one tap per mode, round the four in order."),
+    dict(key="RB_POINT_DECK_PLAY", group="advanced", type=B, restart="player", risk="low",
+         label="Deck badge play/stop",
+         help="Tapping the rectangle around `DECK ( 1 )` beside the track title is play/stop for "
+              "that deck -- rbp's own K_PLAY, the same gesture the panel's play button and the "
+              "side panel's PLAY make."),
     dict(key="RB_POINT_QUANTIZE_TAP", group="advanced", type=B, restart="player", risk="low",
          label="QUANTIZE tap on the deck",
          help="rbp binds no touch to that widget itself, so the shim sends the keycode."),

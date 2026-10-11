@@ -47,6 +47,14 @@
 #define RBP_TRANSPORT_SYNC 1
 #define RBP_TRANSPORT_CUE  2
 #define RBP_TRANSPORT_PLAY 4
+/* ...AND "PLAYING" AS OPPOSED TO "THE PLAY BUTTON LOOKS LIT". The bit above is set for a deck that
+ * is playing OR for a paused deck whose LED is in the lit half of its blink, because that is what
+ * a play BUTTON does and the drawer imitates the hardware. A surface that means "this deck is
+ * playing" cannot use it: it would blink, and following a blinking bit is a flicker, not a state.
+ * This one is rbp's play engine's own answer, with no blink in it, and it is what the deck badges'
+ * rings are lit from -- the operator asked for exactly that: "if its not playing don't display
+ * green". Same source, two questions, so neither consumer has to guess at the other's. */
+#define RBP_TRANSPORT_PLAY_SOLID 8
 
 /*
  * This deck's three, as rbp has them right now, ORed from the RBP_TRANSPORT_* bits

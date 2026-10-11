@@ -426,8 +426,11 @@ FBSHIM_OBJS := fb_shim.o tscfake.o pointsrc.o point_xform.o touch_zone.o \
                menu_window.o menu_window_paint.o menu_keyboard.o \
                browser_link.o drmband.o side_zone.o side_paint.o util_zone.o \
                wave_zone.o prompt_zone.o prompt_paint.o fx_zone.o fx_paint.o \
-               hc_zone.o usb_label.o fxpad_zone.o fxpad_paint.o
+               hc_zone.o usb_label.o fxpad_zone.o fxpad_paint.o padmode_zone.o \
+               deckbadge_zone.o deckbadge_paint.o deckbadge_plane.o
 FBSHIM_HDRS := tscfake.h pointsrc.h point_xform.h touch_zone.h syscalls.h \
+               padmode_zone.h hc_zone.h deckbadge_zone.h deckbadge_paint.h \
+               deckbadge_plane.h \
                envutil.h fb_cursor.h cursor_paint.h fbdev.h menu_zone.h \
                menu_paint.h menu_font.h menu_draw.h drmband.h menu_window.h \
                menu_window_paint.h menu_keyboard.h browser_link.h side_zone.h \
@@ -700,7 +703,7 @@ TESTS := test_point test_audio test_midi test_flx4 test_kbd test_cursor \
          test_evdev test_cursor_dev test_menu test_side test_window test_keyboard \
          test_menu_dev test_util test_wave test_prompt test_fx test_hc test_fxpad \
          test_led_table test_plinn_scan test_controllers test_usblabel test_netalias \
-         test_pitch test_keylog
+         test_pitch test_keylog test_padmode test_deckbadge
 
 test_point: test_point.c tscfake.c point_xform.c touch_zone.c $(FBSHIM_HDRS)
 	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
@@ -943,6 +946,23 @@ test_hc: test_hc.c hc_zone.c hc_zone.h menu_zone.h rbp_abi.h
 	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
 	    -Wall -Wextra -static -o $@ test_hc.c hc_zone.c
 
+# test_padmode links the PRODUCTION padmode_zone.c for test_hc's reason: the module is pure, so
+# the band and the cycle are pinned on a host rather than by a finger on the glass. rbp_abi.h is
+# its prerequisite for the four mode keycodes, and the test types those four out itself rather
+# than reading them from the module -- agreeing with the source would pin nothing.
+test_padmode: test_padmode.c padmode_zone.c padmode_zone.h rbp_abi.h
+	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
+	    -Wall -Wextra -static -o $@ test_padmode.c padmode_zone.c
+
+# test_deckbadge links the PRODUCTION deckbadge_zone.c, for test_padmode's reason: the module is
+# pure, so both measured rectangles are pinned on a host rather than by a thumb on the glass --
+# and the box sits four pixels from the track title, which is a different control.
+test_deckbadge: test_deckbadge.c deckbadge_zone.c deckbadge_zone.h \
+                 deckbadge_paint.c deckbadge_paint.h menu_paint.h
+	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
+	    -Wall -Wextra -static -o $@ test_deckbadge.c deckbadge_zone.c \
+	    deckbadge_paint.c
+
 # test_fxpad links the PRODUCTION fxpad_zone.c AND fxpad_paint.c -- test_fx.c and
 # test_side.c carry their feature's painter for the same reason: the HUD's two marks are
 # drawn over rbp's own pixels, and "which pixels of the operator's readout survive" is
@@ -1144,7 +1164,8 @@ MENU_TEST_OBJS := test_menu_dev.o menu_draw.o menu_paint.o menu_zone.o \
                   menu_window.o menu_window_paint.o menu_keyboard.o \
                   browser_link.o point_xform.o drmband.o side_zone.o \
                   side_paint.o prompt_zone.o prompt_paint.o fx_zone.o fx_paint.o \
-                  fxpad_zone.o fxpad_paint.o fader_state.o rbp_transport.o
+                  fxpad_zone.o fxpad_paint.o fader_state.o rbp_transport.o \
+                  deckbadge_zone.o deckbadge_paint.o
 
 # The drawer's wrappers, and they are the ONE exception to "drmband.o is the real
 # object". --wrap=drm_band_* lets scenario_drawer() hand the module a plane that
@@ -1163,6 +1184,7 @@ test_menu_dev: $(MENU_TEST_OBJS)
 	    -Wl,--wrap=drm_band_setup -Wl,--wrap=drm_band_show \
 	    -Wl,--wrap=drm_band_hide -Wl,--wrap=drm_band_teardown \
 	    -Wl,--wrap=side_paint -Wl,--wrap=prompt_paint \
+	    -Wl,--wrap=rbp_perf_screen -Wl,--wrap=deckbadge_plane_sync \
 	    -lpthread -lm -lc
 
 test_menu_dev.o: test_menu_dev.c menu_draw.h menu_paint.h menu_zone.h \

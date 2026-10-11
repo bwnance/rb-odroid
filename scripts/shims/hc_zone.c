@@ -8,9 +8,17 @@
 
 int hc_may_fire(int browse_mode, int pad_mode, int registered)
 {
-    return browse_mode == BROWSE_MODE_PLAY
-        && pad_mode == HC_PAD_MODE_HOT
-        && registered > 0;
+    if (browse_mode != BROWSE_MODE_PLAY)
+        return 0;
+    /* HOT CUE IS THE ONE MODE THAT ASKS ABOUT THE CUE. An unlit HOT CUE pad STORES a cue on real
+     * gear, so an empty cell must stay silent -- see hc_zone.h's gate block. */
+    if (pad_mode == HC_PAD_MODE_HOT)
+        return registered > 0;
+    /* THE OTHER THREE FIRE ON EVERY PAD: a beat loop, a slip loop and a beat jump are all
+     * reversible from the same pad, and each is what the operator asked for by tapping a cell rbp
+     * itself drew. A mode that could not be read is -1, which is below the range and fires
+     * nothing: there is no mode it is safe to guess at. */
+    return pad_mode >= HC_PAD_MODE_ALOOP && pad_mode <= HC_PAD_MODE_BEATJUMP;
 }
 
 /* ---------------------------------------------------------------- the keycodes */

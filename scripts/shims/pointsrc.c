@@ -27,6 +27,10 @@
                           * 2026-10-07; fxpad_zone.h carries the rectangle, the two
                           * wire forms and the momentary restore */
 #include "hc_zone.h"
+#include "padmode_zone.h" /* the pad-mode caption band: a tap on the label line above the
+                           * pads cycles the mode. The operator's ask of 2026-10-10 */
+#include "deckbadge_zone.h" /* the deck's badge box beside the title: a tap is play/stop.
+                             * The operator's ask of 2026-10-10 */
 #include "syscalls.h"
 #include "envutil.h"
 #include "usb_label.h"   /* what a media device's name may contain -- the same rules
@@ -224,6 +228,24 @@ static int  fx_touch = 1;
  * module would have taken go to rbp untouched, byte for byte. */
 static int  hc_touch = 1;
 static int  menu_mouse = 0;
+
+/* The pad-mode caption band (padmode_zone.h), ON by default like hc_touch and with the same kind
+ * of switch: it is rbp's own drawing, so an operator who wants only the panel left alone sets
+ * POINT_PADMODE_TAP=0 and gets exactly that -- off means the reports this module would have taken
+ * reach rbp untouched, byte for byte.
+ *
+ * THE LATCH IS THE PRESS THIS MODULE TOOK. The tap fires on the RELEASE, and the press behind it
+ * was withheld from rbp for its whole life, so the release must be withheld with it -- otherwise
+ * rbp is handed an up for a down it never saw. -1 means nothing of ours is down. */
+static int  pm_touch = 1;
+static int  pm_latched_deck = -1;
+
+/* The deck badge box (deckbadge_zone.h), ON by default like the two above and with the same kind
+ * of switch. The latch is the press this module took: the tap fires on the RELEASE, and the press
+ * behind it was withheld from rbp for its whole life, so the release must be withheld with it --
+ * otherwise rbp is handed an up for a down it never saw. -1 means nothing of ours is down. */
+static int  db_touch = 1;
+static int  db_latched_deck = -1;
 
 /* The buttons' keycodes, in menu_zone.c's column order: the first six are rbp's own
  * browse keycodes, all six now measured (rbp_abi.h carries the derivation and the
@@ -1199,7 +1221,7 @@ static void fx_ch_cycle(void){
  * wave_zone.c already uses -- rbp_abi.h's BROWSE_MODE_PLAY, measured 1 with the
  * performance screen on the glass and 5 with INFO over it -- and it is re-read on EVERY
  * report because rbp can leave the screen under a press that is already down. */
-static int rbp_perf_screen(void)
+int rbp_perf_screen(void)
 {
     static int am_rbp = -1;
 
@@ -1210,17 +1232,18 @@ static int rbp_perf_screen(void)
     return rbp_i32(UIBROWSE_GLOBAL + UIBROWSE_OFF_MODE) == BROWSE_MODE_PLAY;
 }
 
-/* ------------------------------------------------ the HOT CUE pad row (hc_zone.h)
+/* ------------------------------------------------ the pad grid (hc_zone.h)
  *
- * The operator's ask of 2026-10-06 -- a touch on a HOT CUE pad fires that pad's cue,
- * and on a pad with no cue does NOTHING and creates nothing -- and the three reads it
- * needs. hc_zone.c owns the geometry, the anchor and the rule; this owns rbp.
+ * The operator's asks of 2026-10-06 and 2026-10-10: a touch on a HOT CUE pad fires that pad's cue
+ * and on a pad with no cue does NOTHING and creates nothing; and in the three OTHER pad modes
+ * every pad functions, because there a pad is a loop or a beat jump rather than something that
+ * writes to the track. hc_zone.c owns the geometry, the anchor and the rule; this owns rbp.
  *
- * THE MIDDLE READ IS THE WHOLE FEATURE. On real Pioneer gear an unlit HOT CUE pad
- * STORES a cue at the playhead, so "fires when it should not" does not merely
- * disappoint -- it writes a cue onto the operator's own track, mid-set. Every read
- * below therefore answers its FAILURE as "no": a pad mode that cannot be read is -1, a
- * registration that cannot be asked is 0, and hc_may_fire() refuses on both. */
+ * THE REGISTRATION READ IS THE WHOLE FEATURE IN HOT CUE. On real Pioneer gear an unlit HOT CUE
+ * pad STORES a cue at the playhead, so "fires when it should not" does not merely disappoint -- it
+ * writes a cue onto the operator's own track, mid-set. That is why the read answers its FAILURE as
+ * "no" (a pad mode that cannot be read is -1, a registration that cannot be asked is 0, and
+ * hc_may_fire() refuses on both) and why it is asked in that mode alone. */
 
 /* rbp's per-deck pad mode, straight out of the walk UiGetPadMode @0xfd3cc performs --
  * rbp_abi.h's UI_PADMODE_* block carries the derivation and the measurement behind it
@@ -1293,14 +1316,18 @@ static void hc_fire(int deck, int pad)
         am_rbp = is_rbp_process();
     mode = am_rbp ? rbp_i32(UIBROWSE_GLOBAL + UIBROWSE_OFF_MODE) : -1;
     pm = am_rbp ? hc_pad_mode(deck) : -1;
+    /* THE REGISTRATION IS ASKED IN HOT CUE ONLY. It is the one mode where an empty pad ACTS -- on
+     * real gear an unlit HOT CUE pad stores a cue at the playhead -- and every other mode fires on
+     * every pad, so asking there would be a read with no consumer and a gate with no reason.
+     * hc_zone.h's gate block is the rule; this is the one place it is fed. */
     reg = (pm == HC_PAD_MODE_HOT) ? hc_registered(deck, pad) : 0;
 
     if (!hc_may_fire(mode, pm, reg)) {
-        pointsrc_log("pointsrc: hot cue deck%d pad%d -> nothing sent "
+        pointsrc_log("pointsrc: pad deck%d pad%d -> nothing sent "
                      "(mode %d pad mode %d registered %d)", deck + 1, pad, mode, pm, reg);
         return;
     }
-    pointsrc_log("pointsrc: hot cue deck%d pad%d -> key %#x ch%d", deck + 1, pad,
+    pointsrc_log("pointsrc: pad deck%d pad%d mode%d -> key %#x ch%d", deck + 1, pad, pm,
                  hc_pad_keycode(pad), deck + 1);
     send_rx_key(hc_pad_keycode(pad), OP_PRESS, deck + 1, 0);
     send_rx_key(hc_pad_keycode(pad), OP_RELEASE, deck + 1, 0);
@@ -1793,6 +1820,53 @@ static void side_log_transitions(void)
  * release, which is where a menu button fires and where the tap/hold split is
  * decided. The drawers have no hold of their own: a transport key has no second
  * meaning, so `held_ms` is not passed on. */
+/* A tap on the pad-mode caption: advance that deck's pad mode by one.
+ *
+ * rbp's own reader says which mode the deck is in -- hc_pad_mode(), the same one hc_fire() uses --
+ * and padmode_zone.c owns the keycode that advances it, so this holds no mode of its own and
+ * cannot disagree with rbp about where the cycle is. A mode that cannot be read sends nothing.
+ *
+ * NEVER SILENT, for hc_fire()'s reason: a tap that did nothing because the mode could not be read
+ * and a tap that did nothing because something else ate the report are the same pixels, and this
+ * line is the only thing that tells them apart.
+ *
+ * THE SEND IS hc_fire()'s: one press edge and one release edge, back to back, on rbp's own
+ * channel for the deck -- which is what keeps a tap on deck 1's caption off deck 2. */
+static void pm_fire(int deck)
+{
+    int mode, key;
+
+    mode = hc_pad_mode(deck);
+    key = padmode_next_keycode(mode);
+    if (!key) {
+        pointsrc_log("pointsrc: pad mode deck%d -> nothing sent (pad mode %d could not be "
+                     "read)", deck + 1, mode);
+        return;
+    }
+    pointsrc_log("pointsrc: pad mode deck%d %d -> %d, key %#x ch%d", deck + 1, mode,
+                 (mode + 1) % PM_MODES, key, deck + 1);
+    send_rx_key(key, OP_PRESS, deck + 1, 0);
+    send_rx_key(key, OP_RELEASE, deck + 1, 0);
+}
+
+/* A tap on a deck's badge box: play/stop that deck.
+ *
+ * rbp's own keycode on rbp's own channel for the deck -- K_PLAY 0x4101, which is what the drawer's
+ * PLAY button sends (side_zone.c's SZ_ACT_PLAY) and what the FLX4's play button sends
+ * (map_flx4.c). So a tap here is the same gesture arriving by a third route rather than a third
+ * mechanism, which is the only way it can be trusted to mean the same thing. One press edge and
+ * one release edge, back to back, as both of those do.
+ *
+ * IT DOES NOT TRY TO BE CLEVERER THAN rbp: on a deck with nothing on it rbp's own play button does
+ * nothing, and so does this. What it does instead is SAY SO, so a tap that looked like it did
+ * nothing can be told apart from a report that never arrived. */
+static void db_fire(int deck)
+{
+    pointsrc_log("pointsrc: deck%d badge -> play/stop, key %#x ch%d", deck + 1, K_PLAY, deck + 1);
+    send_rx_key(K_PLAY, OP_PRESS, deck + 1, 0);
+    send_rx_key(K_PLAY, OP_RELEASE, deck + 1, 0);
+}
+
 static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
 {
     int button = 0;
@@ -2045,6 +2119,66 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
         if (hc_feed(down, x, y, &hdeck, &hpad) != MZ_FEED_NONE) {
             if (hdeck >= 0)
                 hc_fire(hdeck, hpad);
+            return;
+        }
+    }
+
+    /* THE PAD-MODE CAPTION BAND (padmode_zone.h), one rung below the pads it names and for the
+     * same reason: it is rbp's own drawing, so every surface drawn over it gets first refusal.
+     *
+     * THE PRESS IS TAKEN AND THE TAP FIRES ON THE RELEASE. Taking the press is what stops a
+     * finger that lands on the caption from reaching rbp as a click, and it is why the release
+     * must be answered here even if rbp has left the performance screen under that finger:
+     * pm_latched_deck is the only record that this module owes rbp a swallowed up. A press the
+     * band did NOT take falls through to the rungs below, so a release that no press of ours
+     * began still reaches rbp -- the rule the HOT CUE rung above states for its own cells. */
+    if (verdict == MZ_FEED_NONE && pm_touch &&
+        (pm_latched_deck >= 0 || (rbp_perf_screen() && !menu_window_is_open() &&
+                                  !menu_is_open() && !side_any_open()))) {
+        int pdeck = -1;
+
+        if (!down) {
+            int latched = pm_latched_deck;
+
+            pm_latched_deck = -1;
+            if (latched >= 0) {
+                if (padmode_band(x, y, &pdeck) && pdeck == latched)
+                    pm_fire(latched);
+                else
+                    pointsrc_log("pointsrc: pad mode deck%d -> nothing sent (the release "
+                                 "landed off the band)", latched + 1);
+                return;
+            }
+        } else if (padmode_band(x, y, &pdeck)) {
+            pm_latched_deck = pdeck;
+            return;
+        }
+    }
+
+    /* THE DECK BADGE BOX (deckbadge_zone.h): a tap on the rectangle around `DECK ( 1 )` beside the
+     * track title is play/stop for that deck. The same shape as the pad-mode band above, and for
+     * the same reason: it is rbp's own drawing, so every surface drawn over it has had its first
+     * refusal by the time this rung is reached -- and the press is taken here so that a finger
+     * landing on the badge cannot reach rbp as a click before the release decides. */
+    if (verdict == MZ_FEED_NONE && db_touch &&
+        (db_latched_deck >= 0 || (rbp_perf_screen() && !menu_window_is_open() &&
+                                  !menu_is_open() && !side_any_open()))) {
+        int bdeck = -1;
+
+        if (!down) {
+            int latched = db_latched_deck;
+
+            db_latched_deck = -1;
+            if (latched >= 0) {
+                if (deckbadge_hit(x, y, &bdeck) && bdeck == latched)
+                    db_fire(latched);
+                else
+                    pointsrc_log("pointsrc: deck%d badge -> nothing sent (the release landed "
+                                 "off the badge)", latched + 1);
+                return;
+            }
+        } else if (deckbadge_hit(x, y, &bdeck)) {
+            db_latched_deck = bdeck;
             return;
         }
     }
@@ -2740,6 +2874,10 @@ int pointsrc_start(void)
      * rather than a shim surface. Off means rbp's stream is untouched at those sixteen
      * cells, byte for byte. */
     hc_touch = env_flag("POINT_HOTCUE_TOUCH", 1);
+    /* The pad-mode caption's own switch, for hc_touch's reason. */
+    pm_touch = env_flag("POINT_PADMODE_TAP", 1);
+    /* ...and the deck badge's. */
+    db_touch = env_flag("POINT_DECK_PLAY", 1);
     /* menu_key_eff is built even when the menu is off, so the log states the
      * table it would use rather than staying silent about a knob that was set. */
     menu_keys_init();

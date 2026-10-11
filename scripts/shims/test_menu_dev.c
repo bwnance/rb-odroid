@@ -595,6 +595,25 @@ void __wrap_drm_band_teardown(struct drm_band *b)
     b->on  = 0;
 }
 
+
+/* THE PAINT THREAD'S NEW GATE, stubbed: menu_badge_build() asks the touch thread's answer about
+ * the performance screen, and this suite is about the band's picture. Answering "not the
+ * performance screen" is the honest stub -- it means the badge ring is never drawn here, so no
+ * painter and no touch thread has to be linked into a test that does not look at either. */
+int __wrap_rbp_perf_screen(void) { return 0; }
+
+/* ...and the ring's planes, for the same reason: deckbadge_plane_sync() opens /dev/dri/card1 and
+ * asks for overlay planes, which is not something a host test should do -- and this suite is about
+ * the band's picture. Counting the calls lets a later test ask "was the ring offered?" without any
+ * of that. */
+int ring_calls;
+void __wrap_deckbadge_plane_sync(const int *playing, int on_screen)
+{
+    (void)playing;
+    (void)on_screen;
+    ring_calls++;
+}
+
 void __wrap_side_paint(const struct menu_view *v, int side, int pressed_hit,
                        int fader_v, int sync, int cue, int play)
 {
