@@ -83,6 +83,18 @@ row they were already looking at — and the enable/disable it named is the cont
 startup column, which is where anyone looking for it goes next anyway. That branch was also what a save's
 confirmation line repeated, so removing it removed it from both places at once.
 
+**The frame counter does not read the whole log, and that is a fix with a date on it.** "Is rbp
+painting?" is answered from rbp's own `DS_HW_Glib3_DFB.c <1106>` line — one line per frame, so the
+log grows at roughly its frame rate — and the page used to count those lines by reading the file
+line by line, on every poll. On 2026-10-12 that file had reached **492 MB** (two days, nothing
+rotating it) and the page went from instant to *never*: three handler threads in uninterruptible
+reads, `read(0x5, …, 0x2000)` flat out, the whole page timing out while its service still said
+`active`. It now counts only what has been appended since it last looked — which is all a RATE
+needs, and the rate is the only thing the page reads — so the first poll of a process counts nothing
+and a rotated log starts over rather than going negative. `/etc/logrotate.d/rblive4` (installed by
+`install.sh` from `scripts/device/logrotate-rblive4.conf`) then bounds the files themselves; the
+header there says why `copytruncate` is not optional and why nothing in it may silence that line.
+
 **A save changes one line and restarts nothing.** `confedit` validates the value by type, refuses
 anything with a shell metacharacter in it, locks the file, checks the result with `sh -n`, keeps a
 one-generation `.prev`, and copies every other byte of the operator's file through untouched — verified

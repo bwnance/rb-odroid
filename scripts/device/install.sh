@@ -180,6 +180,14 @@ done
 # uninstall.sh identify the installed drop-in by comparing against it, and
 # uninstall in particular has to make that comparison ON the unit -- the moment
 # it runs is the moment a checkout of this repository may already be gone.
+if [ -f "$HERE/logrotate-rblive4.conf" ]; then
+  cp "$HERE/logrotate-rblive4.conf" "$DEPLOY/logrotate-rblive4.conf"
+  chmod 644 "$DEPLOY/logrotate-rblive4.conf"
+else
+  warn "logrotate-rblive4.conf not found in $HERE -- kept out of the deploy root,
+  where uninstall.sh looks for it to identify the installed drop-in"
+fi
+
 if [ -f "$HERE/journald-persistent.conf" ]; then
   cp "$HERE/journald-persistent.conf" "$DEPLOY/journald-persistent.conf"
   chmod 644 "$DEPLOY/journald-persistent.conf"
@@ -557,6 +565,16 @@ chmod 644 /etc/tmpfiles.d/rblive4.conf
 systemd-tmpfiles --create /etc/tmpfiles.d/rblive4.conf >/dev/null 2>&1 || true
 say "installed /etc/tmpfiles.d/rblive4.conf (/run/rblive4 created at sysinit)"
 
+# A CEILING ON OUR OWN LOGS -- the file's header says why: rbp's log reached 492 MB in two days with
+# nothing rotating it, and the config page used to read it whole on every poll, which is what took
+# that page from instant to never. copytruncate, because every one of these files is written by a
+# process that already holds it open (rbp's stdout is redirected into rbp.log by start-rb.sh).
+if [ -f "$HERE/logrotate-rblive4.conf" ]; then
+  install -d -m 755 /etc/logrotate.d
+  install -m 644 -o root -g root "$HERE/logrotate-rblive4.conf" /etc/logrotate.d/rblive4
+  say "installed /etc/logrotate.d/rblive4 (rbp.log and /tmp/*.log capped; stock daily timer)"
+fi
+
 # Persistent journal: the file's own header says why (a brownout's evidence is
 # otherwise in RAM). Installed unconditionally; it is capped at 200M and the way
 # to undo it is to delete the file.
@@ -566,6 +584,7 @@ if [ -f "$HERE/journald-persistent.conf" ]; then
   install -m 644 -o root -g root "$HERE/journald-persistent.conf" \
           /etc/systemd/journald.conf.d/persistent.conf
   say "journal is now persistent (/etc/systemd/journald.conf.d/persistent.conf)"
+
 
   # A second drop-in under an earlier name for the same file, which an install
   # that predates the rename left behind. journald reads the directory in

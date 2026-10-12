@@ -106,6 +106,10 @@ _FLASH = {"text": ""}
 # The frame counter. This string is the whole frame-rate instrument on this unit; it is
 # written once per frame with no message, so a line count IS a frame count.
 DSHW = "DS_HW_Glib3_DFB.c <1106>"
+# ...and the same marker as BYTES, for the incremental read below: the log is read in binary so that
+# a file position is a byte offset this page can compare with the file's size, and decoding five
+# million lines of it on every poll was part of why that read took minutes.
+DSHW_B = DSHW.encode()
 
 # How often the page re-reads its DATA, in seconds. 0 leaves the poll out entirely. This is
 # a fetch of /data and a swap of two divs, not a reload -- see POLL_JS for why that
@@ -301,18 +305,45 @@ def human_duration(secs):
     return "%ds" % s
 
 
+_frame_cache = None          # (byte offset read to, frames counted so far)
+
+
 def frame_count():
-    """How many frames rbp has drawn since it started. None if there is no log at all."""
-    if not os.path.exists(RBP_LOG):
-        return None
-    n = 0
+    """Frames drawn since this process last looked -- NOT since rbp started, and that is the fix.
+
+    The total was never read as a total: frames_since_last() uses it only as a DIFFERENCE between
+    two polls, to get a rate. Counting the whole file to produce a number that is immediately
+    subtracted was work nobody asked for, and on this unit it stopped being work at all -- rbp's log
+    reached 469 MB in two days, and reading it line by line in Python took the page from instant to
+    never. Measured 2026-10-12: three page threads in uninterruptible reads, `read(0x5, ..., 0x2000)`
+    flat out, the whole config page timing out while its service said `active`.
+
+    So the count now starts wherever the file already ended: the first poll reads NOTHING and
+    answers 0 (and the rate is None for want of a previous sample, which the caller already
+    handles), and every poll after it counts only the bytes appended since. A log that has been
+    rotated or truncated away -- shorter than the last offset -- starts over the same way, which is
+    also what makes trimming that 469 MB safe rather than something this page has to be told about.
+
+    None when there is no log at all, which is the caller's "rbp is not drawing"."""
+    global _frame_cache
     try:
-        with open(RBP_LOG, "r", errors="replace") as f:
-            for line in f:
-                if DSHW in line:
-                    n += 1
+        size = os.path.getsize(RBP_LOG)
     except OSError:
         return None
+    off, n = _frame_cache if _frame_cache else (size, 0)
+    if size < off:                  # rotated or truncated: nothing of ours is left to count
+        off, n = size, 0
+    if size > off:
+        try:
+            with open(RBP_LOG, "rb") as f:
+                f.seek(off)
+                for line in f:
+                    if DSHW_B in line:
+                        n += 1
+                off = f.tell()
+        except OSError:
+            return None
+    _frame_cache = (off, n)
     return n
 
 
@@ -1267,7 +1298,12 @@ def render(conf, pid, frames, rate, facts, services, switches, depth, req_host="
     a("<tr><td class=k>pid</td><td>%s</td></tr>" % esc(pid if pid is not None else "&mdash;"))
     a("<tr><td class=k>running for</td><td>%s</td></tr>" % human_duration(rbp_uptime(pid)))
     if frames is not None:
-        a("<tr><td class=k>frames drawn (DS_HW lines)</td><td>%d</td></tr>" % frames)
+        # THE LABEL SAYS WHAT THE NUMBER IS, which changed when the count did: this is not how many
+        # frames rbp has drawn, it is how many have been counted SINCE THIS PAGE LAST LOOKED (the
+        # whole file is no longer read -- see frame_count). It is the RATE below that anyone reads;
+        # this is the raw pair of samples it is derived from, and it restarts whenever the log is
+        # rotated.
+        a("<tr><td class=k>frames counted since the last poll</td><td>%d</td></tr>" % frames)
     if rate is not None:
         a("<tr><td class=k>frame rate</td><td>%.1f/s</td></tr>" % rate)
     # THE LOG IS NAMED, NOT QUOTED. The six-line tail was here because rbp's own log is the

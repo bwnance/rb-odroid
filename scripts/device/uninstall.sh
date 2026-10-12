@@ -296,6 +296,23 @@ x_systemctl reset-failed
 #
 # The comparison is against the copy we SHIP, not against the file removed on the
 # line above, so --dry-run reaches the same verdict as a real run.
+# The logrotate drop-in, on the same terms as the journal one below: ours is the file that is
+# byte-identical to the copy we ship, and anything else is left alone.
+LR=/etc/logrotate.d/rblive4
+LR_OURS="$HERE/logrotate-rblive4.conf"
+if [ ! -f "$LR_OURS" ] && [ -f "$DEPLOY/logrotate-rblive4.conf" ]; then
+    LR_OURS="$DEPLOY/logrotate-rblive4.conf"
+fi
+if [ -f "$LR" ]; then
+    if [ -f "$LR_OURS" ] && cmp -s "$LR_OURS" "$LR"; then
+        say "removing /etc/logrotate.d/rblive4"
+        x_rm "$LR"
+    else
+        warn "$LR is not the file we ship (or there is no copy to compare against), so it is
+  not ours to judge -- leaving it alone."
+    fi
+fi
+
 JD=/etc/systemd/journald.conf.d
 JD_OURS="$HERE/journald-persistent.conf"
 if [ ! -f "$JD_OURS" ] && [ -f "$DEPLOY/journald-persistent.conf" ]; then

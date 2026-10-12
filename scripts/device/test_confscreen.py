@@ -313,7 +313,22 @@ def test_pure(m):
         check(m.rbp_pid() == 4242, "rbp is found by its loader cmdline")
         check(m.rbp_pid() != 4001, "edb_streamd is NOT mistaken for the player")
         check(m.cpu_ticks(4242) == 300, "utime+stime read past the (comm) field")
-        check(m.frame_count() == 40, "the frame counter counts DS_HW lines")
+        # THE COUNT IS INCREMENTAL, and this says so rather than pretending the total still comes
+        # back. It has to be: the log reached 469 MB on the unit (one line per frame, forever) and
+        # reading it whole took the page from instant to never. frames_since_last() only ever
+        # subtracts two of these, so an incremental count is what it needs -- and it is what makes a
+        # log nobody rotates stop being the page's problem.
+        check(m.frame_count() == 0,
+              "the first look counts nothing -- it starts at the end of the log")
+        with open(m.RBP_LOG, "a") as f:
+            f.write(m.DSHW + " a frame\n")
+        check(m.frame_count() == 1, "then counts only what was appended")
+        with open(m.RBP_LOG, "a") as f:
+            f.write("a line that is not a frame\n")
+        check(m.frame_count() == 1, "and ignores lines that are not frames")
+        with open(m.RBP_LOG, "w") as f:            # rotated away under us
+            f.write(m.DSHW + " after a rotate\n")
+        check(m.frame_count() == 0, "a truncated log starts over rather than going negative")
         check("RB_VNC_WEB" in m.conf_keys(),
               "and conf_keys() covers the schema, so a key it added cannot render as "
               "(empty) while the unit has it set")
@@ -339,7 +354,11 @@ def test_page(env, port):
     check("rbp is running and painting" in body or "too soon to tell" in body,
           "the player section states the player's condition in words")
     check("4242" in body, "the player's pid is shown")
-    check("frames drawn" in body, "the frame count is shown")
+    # The label and the number both changed with frame_count(): the count is incremental now, so
+    # the page says so rather than claiming a total nobody computes (and reading 492 MB to compute).
+    check("frames counted since the last poll" in body,
+          "the frame count is shown, labelled as what it is")
+    check("frame rate" in body, "and the rate, which is the number anyone reads")
     check("rblive4-vnc" in body and "inactive" in body, "service states are shown")
     check("pre-warmed rbp files" in body, "the launcher's own stage log is shown")
     check("launching rbp" in body, "the last boot-screen stage is shown")
@@ -517,7 +536,7 @@ def test_data_fragment(env, port):
     check("here.contains(a)" in full and "document.activeElement" in full,
           "and the page's own script will NOT swap a section somebody is using -- a slider "
           "destroyed mid-drag snaps back, which reads as a control that does not work")
-    check("frames drawn" in frag and "running for" in frag,
+    check("frames counted since the last poll" in frag and "running for" in frag,
           "the frame counter and how long rbp has been running")
     check("name=pw" not in frag and "name=csrf" not in frag,
           "and none of the write chrome: re-fetching a half-typed field is exactly what the "
