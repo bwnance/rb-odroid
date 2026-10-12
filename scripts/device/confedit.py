@@ -167,6 +167,10 @@ SCHEMA = [
          help="Tapping the rectangle around `DECK ( 1 )` beside the track title is play/stop for "
               "that deck -- rbp's own K_PLAY, the same gesture the panel's play button and the "
               "side panel's PLAY make."),
+    dict(key="RB_POINT_BPM_SYNC", group="advanced", type=B, restart="player", risk="low",
+         label="BPM box sync tap",
+         help="Tapping a deck's BPM box on the performance screen toggles that deck's SYNC, with "
+              "rbp's own K_SYNC -- the key the panel's SYNC button and the side panel's SYNC send."),
     dict(key="RB_POINT_QUANTIZE_TAP", group="advanced", type=B, restart="player", risk="low",
          label="QUANTIZE tap on the deck",
          help="rbp binds no touch to that widget itself, so the shim sends the keycode."),

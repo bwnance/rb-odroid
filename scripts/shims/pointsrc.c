@@ -31,6 +31,8 @@
                            * pads cycles the mode. The operator's ask of 2026-10-10 */
 #include "deckbadge_zone.h" /* the deck's badge box beside the title: a tap is play/stop.
                              * The operator's ask of 2026-10-10 */
+#include "bpmbox_zone.h"    /* the BPM box on the strip: a tap toggles SYNC. The operator's
+                             * ask of 2026-10-12 */
 #include "syscalls.h"
 #include "envutil.h"
 #include "usb_label.h"   /* what a media device's name may contain -- the same rules
@@ -246,6 +248,13 @@ static int  pm_latched_deck = -1;
  * otherwise rbp is handed an up for a down it never saw. -1 means nothing of ours is down. */
 static int  db_touch = 1;
 static int  db_latched_deck = -1;
+
+/* The BPM box (bpmbox_zone.h), on by default like the two above and with the same kind of switch:
+ * rbp's own drawing, so an operator who wants only the panel left alone sets POINT_BPM_SYNC=0. The
+ * latch is the press this module took -- the tap fires on the RELEASE, and the press behind it was
+ * withheld from rbp, so the release must be withheld with it. */
+static int  bb_touch = 1;
+static int  bb_latched_deck = -1;
 
 /* The buttons' keycodes, in menu_zone.c's column order: the first six are rbp's own
  * browse keycodes, all six now measured (rbp_abi.h carries the derivation and the
@@ -1867,6 +1876,22 @@ static void db_fire(int deck)
     send_rx_key(K_PLAY, OP_RELEASE, deck + 1, 0);
 }
 
+/* A tap on a deck's BPM box: toggle that deck's SYNC.
+ *
+ * THE SAME TWO CALLS THE DRAWER'S SYNC MAKES (pointsrc.c's SZ_ACT_SYNC below), which is the same
+ * key the FLX4's own SYNC button sends: rbp's K_SYNC 0x4112, a press edge and a release edge back to
+ * back on THAT deck's channel. rbp's handler toggles -- there is no on/off to send -- so this asks
+ * nothing about the current state and cannot get it wrong.
+ *
+ * NEVER SILENT, like the pad row: a tap that did nothing because the report never arrived and one
+ * that did nothing because something above ate it are the same pixels. */
+static void bb_fire(int deck)
+{
+    pointsrc_log("pointsrc: deck%d BPM box -> sync toggle, key %#x ch%d", deck + 1, K_SYNC, deck + 1);
+    send_rx_key(K_SYNC, OP_PRESS, deck + 1, 0);
+    send_rx_key(K_SYNC, OP_RELEASE, deck + 1, 0);
+}
+
 static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
 {
     int button = 0;
@@ -2179,6 +2204,33 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
             }
         } else if (deckbadge_hit(x, y, &bdeck)) {
             db_latched_deck = bdeck;
+            return;
+        }
+    }
+
+    /* THE BPM BOX (bpmbox_zone.h): a tap on it toggles that deck's SYNC. Same shape as the two
+     * rungs above, and for the same reason -- it is rbp's own drawing, so every surface drawn over
+     * it has had first refusal by the time this is reached, and the press is taken here so a finger
+     * landing on the box cannot reach rbp as a click before the release decides. */
+    if (verdict == MZ_FEED_NONE && bb_touch &&
+        (bb_latched_deck >= 0 || (rbp_perf_screen() && !menu_window_is_open() &&
+                                  !menu_is_open() && !side_any_open()))) {
+        int sdeck = -1;
+
+        if (!down) {
+            int latched = bb_latched_deck;
+
+            bb_latched_deck = -1;
+            if (latched >= 0) {
+                if (bpmbox_hit(x, y, &sdeck) && sdeck == latched)
+                    bb_fire(latched);
+                else
+                    pointsrc_log("pointsrc: deck%d BPM box -> nothing sent (the release landed "
+                                 "off the box)", latched + 1);
+                return;
+            }
+        } else if (bpmbox_hit(x, y, &sdeck)) {
+            bb_latched_deck = sdeck;
             return;
         }
     }
@@ -2878,6 +2930,8 @@ int pointsrc_start(void)
     pm_touch = env_flag("POINT_PADMODE_TAP", 1);
     /* ...and the deck badge's. */
     db_touch = env_flag("POINT_DECK_PLAY", 1);
+    /* ...and the BPM box's. */
+    bb_touch = env_flag("POINT_BPM_SYNC", 1);
     /* menu_key_eff is built even when the menu is off, so the log states the
      * table it would use rather than staying silent about a knob that was set. */
     menu_keys_init();

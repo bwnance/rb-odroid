@@ -427,9 +427,9 @@ FBSHIM_OBJS := fb_shim.o tscfake.o pointsrc.o point_xform.o touch_zone.o \
                browser_link.o drmband.o side_zone.o side_paint.o util_zone.o \
                wave_zone.o prompt_zone.o prompt_paint.o fx_zone.o fx_paint.o \
                hc_zone.o usb_label.o fxpad_zone.o fxpad_paint.o padmode_zone.o \
-               deckbadge_zone.o deckbadge_paint.o deckbadge_plane.o
+               deckbadge_zone.o deckbadge_paint.o deckbadge_plane.o bpmbox_zone.o
 FBSHIM_HDRS := tscfake.h pointsrc.h point_xform.h touch_zone.h syscalls.h \
-               padmode_zone.h hc_zone.h deckbadge_zone.h deckbadge_paint.h \
+               padmode_zone.h hc_zone.h deckbadge_zone.h bpmbox_zone.h deckbadge_paint.h \
                deckbadge_plane.h \
                envutil.h fb_cursor.h cursor_paint.h fbdev.h menu_zone.h \
                menu_paint.h menu_font.h menu_draw.h drmband.h menu_window.h \
@@ -703,7 +703,7 @@ TESTS := test_point test_audio test_midi test_flx4 test_kbd test_cursor \
          test_evdev test_cursor_dev test_menu test_side test_window test_keyboard \
          test_menu_dev test_util test_wave test_prompt test_fx test_hc test_fxpad \
          test_led_table test_plinn_scan test_controllers test_usblabel test_netalias \
-         test_pitch test_keylog test_padmode test_deckbadge
+         test_pitch test_keylog test_padmode test_deckbadge test_bpmbox
 
 test_point: test_point.c tscfake.c point_xform.c touch_zone.c $(FBSHIM_HDRS)
 	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
@@ -962,6 +962,12 @@ test_deckbadge: test_deckbadge.c deckbadge_zone.c deckbadge_zone.h \
 	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
 	    -Wall -Wextra -static -o $@ test_deckbadge.c deckbadge_zone.c \
 	    deckbadge_paint.c
+
+# test_bpmbox links the PRODUCTION bpmbox_zone.c for the same reason the two above link theirs: pure
+# geometry in, a deck out, so both measured rectangles are pinned on a host rather than by a thumb.
+test_bpmbox: test_bpmbox.c bpmbox_zone.c bpmbox_zone.h
+	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
+	    -Wall -Wextra -static -o $@ test_bpmbox.c bpmbox_zone.c
 
 # test_fxpad links the PRODUCTION fxpad_zone.c AND fxpad_paint.c -- test_fx.c and
 # test_side.c carry their feature's painter for the same reason: the HUD's two marks are
