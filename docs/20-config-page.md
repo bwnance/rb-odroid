@@ -95,6 +95,13 @@ and a rotated log starts over rather than going negative. `/etc/logrotate.d/rbli
 `install.sh` from `scripts/device/logrotate-rblive4.conf`) then bounds the files themselves; the
 header there says why `copytruncate` is not optional and why nothing in it may silence that line.
 
+**The live switches are read from inside the chroot, and that cost a day.** They live in
+`/run/rblive4`, which the config page writes from outside rbp's chroot while the shims read it from
+inside — and `fix-dev.sh` bound `/dev`, `/proc`, `/sys` and `/tmp` into the chroot but not `/run`. So
+`mixer.mode` said `external` for two days while `audioshim` reported the file "not present" and never
+changed route, with the page reporting success the whole time. `fix-dev.sh` binds `/run/rblive4` now;
+`/proc/<rbp pid>/root/<path>` is the one command that shows what a chrooted process actually sees.
+
 **A save changes one line and restarts nothing.** `confedit` validates the value by type, refuses
 anything with a shell metacharacter in it, locks the file, checks the result with `sh -n`, keeps a
 one-generation `.prev`, and copies every other byte of the operator's file through untouched — verified
