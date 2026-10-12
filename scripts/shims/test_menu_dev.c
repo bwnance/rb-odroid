@@ -614,16 +614,6 @@ void __wrap_deckbadge_plane_sync(const int *playing, int on_screen)
     ring_calls++;
 }
 
-/* The playing-deck bar is drawn into rbp's OWN page, which this suite has no page for: it is
- * wrapped and counted like the ring above, for the same reason -- what the suite is checking is
- * that menu_draw's tick still runs and still reaches these surfaces, not what they paint. */
-int mark_calls;
-
-void __wrap_deckmark_tick(void)
-{
-    mark_calls++;
-}
-
 void __wrap_side_paint(const struct menu_view *v, int side, int pressed_hit,
                        int fader_v, int sync, int cue, int play)
 {

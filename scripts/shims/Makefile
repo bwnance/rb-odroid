@@ -427,11 +427,9 @@ FBSHIM_OBJS := fb_shim.o tscfake.o pointsrc.o point_xform.o touch_zone.o \
                browser_link.o drmband.o side_zone.o side_paint.o util_zone.o \
                wave_zone.o prompt_zone.o prompt_paint.o fx_zone.o fx_paint.o \
                hc_zone.o usb_label.o fxpad_zone.o fxpad_paint.o padmode_zone.o \
-               deckbadge_zone.o deckbadge_paint.o deckbadge_plane.o bpmbox_zone.o \
-               deckmark.o deckmark_zone.o deckmark_paint.o
+               deckbadge_zone.o deckbadge_paint.o deckbadge_plane.o bpmbox_zone.o
 FBSHIM_HDRS := tscfake.h pointsrc.h point_xform.h touch_zone.h syscalls.h \
                padmode_zone.h hc_zone.h deckbadge_zone.h bpmbox_zone.h deckbadge_paint.h \
-               deckmark.h deckmark_zone.h deckmark_paint.h \
                deckbadge_plane.h \
                envutil.h fb_cursor.h cursor_paint.h fbdev.h menu_zone.h \
                menu_paint.h menu_font.h menu_draw.h drmband.h menu_window.h \
@@ -705,7 +703,7 @@ TESTS := test_point test_audio test_midi test_flx4 test_kbd test_cursor \
          test_evdev test_cursor_dev test_menu test_side test_window test_keyboard \
          test_menu_dev test_util test_wave test_prompt test_fx test_hc test_fxpad \
          test_led_table test_plinn_scan test_controllers test_usblabel test_netalias \
-         test_pitch test_keylog test_padmode test_deckbadge test_bpmbox test_deckmark
+         test_pitch test_keylog test_padmode test_deckbadge test_bpmbox
 
 test_point: test_point.c tscfake.c point_xform.c touch_zone.c $(FBSHIM_HDRS)
 	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
@@ -971,14 +969,6 @@ test_bpmbox: test_bpmbox.c bpmbox_zone.c bpmbox_zone.h
 	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
 	    -Wall -Wextra -static -o $@ test_bpmbox.c bpmbox_zone.c
 
-# test_deckmark links the PRODUCTION deckmark_zone.c AND deckmark_paint.c: the bar's rectangle is
-# geometry and its painting is arithmetic over a page, and BOTH are things that go wrong silently --
-# a bar one row too tall damages rbp's own pixels rather than failing loudly. deckmark.c itself is
-# not linked: it is the wiring (the mapping, the env, rbp's transport bits) and has no place on a
-# host without a page or a player.
-test_deckmark: test_deckmark.c deckmark_zone.c deckmark_paint.c deckmark_zone.h deckmark_paint.h
-	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
-	    -Wall -Wextra -static -o $@ test_deckmark.c deckmark_zone.c deckmark_paint.c
 
 # test_fxpad links the PRODUCTION fxpad_zone.c AND fxpad_paint.c -- test_fx.c and
 # test_side.c carry their feature's painter for the same reason: the HUD's two marks are
@@ -1202,7 +1192,6 @@ test_menu_dev: $(MENU_TEST_OBJS)
 	    -Wl,--wrap=drm_band_hide -Wl,--wrap=drm_band_teardown \
 	    -Wl,--wrap=side_paint -Wl,--wrap=prompt_paint \
 	    -Wl,--wrap=rbp_perf_screen -Wl,--wrap=deckbadge_plane_sync \
-	    -Wl,--wrap=deckmark_tick \
 	    -lpthread -lm -lc
 
 test_menu_dev.o: test_menu_dev.c menu_draw.h menu_paint.h menu_zone.h \

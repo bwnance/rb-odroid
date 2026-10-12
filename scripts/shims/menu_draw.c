@@ -122,7 +122,6 @@
 #include "side_zone.h"         /* the edge drawers: which is out, and its geometry */
 #include "side_paint.h"        /* ...and the image it is drawn with */
 #include "deckbadge_plane.h"  /* the play ring on the deck badge, on its own plane */
-#include "deckmark.h"        /* the playing bar, on the page, repaired from here */
 #include "rbp_transport.h"   /* ...and the deck state its SYNC/CUE/PLAY report. NOT rbp_led.h:
                               * that is compiled into knobshim.so, which is loaded AFTER
                               * fbshim.so, so this file must not name its symbols at all. */
@@ -2840,14 +2839,6 @@ static void *menu_thread(void *arg)
          * on the lock the tick is holding. A shut picker returns immediately. */
         menu_fxlist_build();
         menu_frame_tick();
-        /* AND THE PLAYING-DECK BAR IS REPAIRED FROM HERE, at this loop's rate. It is drawn into
-         * rbp's OWN page, and rbp's repaint sweeps over its rows partway through every frame -- so
-         * one write per frame flickers, which is what the operator saw first. The cure is the one
-         * this file already uses for the band: a witness that asks whether the pixels are still
-         * there (deckmark.c's dm_intact, three reads) and re-fills only when they are not. At this
-         * loop's default 0.1 ms that is the 99.11%-duty rung rather than the 53.83% one, and it
-         * costs three memory reads per tick when nothing has moved. */
-        deckmark_tick();
         usleep((useconds_t)period_us);
     }
     return NULL;
