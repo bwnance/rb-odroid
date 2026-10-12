@@ -386,9 +386,22 @@ def port_open(port, host="127.0.0.1", timeout=0.4):
         return False
 
 
+def switch_path(name):
+    """The file a live switch is written to AND read from. ONE function, because it is one fact.
+
+    It was two, and they disagreed: set_switch() resolved the name through SWITCH_FILES while
+    switch_state() simply prefixed "vnc." -- so the page WROTE /run/rblive4/mixer.mode (which is
+    where the player reads it, and it worked) and READ /run/rblive4/vnc.mixer_mode (which nothing
+    has ever created). The row then showed the boot default as the state in force while the shim ran
+    the other one, and the operator asked, rightly, "config sys internal is that right?". The `vnc.`
+    prefix is the VIEWER's -- the names are the switch file's, as LIVE_SWITCHES says -- and the
+    player's switches are named for the player."""
+    return os.path.join(RUN_DIR, SWITCH_FILES.get(name, "vnc." + name))
+
+
 def switch_state(name):
     """One of the live `/run/rblive4/vnc.*` switch files, as the viewer reads them."""
-    return _text(os.path.join(RUN_DIR, "vnc." + name)).strip() or "(absent)"
+    return _text(switch_path(name)).strip() or "(absent)"
 
 
 def decode_throttled(raw):
@@ -531,7 +544,7 @@ def set_switch(name, value):
     """One of the live /run/rblive4/vnc.* files the viewer re-reads every turn. Written the
     way vnc_live.c writes it -- a word and a newline -- and created when it is not there
     yet, which it will not be on a unit whose viewer has never run."""
-    path = os.path.join(RUN_DIR, SWITCH_FILES.get(name, "vnc." + name))
+    path = switch_path(name)
     try:
         os.makedirs(RUN_DIR, exist_ok=True)
         with open(path, "w") as f:
@@ -592,6 +605,16 @@ LIVE_SWITCHES = {
 # not the viewer's), and the conf names the path it reads (RB_MIXER_MODE_FILE), so the name here
 # has to be that path's basename or the page would write a switch nothing is looking at.
 SWITCH_FILES = {"mixer_mode": "mixer.mode"}
+
+# EVERY name the page READS as a live switch, in one place. LIVE_SWITCHES defines the ones whose
+# value has to be validated on the way in, and the three on/off pairs are not in it because they have
+# endpoints of their own (/share, /mode, /input) -- but all of them are read from the same files, so
+# the list that gets FETCHED is both. It used to be written out by hand at the fetch, six names, and
+# the mixer's was added to the table and not to the list: the row then had no state at all and fell
+# through to its boot default, showing `internal` while the player was running `external` -- the
+# operator's "config sys internal is that right?". Deriving it means a switch cannot exist without
+# being fetched.
+SWITCH_NAMES = tuple(LIVE_SWITCHES) + ("live", "mode", "input")
 
 
 def preview_on():
@@ -1823,8 +1846,7 @@ class Handler(BaseHTTPRequestHandler):
                 # a name missing here reads as None, which is not "(absent)", so the row fell
                 # through to its default and rendered with NO state at all -- an empty slider
                 # and no button pressed, while the control still worked.
-                {n: switch_state(n) for n in ("live", "mode", "input", "fps", "jpeg_dev",
-                                              "jpeg_quality")},
+                {n: switch_state(n) for n in SWITCH_NAMES},
                 player_depth(), self.headers.get("Host", ""))
 
     def _auth(self, conf, consume_flash=False):

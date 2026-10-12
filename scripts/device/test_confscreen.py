@@ -329,6 +329,25 @@ def test_pure(m):
         with open(m.RBP_LOG, "w") as f:            # rotated away under us
             f.write(m.DSHW + " after a rotate\n")
         check(m.frame_count() == 0, "a truncated log starts over rather than going negative")
+
+        # ONE PATH FOR WRITING AND READING, and every switch the row needs is FETCHED. Both halves
+        # were bugs on 2026-10-12 and both were silent: the page WROTE /run/rblive4/mixer.mode (where
+        # the player reads it) and READ /run/rblive4/vnc.mixer_mode (which nothing creates), so the
+        # row showed its boot default while the player ran the other value -- "config sys internal is
+        # that right?". The fetched list was hand-written beside the table and the new switch was in
+        # one and not the other.
+        run = os.path.join(root, "run")
+        os.makedirs(run, exist_ok=True)
+        m.RUN_DIR = run
+        check(m.switch_path("mixer_mode").endswith("/mixer.mode"),
+              "the player's switch resolves to a file named for the player, not the viewer")
+        ok, _ = m.set_switch("mixer_mode", "external")
+        check(ok and m.switch_state("mixer_mode") == "external",
+              "and writing it is what reading it finds -- one path, not two")
+        check("mixer_mode" in m.SWITCH_NAMES and "fps" in m.SWITCH_NAMES,
+              "every live switch the page shows is in the list it fetches")
+        check(m.SWITCH_NAMES != ("live", "mode", "input", "fps", "jpeg_dev", "jpeg_quality"),
+              "and that list is not a hand-written copy of the table")
         check("RB_VNC_WEB" in m.conf_keys(),
               "and conf_keys() covers the schema, so a key it added cannot render as "
               "(empty) while the unit has it set")
