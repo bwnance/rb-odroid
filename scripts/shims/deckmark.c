@@ -83,7 +83,13 @@ static void dm_read_env(void)
     const char *v = env_str("DECKMARK_BAR", "");
     const char *c = env_str("DECKMARK_RGB", "");
 
-    mark_on = env_flag("DECKMARK", 1);
+    /* OFF BY DEFAULT (2026-10-12). The bar was built as the operator's own testing aid -- "only so
+     * i can see it for testing" -- and it has done that job: it proved an overlay plane reaches the
+     * panel, and it is what made a 0.3% duty gap visible at all. It is not a shipped marker and it
+     * is not wanted on the screen while anything else is being tested, so it is off unless asked
+     * for. NOTE: DECKMARK is not in start-rb.sh's SHIM_VARS, so `RB_DECKMARK=1` in rb.local.conf is
+     * SILENTLY IGNORED -- the variable has to be exported directly for the shim to see it. */
+    mark_on = env_flag("DECKMARK", 0);
     if (v && *v) {
         int a = 0, b = 0;
 
