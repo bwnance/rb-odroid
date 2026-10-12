@@ -21,11 +21,11 @@
  * is not marked.
  *
  * See fx_paint.h for the contract. The ~10 duplicated lines below (the pixel accessor,
- * the fill, the frame, the glyph walk and the blend) are duplicated in prompt_paint.c,
- * side_paint.c and menu_window_paint.c for the reason menu_paint.h records: exporting
+ * the fill, the frame, the glyph walk and the blend) are duplicated in prompt_paint.c
+ * and side_paint.c for the reason menu_paint.h records: exporting
  * them would mean an accessor that has to know three module-internal notions to save
  * ten lines. What is NOT duplicated is the palette -- menu_pixel() is public, so this
- * box, the band, the drawers, the window and the USB chooser are the same colours by
+ * box, the band, the drawers and the USB chooser are the same colours by
  * construction.
  *
  * EVERY PIXEL IS WRITTEN ON EVERY CALL. The box's plane is single-buffered, so the
@@ -66,7 +66,7 @@ static void fp_fill(const struct menu_view *v, int x0, int y0, int x1, int y1,
 /* There is no fp_frame() here, and its absence is the point: this box outlines nothing.
  * fp_row()'s comment records the measurement -- rbp's effect-name cell has no edge of
  * its own, so a framed row would be the one mark on the box the panel underneath it is
- * without. prompt_paint.c, side_paint.c and menu_window_paint.c all keep theirs. */
+ * without. prompt_paint.c and side_paint.c both keep theirs. */
 
 /* --- logical (box-local) to framebuffer ------------------------------------
  *

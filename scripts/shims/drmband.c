@@ -61,9 +61,9 @@
  * ONE DEVICE, ONE MASTER, MANY PLANES -- and this holder is the whole of it.
  *
  * DRM master is per OPEN FILE, not per process, so the second drm_band_setup() in
- * a process used to be refused EBUSY: it opened the card again, got a second
+ * a process was refused EBUSY: it opened the card again, got a second
  * file description, and could not take master from the first. That is why the
- * band, the browser window and the drawer were written as MUTUALLY EXCLUSIVE
+ * band and the (since removed) browser window were written as MUTUALLY EXCLUSIVE
  * HOLDERS OF ONE PLANE, handing a single slot back and forth (menu_draw.c).
  *
  * The operator then asked for both edge drawers at once -- "allow for both side

@@ -8,8 +8,8 @@
 # cannot produce this binary at all -- and `make all` would still exit 0, which is
 # why install.sh compiles it here and aborts loudly if that fails.
 #
-# tools/rbrowser/Makefile is the precedent (it builds jpeg565.c the same way, for
-# the same reason, and its comment says so). The pure modules are portable C, so
+# This is the same route the shims' own host-side helpers take, and for the same
+# reason. The pure modules are portable C, so
 # `make test` also runs on the Mac -- see README.md for that deliberate difference
 # from scripts/shims/, whose tests are soft-float armel under qemu.
 #

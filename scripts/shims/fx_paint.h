@@ -2,7 +2,7 @@
  * fx_paint.h -- the effect picker's image: rbp's own BEAT FX plate, redrawn over itself,
  * holding fourteen of his cells.
  *
- * The fifth drawing module after menu_paint.c, menu_window_paint.c, side_paint.c and
+ * The fourth drawing module after menu_paint.c, side_paint.c and
  * prompt_paint.c, and written to the same rule: pure, a function of its arguments and
  * of nothing else, in the same palette (menu_pixel(), which is public for exactly this
  * reason -- and which carries the two of rbp's own colours this one borrows). "Painting

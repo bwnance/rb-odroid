@@ -23,10 +23,10 @@
  *
  * See prompt_paint.h for the contract and side_paint.c for the family this belongs
  * to. The ~10 duplicated lines below (the pixel accessor, the fill, the frame, the
- * glyph walk and the blend) are duplicated there and in menu_window_paint.c for the
+ * glyph walk and the blend) are duplicated there and in side_paint.c for the
  * reason menu_paint.h records: exporting them would mean an accessor that has to
  * know three module-internal notions to save ten lines. What is NOT duplicated is the
- * palette -- menu_pixel() is public, so this box, the band, the drawers and the window
+ * palette -- menu_pixel() is public, so this box, the band and the drawers
  * are the same colours by construction. The two OFF classes the box needs are in it
  * for the same reason (menu_paint.h).
  *

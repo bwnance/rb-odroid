@@ -114,10 +114,6 @@
 #define _GNU_SOURCE
 #include "menu_draw.h"
 #include "menu_paint.h"
-#include "menu_window.h"
-#include "menu_window_paint.h"
-#include "menu_keyboard.h"
-#include "browser_link.h"
 #include "menu_zone.h"
 #include "side_zone.h"         /* the edge drawers: which is out, and its geometry */
 #include "side_paint.h"        /* ...and the image it is drawn with */
@@ -221,27 +217,6 @@ struct menu_map {
     int  band_off;               /* MENU_PLANE=0: the fb0 route, deliberately */
     int  band_bx, band_by;       /* where the band's rect goes on the CRTC */
 
-    /* THE BROWSER WINDOW'S PLANE -- the SAME SLOT as the band's, and only ever one
-     * of the two at a time (see the block above menu_band_setup_from_page()). While
-     * `win_ok` is set the band's plane does not exist at all and `band_ok` is 0, so
-     * the two cannot both be believed.
-     *
-     * `win_h` is the height the plane was set up at, which is what makes a minimize
-     * visible here: the state asks for MW_TITLE_H rows and the plane has to be
-     * rebuilt rather than resized. And `win_painted_*` are the state and the pressed
-     * cell the chrome currently in the buffer was drawn for -- the same
-     * paint-when-it-changed rule the panel image uses, at one int each. */
-    struct drm_band win;
-    int  win_ok;                 /* the window's plane is set up and mapped */
-    int  win_on;                 /* ...and it is on the glass right now */
-    int  win_h;                  /* the height it was set up at (600 or 32) */
-    int  win_fail;                /* this machine refused a window-sized plane */
-    int  win_painted_state;      /* the state the chrome in the buffer is for */
-    int  win_painted_hit;        /* ...and the cell it is highlighted for */
-    int  win_painted_key;        /* ...and the cap of the keyboard it is for */
-    unsigned win_painted_seq;    /* ...and the url field's text generation */
-    int  win_painted_kb;         /* ...and whether the keyboard was up */
-
     /* THE EDGE DRAWERS' PLANES -- ONE PER EDGE, and that is the change the operator
      * asked for: *"allow for both side panels to be visable at the same time and to
      * accept input"*.
@@ -258,8 +233,9 @@ struct menu_map {
      * `side_prev` is "was any drawer out at the last sync", which is what tells
      * "nothing to undo" from "the drawers just closed, give the band its plane back".
      *
-     * `side_fail[which]` is the window's `win_fail` for the same reason and with the
-     * same lifetime (cleared when that drawer closes, so a later open tries again); on
+     * `side_fail[which]` is the drawers' own per-edge `..._fail` flag, the same shape the
+     * other planes here use: set once when the setup is refused and with the same
+     * lifetime (cleared when that drawer closes, so a later open tries again); on
      * that route the drawer falls back to the page and keeps working, at the band's
      * fallback cost -- and per drawer, so one edge losing its plane does not cost the
      * other edge its own.
@@ -268,7 +244,7 @@ struct menu_map {
      * readable yet"), the pressed control and the fader value it holds. They are what
      * makes the BUILD happen on a CHANGE and not every tick -- the destinations are
      * single-buffered, so a gate fed anything that alternates by itself would tear or
-     * blink (menu_window_repaint()'s rule, and the reason these are real values and not
+     * blink (the paint-when-it-changed rule, and the reason these are real values and not
      * a counter). They are written under the lock, by the builder that publishes and by
      * the close that invalidates.
      *
@@ -320,8 +296,8 @@ struct menu_map {
      * band is shut, and the funnel's first refusal (pointsrc.c) keeps a drawer or the
      * window from being opened under it.
      *
-     * `prompt_fail` is the window's `win_fail` for the same reason and with the same
-     * lifetime (cleared when the box closes, so a later open tries again); on that
+     * `prompt_fail` is the same one-shot refusal flag the other planes carry, and with
+     * the same lifetime (cleared when the box closes, so a later open tries again); on that
      * route the box goes onto the page and keeps working, at the band's fallback cost.
      *
      * `prompt_painted_cell`, `prompt_painted_flash` and `prompt_painted_live` are the
@@ -329,7 +305,7 @@ struct menu_map {
      * hold is blinking on its lit half, and rbp's two device-liveness bits packed one
      * per bit. Three real values and not a counter: the plane is single-buffered, so a
      * gate fed anything that alternates by itself would repaint every tick and blink
-     * (menu_window_repaint()'s rule). The liveness belongs in the gate because a device
+     * (the paint-when-it-changed rule). The liveness belongs in the gate because a device
      * appearing or going away is a change to the picture and nothing else would notice
      * it. AND THE FLASH BELONGS IN IT for the newest reason of the three: a running
      * hold lights its button for half of every PR_HOLD_FLASH_MS, and with the phase out
@@ -384,7 +360,7 @@ struct menu_map {
      *
      * `fxlist_painted_row` is the one piece of state the published image holds -- the row
      * under the finger, 0 for none. It is a real value and not a counter for the reason
-     * menu_window_repaint() gives: the plane is single-buffered, so a gate fed anything
+     * the other gates here give: the plane is single-buffered, so a gate fed anything
      * that alternates by itself would repaint every tick and blink. There is nothing else
      * in it: fx_zone.h records why no row is marked as the current effect. */
     struct drm_band fxlist;
@@ -484,53 +460,6 @@ static pthread_mutex_t g_lock;
  * trylock, not lock. The vsync caller is rbp's render thread at SCHED_FIFO 98;
  * making it wait behind a normal-priority painter would be a priority inversion
  * for no gain, and the pass it would be waiting for is the one it wanted. */
-/* ---------------- THE BROWSER WINDOW'S PLANE -------------------------------
- *
- * The window is NOT a second plane, and this block is where that is implemented
- * rather than wished away. Measured on the unit 2026-10-04: DRM master is one per
- * open FILE, so the band's `drm_band_setup()` is granted it and a second setup in
- * the same process -- which opened the card again -- was refused EBUSY (a separate
- * process is refused EACCES, 5/5, because rbp's DirectFB holds the display).
- *
- * THE DRAWERS ARE NO LONGER BOUND BY THAT, and this block is kept for the history
- * and for the window. drmband.c now holds the fd and master ONCE and refcounts
- * them, so a second and third band are a buffer and a plane each -- which is what
- * lets both edge drawers own a plane at the same time (the operator's "allow for
- * both side panels to be visable at the same time"). The WINDOW has not been moved
- * over to that: it is abandoned work (menu_window.h) and rewriting a dead path to
- * share a device would be churn, so it still hands the slot over with the band and
- * still cannot coexist with a drawer.
- *
- * So the band and the window are MUTUALLY EXCLUSIVE HOLDERS OF A SINGLE PLANE, and
- * menu_window_plane_sync() hands the slot over: opening the window tears the band's
- * plane down and sets the window's up at the window's own size; closing it tears
- * the window's down and sets the band's back up. `drm_band_teardown()` drops
- * master as it goes, so the next setup retakes it -- which is what makes the
- * handover a teardown-and-setup and not a resize.
- *
- * The two routes, told apart in the log by which ids appear:
- *   window closed -> the band, as it always was:
- *                    `menu plane: crtc 102 plane 127 fb N 1280x56 16 bpp pitch ...`
- *   window open   -> the window, at 1120x600 -- or the title bar's 32 rows when it
- *                    is minimized, which is a genuinely smaller plane rather than
- *                    a tall one with its bottom half ignored.
- * Both carry the page's own bpp and RGB565, so the palette, the chrome and every
- * pixel rule in menu_window_paint.c are the same code on either buffer.
- *
- * WHAT OPENS THE WINDOW, NOW THAT THE MENU DOES NOT. The browser is abandoned and the
- * panel's globe cell went with it (menu_zone.h's block), so `MENU_WINDOW=1` below is no
- * longer a debug route but the ONLY route in: it opens the window at startup, with the
- * panel shut and no gesture in front of it. It is kept because the module still ships
- * and still works, and because it is how the chrome was pressed on the glass when the
- * X and the minimize were settled (that is the same reason, one tense later).
- *
- * THE MENU IS DEGRADED WHILE THE WINDOW IS OPEN, and that is stated rather than
- * hidden: the band has no plane, so a swipe-down draws the panel on the page and it
- * flickers exactly as it did before the plane existed. The alternative -- letting
- * the window refuse to coexist with the panel -- would mean the menu's own gesture
- * silently did nothing. It is visible, it is correct, and it ends when the window
- * does. */
-static void menu_window_view(struct menu_view *wv);
 static int  menu_band_setup_from_page(void);
 static int  menu_panel_ph(void);      /* defined below; the band's own height */
 static long menu_now_us(void);        /* ...and this: the drawers time themselves */
@@ -562,296 +491,25 @@ static int menu_band_setup_from_page(void)
     return 0;
 }
 
-/* A view over the window's plane buffer, WINDOW-LOCAL: origin 0,0 and dw/dh the
- * plane's own size. Deliberately not `g.view` -- while the window is up that still
- * describes the page for the close path, and nothing about the window should be
- * able to corrupt it. */
-static void menu_window_view(struct menu_view *wv)
-{
-    memset(wv, 0, sizeof *wv);
-    wv->pix   = g.win.pix;
-    wv->pitch = g.win.pitch;
-    wv->fb_w  = g.win.w;
-    wv->fb_h  = g.win.h;
-    wv->bpp   = g.win.bpp;
-    wv->dw    = g.win.w;
-    wv->dh    = g.win.h;
-}
-
-/* The window's chrome, the url text and the keyboard, over whatever the page area
- * already holds. Called on a change and NOT every tick: all of it is a pure function
- * of the state, the pressed cell, the pressed cap and the field's text, so a repaint
- * that would write the same pixels is skipped by comparing those. */
-static void menu_window_repaint(void)
-{
-    struct menu_view wv;
-    int st  = menu_window_state();
-    int hit = menu_window_pressed();
-    int key = menu_window_key_pressed();
-    unsigned seq = menu_window_field_seq();
-
-    if (g.win_painted_state == st && g.win_painted_hit == hit &&
-        g.win_painted_key == key && g.win_painted_seq == seq)
-        return;
-    menu_window_view(&wv);
-    if (menu_view_ok(&wv))
-        menu_window_paint_chrome(&wv, hit, key);
-    g.win_painted_state = st;
-    g.win_painted_hit   = hit;
-    g.win_painted_key   = key;
-    g.win_painted_seq   = seq;
-}
-
-/* The page area, black. Loaded over when there is a frame file, so "no frame" reads
- * as a black page and not as whatever the dumb buffer was created with -- a fresh
- * dumb buffer is not reliably zeroed, and a plane of uninitialised memory on the
- * glass is the one failure this cannot leave to chance. */
-static void menu_window_page_clear(void)
-{
-    int bpp = g.win.bpp / 8, y;
-
-    if (g.win.pix == NULL || bpp <= 0)
-        return;
-    for (y = MW_CONTENT_Y; y < g.win.h; y++)
-        memset((unsigned char *)g.win.pix + (size_t)y * g.win.pitch * bpp, 0,
-               (size_t)g.win.w * bpp);
-}
-
-/* THE LIVE HALF -- the page, the page's status and the operator's taps, all through
- * browser_link.c, which is the only module that touches a file. Runs under g_lock on
- * the paint thread, which is what makes it the request ring's one consumer.
- *
- * THE ORDER IS LOAD-THEN-PAINT, and it is load-bearing exactly once: when the
- * keyboard goes down the rows it was covering have to be filled from a frame before
- * the chrome is drawn over them, or the panel below the page keeps a keyboard's
- * pixels until the next page change. That is why a keyboard transition forces the
- * frame cache to be re-read (bl_reset) -- the page has not changed, but the part of
- * it this window shows has. */
-static void menu_window_live(void)
-{
-    struct mw_req rq;
-    char url[MW_URL_MAX];
-    int focus = 0, kb, x, y, w, h, rows;
-    unsigned char *page;
-
-    if (!g.win_ok || g.win.pix == NULL)
-        return;
-    if (!menu_window_rect(&x, &y, &w, &h) || h <= MW_CONTENT_Y)
-        return;                     /* minimized: a title bar has no page */
-    if (g.win.bpp != 16 && g.win.bpp != 32)
-        return;
-
-    /* What the page is doing. The URL is what the field shows when the operator is
-     * not editing it, and the focus generation is what raises the keyboard for the
-     * page's own text inputs -- the operator's "every time there's an input item". */
-    /* THE TWO ARE MUTUALLY EXCLUSIVE, and that is not tidiness. A dead driver leaves
-     * a status file that is STALE BUT READABLE, so both of these fire; and because
-     * the two strings differ, menu_window_set_url()'s change gate sees a change on
-     * every tick, bumps the field's sequence, and the whole chrome is repainted at
-     * tick rate into a single-buffered plane. That is the flashing title bar. */
-    if (!bl_online()) {
-        menu_window_set_url("no browser on the host -- start rbrowser.py");
-    } else if (bl_status_read(url, (int)sizeof url, &focus)) {
-        menu_window_set_url(url);
-        menu_window_page_input(focus);
-    }
-
-    kb = menu_keyboard_is_up();
-    if (kb != g.win_painted_kb) {
-        /* The keyboard covers the bottom of the page and the page does not know it:
-         * re-read the whole frame, because nothing in the file changed and the part
-         * of it that is wanted has. */
-        bl_reset();
-        g.win_painted_kb = kb;
-    }
-    rows = kb ? (MW_KB_Y0 - MW_CONTENT_Y) : MW_CONTENT_H;
-    page = (unsigned char *)g.win.pix +
-           (size_t)MW_CONTENT_Y * g.win.pitch * (g.win.bpp / 8);
-    (void)bl_frame_load(page, g.win.pitch, g.win.w, rows, g.win.bpp);
-
-    menu_window_repaint();
-
-    /* THE OPERATOR'S TAPS, on their way out. One command per line, and the line IS
-     * the protocol -- browser_link.h says why it is text. */
-    while (menu_window_take_req(&rq)) {
-        char line[MW_REQ_TEXT_MAX + 32];
-
-        switch (rq.kind) {
-        case MW_REQ_NAV:
-            snprintf(line, sizeof line, "nav %s", rq.text);
-            break;
-        case MW_REQ_TEXT:
-            snprintf(line, sizeof line, "text %s", rq.text);
-            break;
-        case MW_REQ_KEY:
-            snprintf(line, sizeof line, "key %s", rq.text);
-            break;
-        case MW_REQ_POINT:
-            snprintf(line, sizeof line, "click %d %d", rq.x, rq.y);
-            break;
-        case MW_REQ_HIST:
-            snprintf(line, sizeof line, "hist %d", rq.x);
-            break;
-        case MW_REQ_SCROLL:
-            /* A delta, so both numbers are signed -- and the driver does not negate
-             * them: a finger dragging DOWN moves the page's content down, which is
-             * what a wheel reports as a negative delta, and the browser's own
-             * convention is applied there rather than guessed at here. */
-            snprintf(line, sizeof line, "scroll %d %d", rq.x, rq.y);
-            break;
-        default:
-            continue;
-        }
-        if (!bl_cmd(line))
-            pointsrc_log("window: could not write '%s' -- is the browser running?",
-                         line);
-    }
-}
-
-/* The window's plane, up at the size the window's CURRENT state asks for.
- *
- * Returns 0 when the plane is up and painted -- whether it was just set up or was
- * already right -- and -1 when this machine will not give one up. Minimizing
- * changes the requested height, so it is a teardown-and-setup here rather than a
- * resize: there is no resize in this API, and a 32-row bar does not want a 600-row
- * buffer scanned out behind it. */
-static int menu_window_plane_up(void)
-{
-    int x, y, w, h;
-
-    if (!menu_window_rect(&x, &y, &w, &h))
-        return -1;
-    if (g.win_ok && g.win_h == h)
-        return 0;
-    if (g.win_ok) {
-        drm_band_teardown(&g.win);
-        g.win_ok = g.win_on = 0;
-    }
-    drm_band_want_rank(DRM_RANK_WINDOW);
-    if (drm_band_setup(&g.win, w, h, g.view.bpp) != 0) {
-        pointsrc_log("window: no plane for a %dx%d window -- it cannot be drawn on"
-                     " this unit", w, h);
-        return -1;
-    }
-    g.win_ok = 1;
-    g.win_h  = h;
-    /* The load-bearing line, as it was for the Step-1 gate: the ids say whether the
-     * kernel took a window this size. */
-    pointsrc_log("window: plane %u fb %u %dx%d %d bpp pitch %d px (%zu bytes) at %p",
-                 g.win.plane, g.win.fb, g.win.w, g.win.h, g.win.bpp, g.win.pitch,
-                 g.win.map_len, g.win.pix);
-
-    menu_window_page_clear();
-    /* The page in the fresh dump buffer is not the page in the browser, and the
-     * frame cache cannot know that -- a NEW buffer has to be filled from the frame
-     * even though the frame's sequence has not changed. */
-    bl_reset();
-    /* The chrome is drawn BEFORE the show, so what goes on the glass the first time
-     * is the finished window and not the page with no border round it. -1 is not a
-     * state, so this repaints whatever the last window left in these two. */
-    g.win_painted_state = -1;
-    g.win_painted_hit   = MW_HIT_NONE;
-    g.win_painted_key   = -1;
-    g.win_painted_seq   = 0;
-    menu_window_repaint();
-
-    if (drm_band_show(&g.win, x, y) == 0) {
-        g.win_on = 1;
-        pointsrc_log("window: on the glass at (%d,%d) %dx%d", x, y, w, h);
-    } else {
-        pointsrc_log("window: SETPLANE failed: %s -- the plane exists but will not"
-                     " go up", strerror(errno));
-    }
-    return 0;
-}
-
-/* Bring the plane into line with the window's state. Called under g_lock from the
- * tick, so the PAINT thread owns the handover and pointsrc only ever writes the
- * state -- one thread mutates the plane, and it is the one that already owns it. */
-static void menu_window_plane_sync(void)
-{
-    if (menu_window_state() == MW_CLOSED) {
-        g.win_fail = 0;
-        if (!g.win_ok)
-            return;
-        drm_band_teardown(&g.win);
-        g.win_ok = g.win_on = g.win_h = 0;
-        g.win_painted_state = MW_CLOSED;
-        g.win_painted_hit   = MW_HIT_NONE;
-        g.win_painted_key   = -1;
-        g.win_painted_kb    = 0;
-        /* The frame cache goes with it: the next open gets a fresh plane full of a
-         * fresh frame, and a cached sequence would tell it there was nothing new. */
-        bl_reset();
-        /* Back to the page FIRST, and this is not tidiness: the band's buffer is
-         * gone while the window holds the slot, so a view still pointing at it
-         * would be a dangling mapping the next paint would write through. */
-        g.view.pix   = g.fb_pix;
-        g.view.pitch = g.fb_pitch;
-        g.view.bx    = g.fb_bx;
-        g.view.by    = g.fb_by;
-        pointsrc_log("window: closed -- the plane goes back to the band");
-        /* The band's buffer is a FRESH dumb buffer, so the image in `front` is not
-         * in it: the tick's own witness sees that on the next pass and re-blits,
-         * which is why nothing is blitted here. */
-        if (menu_band_setup_from_page() != 0)
-            pointsrc_log("menu: the plane did not come back to the band -- it stays"
-                         " on the page");
-        return;
-    }
-
-    /* THE HANDOVER, IN THIS ORDER. The window's plane and the band's are the same
-     * slot on this hardware, so the band has to be GONE before the window asks --
-     * otherwise the window's SET_MASTER is refused EBUSY, which is exactly how the
-     * one-master-per-device rule shows itself (the block above). */
-    if (g.band_ok) {
-        drm_band_teardown(&g.band);
-        g.band_ok = g.band_on = 0;
-        g.view.pix   = g.fb_pix;
-        g.view.pitch = g.fb_pitch;
-        g.view.bx    = g.fb_bx;
-        g.view.by    = g.fb_by;
-        pointsrc_log("window: open -- the plane is handed over from the band");
-    }
-    /* Once, not per tick. A window that cannot get a plane cannot get one on the
-     * next tick either, and an unguarded retry here would be a setup/teardown pair
-     * at the tick period -- on the same thread that rbp's framebuffer presents from.
-     * The flag clears when the window closes, so a later open tries again. */
-    if (g.win_fail)
-        return;
-    if (menu_window_plane_up() != 0) {
-        g.win_fail = 1;
-        return;
-    }
-    menu_window_repaint();
-    /* Re-shown, not shown once, for drm_band_show()'s own reason: it is idempotent
-     * at the same place, so this costs one integer compare in the steady state and
-     * a plane something later knocked down comes back by itself. */
-    if (!g.win_on && drm_band_show(&g.win, MW_X, MW_Y) == 0)
-        g.win_on = 1;
-}
-
 /* ---------------- THE EDGE DRAWERS' PLANE --------------------------------
  *
- * Same slot, third holder, same handover as the window's above -- and the same
- * measurement is behind it, so none of that argument is repeated here. What is new
- * is only that a drawer is FULL HEIGHT, so the band is not merely covered while one
- * is out: there is no band at all until the drawer closes. Opening a drawer tears
- * the band's plane down; closing it tears the drawer's down and sets the band's up
- * again from the page.
+ * The newer half of this, and the measurement behind it, is that a second and third
+ * plane in one process used to be impossible: DRM master is one per DEVICE, so the
+ * band's setup took it and a second drm_band_setup() was refused EBUSY. drmband.c now
+ * acquires the fd and the master ONCE and REFCOUNTS them, so a second and third band
+ * each get a buffer and a plane of their own -- which is what lets both drawers be out
+ * at once (measured: plane 127 and plane 138). What is new beyond that is only that a
+ * drawer is FULL HEIGHT, so the band is not merely covered while one is out: there is
+ * no band at all until the drawer closes. Opening a drawer tears the band's plane
+ * down; closing it tears the drawer's down and sets the band's up again from the page.
  *
- * EACH DRAWER HAS ITS OWN PLANE, and the older note here that a second plane was
- * impossible is wrong and is kept only as a warning: DRM master is one per DEVICE, but
- * drmband.c now acquires the fd and the master ONCE and REFCOUNTS them, so a second and
- * third drm_band_setup() each get a buffer and a plane of their own -- which is what
- * lets both drawers be out at once (measured: plane 127 and plane 138). What is still
- * exclusive is the BAND's plane, because the band and a drawer overlap at the top
- * corners of the glass and two overlays cannot share a zpos.
+ * What is still exclusive is the BAND's plane, because the band and a drawer overlap at
+ * the top corners of the glass and two overlays cannot share a zpos.
  *
  * A DRAWER AND THE BAND CANNOT BOTH BE UP, and that reaches further than this file:
- * side_zone.c's closed-entry arm refuses while the band is open, menu_zone.c's
- * refuses while a drawer is open, and pointsrc.c's funnel refuses while the window
- * is. One surface, gated in all three places the question can be asked. */
+ * side_zone.c's closed-entry arm refuses while the band is open, and menu_zone.c's
+ * refuses while a drawer is open. One surface, gated in both places the question can be
+ * asked. */
 
 /* The drawer's width in fb px -- the panel's SZ_W of logical px at the page's own
  * scale, the same rule menu_panel_ph() applies to the band's height. */
@@ -881,7 +539,7 @@ static int menu_side_value(int which)
 /* The drawer's three transport LEDs, packed into ONE int so they can be a repaint
  * key like the pressed control and the fader value already are -- the destinations
  * are single-buffered, so the gate has to be fed real values and not a flag that
- * alternates by itself (menu_window_repaint()'s rule).
+ * alternates by itself (the paint-when-it-changed rule).
  *
  * THE STATE IS rbp's, read from rbp_led.c, which is the same reading the controller's
  * own SYNC/CUE/PLAY LEDs are sent (rbp_transport.h). A BLINK ARRIVES HERE AS A BLINK: rbp
@@ -951,7 +609,7 @@ static void menu_side_view(struct menu_view *sv, int which)
  * and its channel's shared fader value is the handle's position -- three real values,
  * and the difference of any one of them is the repaint. Nothing derived and nothing
  * that alternates by itself: the plane is single-buffered, so a gate that flipped
- * every tick would repaint every tick and blink (menu_window_repaint()'s rule, and
+ * every tick would repaint every tick and blink (the paint-when-it-changed rule, and
  * the trap that cost real time on the band).
  *
  * THIS IS NOW THE NO-CACHE FALLBACK. When the image pair could be allocated the tick
@@ -1145,7 +803,7 @@ static void menu_side_live(int which)
 }
 
 /* Bring the planes into line with the drawers' state. Called under g_lock from the
- * tick, exactly as menu_window_plane_sync() is and for the same reason: one thread
+ * tick, exactly as every other plane sync here is and for the same reason: one thread
  * mutates the planes and it is the paint thread. pointsrc.c only ever writes the
  * gesture state, which is what side_is_open() reads.
  *
@@ -1203,9 +861,10 @@ static void menu_side_plane_sync(void)
             continue;
         }
 
-        /* Once, not per tick, for win_fail's reason: a plane that will not go up will
-         * not go up on the next tick either, and an unguarded retry would be a
-         * setup/teardown pair at the tick period, on the thread rbp presents from. */
+        /* Once, not per tick, and for the same one-shot reason every plane here uses:
+         * a plane that will not go up will not go up on the next tick either, and an
+         * unguarded retry would be a setup/teardown pair at the tick period, on the
+         * thread rbp presents from. */
         if (!g.side_ok[i] && !g.side_fail[i] && !g.band_off) {
             drm_band_want_rank(DRM_RANK_DRAWER);
             if (drm_band_setup(&g.side[i], menu_side_pw(), g.view.dh, g.view.bpp) != 0)
@@ -2380,15 +2039,6 @@ static int menu_fb_open_unlocked(int loud)
      * gate pass draw a dark drawer over a lit one it had never looked at. */
     g.side_painted_led[SZ_LEFT] = g.side_painted_led[SZ_RIGHT] = -1;
     g.band_off = !env_flag("MENU_PLANE", 1);
-    /* The window is opened, not shown: the plane it needs is set up by the tick, on
-     * this thread's own terms, so that the one writer of the plane is the paint
-     * thread and never the touch thread (menu_window_plane_sync()). MENU_WINDOW is the
-     * only opener left, now that the menu's globe cell is gone -- see the block above. */
-    if (env_flag("MENU_WINDOW", 0)) {
-        menu_window_open();
-        pointsrc_log("window: MENU_WINDOW=1 -- open at startup (the menu has no"
-                     " cell for this any more; this is the only way in)");
-    }
     if (g.band_off) {
         pointsrc_log("menu: MENU_PLANE=0 -- the band is repaired on the page, as it"
                      " was before the plane existed");
@@ -2553,12 +2203,6 @@ static void menu_band_present(void)
     g.view.bx    = g.fb_bx;
     g.view.by    = g.fb_by;
     drm_band_teardown(&g.band);
-    /* The window's plane is the same slot, so it goes with the band's -- a plane
-     * that will not carry the band will not carry a 1120x600 window either. */
-    if (g.win_ok) {
-        drm_band_teardown(&g.win);
-        g.win_ok = g.win_on = g.win_h = 0;
-    }
     if (g.front_valid)
         menu_blit();
     else
@@ -2587,30 +2231,10 @@ void menu_frame_tick(void)
      * whatever else the tick is about to do. An idle pad costs this one comparison. */
     menu_fxpad_plane_sync();
 
-    /* The window next, and it DECIDES THE ROUTE: while it is open it owns the
-     * process's one plane, so the band's whole path below -- present, witness,
-     * blit -- is not reached at all. What is reached is the page fallback, which is
-     * what lets a swipe-down still draw a (flickering) panel outside the window's
-     * rectangle. See the block above menu_band_setup_from_page(). */
-    menu_window_plane_sync();
-    if (menu_window_is_open()) {
-        /* While it is open the window owns the process's one plane, so the band's
-         * whole path below -- present, witness, blit -- is not reached at all. What
-         * is reached is the LIVE half: the page from the browser, the status that
-         * raises the keyboard for the page's own inputs, and the operator's taps on
-         * their way out. It runs under the lock because this is the request ring's
-         * one consumer. */
-        menu_window_live();
-        pthread_mutex_unlock(&g_lock);
-        return;
-    }
-
-    /* Then the drawers, and they decide the route the same way the window does: while
-     * one is out it owns the plane (or, on a machine that refused it, paints the page
-     * itself), and the band's path below is not reached. The window's check above is
-     * what keeps the two from fighting for the slot -- the funnel refuses to arm a
-     * drawer while the window is open (pointsrc.c), so a drawer cannot be out here
-     * unless the window is shut. */
+    /* Then the drawers, and they decide the route: while one is out it owns the plane
+     * (or, on a machine that refused it, paints the page itself), and the band's path
+     * below is not reached. A drawer cannot be open over an open band -- side_zone.h's
+     * closed-entry arm refuses -- so the two are never both up here. */
     menu_side_plane_sync();
     if (side_any_open()) {
         pthread_mutex_unlock(&g_lock);

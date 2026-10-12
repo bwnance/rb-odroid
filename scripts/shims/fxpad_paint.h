@@ -9,9 +9,9 @@
  * draw the white box outline, it flashes so its too distracting."* It is gone; the cell's
  * border is rbp's and stays rbp's. What is left is the one mark with information in it.
  *
- * The sixth drawing module in the menu_* family and the FIRST ONE THAT IS NOT ALLOWED TO
- * OWN ITS RECTANGLE. Everything before it -- menu_paint.c, menu_window_paint.c,
- * side_paint.c, prompt_paint.c, fx_paint.c -- draws a surface that is ours, so each of
+ * The fifth drawing module in the menu_* family and the FIRST ONE THAT IS NOT ALLOWED TO
+ * OWN ITS RECTANGLE. Everything before it -- menu_paint.c, side_paint.c,
+ * prompt_paint.c, fx_paint.c -- draws a surface that is ours, so each of
  * them fills every pixel of its view and the family rule "painting it twice paints it
  * once" is about the writer. This one is a HUD over rbp's live readout:
  *

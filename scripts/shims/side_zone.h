@@ -59,9 +59,8 @@
  * Every press in this module belongs to a POINTER, and every press's state is keyed
  * by (side, pointer) -- so two fingers on the two faders are two presses that never
  * touch each other's bookkeeping. `SZ_PTR_MAIN` is the primary contact, the one the
- * whole rest of the shim is built around (the band, the browser window, the USB STOP
- * chooser and rbp's own pointer path all read it and only it); `SZ_PTR_ALT` exists
- * for the drawers alone.
+ * whole rest of the shim is built around (the band, the USB STOP chooser and rbp's own
+ * pointer path all read it and only it); `SZ_PTR_ALT` exists for the drawers alone.
  *
  * WHY IT IS NOT JUST A SECOND SIDE. Until this change the panel's second contact was
  * indistinguishable from the first: the reader took whichever slot's
@@ -72,8 +71,8 @@
  * produced was `side left fader ch1 -> 198`.
  *
  * WHAT THE ALT POINTER STILL CANNOT DO, stated: it is offered to the DRAWERS and to
- * nothing else. rbp's own pointer path, the band, the browser window, the USB STOP
- * chooser and the UTILITY gesture are single-pointer by construction and stay that
+ * nothing else. rbp's own pointer path, the band, the USB STOP chooser and the
+ * UTILITY gesture are single-pointer by construction and stay that
  * way -- a second contact that lands anywhere but a drawer is dropped, never
  * forwarded, because rbp has one pointer and a second press would be a button it
  * cannot interpret.
@@ -417,9 +416,7 @@ int side_fader_pct(int v);
  * `&& !side_any_open()`, and band-first is still deliberate: an open band swallows at
  * full width and must answer first, and this module's `!menu_is_open()` gate is what
  * stops a drawer stealing a dismissing tap at the left edge (y >= SZ_ENTRY_Y0) before
- * the band can close itself. The browser WINDOW's gate is the caller's (`&&
- * !menu_window_is_open()` in pointsrc.c's funnel), because the window is opaque and
- * first in the ladder and this module has no business knowing it exists.
+ * the band can close itself.
  *
  * `ptr` is WHICH FINGER (SZ_PTR_MAIN / SZ_PTR_ALT). It selects one press's own
  * bookkeeping and nothing else -- the gesture rules above are identical for both, so

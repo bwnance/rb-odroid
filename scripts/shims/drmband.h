@@ -300,14 +300,14 @@ int  drm_band_setup_fmt(struct drm_band *b, int w, int h, int bpp, unsigned int 
  * panel sliding out covers them; the panels are under the boxes that sit on top of them; and the
  * band is over all of them, which is what the operator asked for by name ("the band should be
  * above deck 1, 2 rings") -- it spans the full width at the top, so the drawers' full-height edge
- * panels would otherwise cover its ends. The browser window is a window: it goes over the lot. */
+ * panels would otherwise cover its ends. The browser window sat above the lot on its own rank
+ * (7); it was removed 2026-10-12 and the rank went with it. */
 #define DRM_RANK_RING      0     /* the first free overlay -- the LOWEST, so panels cover it */
 #define DRM_RANK_DRAWER    2
 #define DRM_RANK_PROMPT    3
 #define DRM_RANK_FXLIST    4
 #define DRM_RANK_FXPAD     5
 #define DRM_RANK_BAND      6     /* the operator's ask: above both deck rings */
-#define DRM_RANK_WINDOW    7
 
 /* The ranking the NEXT drm_band_setup() in this process will ask for: it takes the (n+1)-th free
  * overlay rather than the first. Consumed by that call, so it cannot leak onto a later band.

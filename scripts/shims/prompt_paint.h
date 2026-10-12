@@ -1,7 +1,7 @@
 /*
  * prompt_paint.h -- the USB STOP chooser's image.
  *
- * The fourth drawing module after menu_paint.c, menu_window_paint.c and
+ * The third drawing module after menu_paint.c and
  * side_paint.c, and written to the same rule: pure, a function of its arguments and
  * of nothing else, in the same palette (menu_pixel(), which is public for exactly
  * this reason). "Painting it twice paints it once" is load-bearing here as it is

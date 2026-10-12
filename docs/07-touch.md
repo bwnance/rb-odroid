@@ -877,11 +877,17 @@ each described above is what they have again: `MZ_BTN_W` is `MZ_LOGICAL_W`, and
 `MZ_EXPAND_W`, `MZ_BTN_EXPAND`, `menu_expand_x0/x1` and the globe's own drawing
 (`menu_paint.c`'s `menu_web_cov()`) are deleted, with `test_menu.c`'s tiling assertions
 and `test_menu_dev.c`'s slide putting the panel's right edge back on the last column.
-The window module itself still ships and still works — `menu_window.c`,
+The window module itself outlived it for a week — `menu_window.c`,
 `menu_window_paint.c`, `browser_link.c`, `tools/rbrowser/` — because what the operator
-abandoned was the browser, not the code; what is gone is the menu's door to it, and
-`MENU_WINDOW=1` in `menu_draw.c` is now the only way in — which is also how the window's
+abandoned was the browser, not the code; what was gone was the menu's door to it, and
+`MENU_WINDOW=1` in `menu_draw.c` was the only way in — which is also how the window's
 own close and minimize marks were pressed on the glass when the chrome was settled.
+**The module has since followed the browser out (2026-10-12)**: all four files and the
+window's popup keyboard (`menu_keyboard.c`) are deleted, `MENU_WINDOW` with them, so the
+menu and the module now agree that there is no door and nothing behind it. The
+interaction it was — an opaque surface owning rbp's one pointer, taking every report on
+itself before the band or the drawers could — is the shape § *One surface at a time*
+below describes for the surfaces that remain.
 
 **Measured after the removal, on the unit by injection into the panel's own node**
 (`fbshim.so` md5 `78c2d7420bcef0e80a8ef8fbaa294c5a`, 2026-10-05, `work/poke.py`'s `drag:`
@@ -2146,7 +2152,7 @@ silence, without them.
 scanned-out, single-buffered plane — now a `memcpy` instead of a paint, but still not
 atomic against the scan-out. That is the band's accepted trade. The only true cure is a
 second dumb buffer plus a `SETPLANE` flip in `drmband.c`, which it does not support today
-and which is shared by the band, the browser window and both drawers — bigger and
+and which is shared by the band and both drawers — bigger and
 riskier. Two `MENU_VERBOSE`-gated lines price it on the glass, parity with the band's
 `menu: classify` / `menu: blit`:
 
@@ -2211,7 +2217,7 @@ whichever hand moved last owned the channel.
 
 The repair is a **pointer dimension**. `side_zone.h` declares `SZ_PTRS 2`, with
 `SZ_PTR_MAIN 0` and `SZ_PTR_ALT 1`; `read_loop_abs` keeps `rx[]`, `ry[]` and `down[]`
-indexed by it. The primary contact is the only one **rbp, the band, the browser window,
+indexed by it. The primary contact is the only one **rbp, the band,
 the USB STOP chooser and the UTILITY gesture** ever see, because rbp has exactly one
 pointer: `pointer_report_alt()` offers the second contact to the drawers **and to
 nothing else**, and a report it does not take is **dropped, never forwarded**. Feeding
@@ -2273,9 +2279,9 @@ wrongly before the fix.
 
 ### One surface at a time, and what is left of it
 
-The funnel ladder is window → band → drawer → **rbp's own UTILITY screen**
+The funnel ladder is band → drawer → **rbp's own UTILITY screen**
 (`pointsrc.c`'s `pointer_report()`), and only **two** gates remain: `menu_zone.c`'s
-closed-entry arm gains `&& !side_any_open()` (and the same for the browser window), and
+closed-entry arm gains `&& !side_any_open()`, and
 `side_zone.c`'s gains `&& !menu_is_open()`.
 
 The side's own `&& !side_any_open()` — which existed when one plane meant one drawer at
@@ -2284,9 +2290,9 @@ unreachable while the first was up. Band-first is still deliberate: an open band
 swallows at full width and must answer first. Measured on the unit: with the band open,
 a left-edge swipe closed the band and did **not** open the drawer.
 
-UTILITY is asked **last of the four**, and it is asked only while the window is shut, the
-band is closed and no drawer is out — `!menu_window_is_open() && !menu_is_open() &&
-!side_any_open()`. The three feeders above already own their own rectangles; those three
+UTILITY is asked **last of the three**, and it is asked only while the
+band is closed and no drawer is out — `!menu_is_open() &&
+!side_any_open()`. The two feeders above already own their own rectangles; those two
 terms are about the glass *between* them, where a scroll that moved a list the operator
 cannot see (behind an open panel) would look like it worked and could not be aimed. It is
 also the operator's own answer to the band — *swipe the drawer away first*. See the next

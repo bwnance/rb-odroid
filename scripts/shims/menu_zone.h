@@ -140,10 +140,11 @@
  * -- menu_paint.c refuses one whose narrowest column cannot hold its own label whole,
  * and at 19 px that floor is a 535-px-wide picture.
  *
- * WHAT IS NOT GONE: the window module itself still ships and still works
- * (menu_window.c, menu_window_paint.c, browser_link.c) -- the operator abandoned the
- * browser, not the code -- and menu_draw.c's MENU_WINDOW=1 opener still opens it. What
- * is gone is the menu's door to it, because a door to nowhere is worse than no door. */
+ * WHAT IS NOT GONE, AND THEN WAS: the window module itself kept shipping for a week
+ * after the cell went -- the operator abandoned the browser, not the code
+ * (menu_window.c, menu_window_paint.c, browser_link.c, reachable only through
+ * menu_draw.c's MENU_WINDOW=1). It has now followed the browser out (2026-10-12), so
+ * the menu and the module agree: there is no door and there is nothing behind it. */
 #define MZ_BTN_W        MZ_LOGICAL_W   /* 1280: what the seven tile on their own */
 
 /* The touch space, in logical px. 1280x800 on every panel this port runs on --

@@ -1,7 +1,7 @@
 /*
  * side_paint.h -- the edge drawers' image.
  *
- * The second drawing module after menu_window_paint.c, and written to the same
+ * The second drawing module after menu_paint.c, and written to the same
  * rule: pure, a function of its arguments and of nothing else, over the caller's
  * `struct menu_view`, in the same palette the band uses (menu_pixel()). "Painting
  * the drawer twice paints it once" is load-bearing here and not a nicety -- the

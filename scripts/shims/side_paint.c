@@ -4,11 +4,11 @@
  * the panel (2026-10-06; every control still frames itself).
  *
  * THE ~10 DUPLICATED LINES, again and deliberately. menu_paint.c's pixel accessors
- * are static there and menu_window_paint.c duplicates them for the same reason
+ * are static there and this file duplicates them for the same reason
  * (menu_paint.c's header records the decision): the alternative is exporting an
  * accessor that must know three module-internal notions to save ten lines. What is
- * NOT duplicated is the palette -- menu_pixel() is public, so the drawer, the band
- * and the window are the same colours by construction.
+ * NOT duplicated is the palette -- menu_pixel() is public, so the drawer and the band
+ * are the same colours by construction.
  *
  * EVERY PIXEL IS WRITTEN ON EVERY CALL. The drawer's plane is single-buffered
  * (side_paint.h), so the panel's rectangle is filled first and every mark goes on

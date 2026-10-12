@@ -97,7 +97,8 @@ antialiasing that the operator asked for, and because it costs almost nothing:
 9.7 KB for the whole 73-glyph set at 19 px, and it scales with the square of the
 size, so about 21 KB at the top of the ladder above -- 37 of those glyphs are the
 panel's labels, which is what the first version of this file baked, and 36 more were
-added on 2026-10-04 for the browser window's URL bar and popup keyboard. The painter
+added on 2026-10-04 for the browser window's URL bar and popup keyboard (since removed;
+see the CHARS note below for why the glyphs outlive their consumers). The painter
 blends each covered pixel against the button colour; coverage 0 and coverage 255
 write *exactly* the background and label colours, so the panel's idempotence and
 conditional-restore rules (menu_paint.h) survive the change untouched.
@@ -149,23 +150,23 @@ DEFAULT_LIGHT = LIGHT_STEPS
 #
 # THE SET WAS EXTENDED ONCE, ON 2026-10-04, AND ONLY BY APPENDING. Lowercase and
 # ten punctuation marks went on the END, for the browser window's URL bar and
-# its popup keyboard (menu_keyboard.h): everything the panel already draws keeps
+# its popup keyboard: everything the panel already draws keeps
 # the index it had, so the seven menu labels are byte-for-byte the glyphs they
 # were -- verified by re-baking the old set on the machine that extended it and
 # diffing the header, which came back identical. That is the property to preserve
 # if this ever grows again, and it is why the punctuation is in this order and not
 # in ASCII order.
+#
+# THE CONSUMERS ARE GONE AND THE GLYPHS ARE KEPT. The browser window, its URL bar and
+# its popup keyboard were removed on 2026-10-12, so nothing in the shim now draws from
+# the lowercase or the punctuation runs -- a label is uppercase and always was. They
+# stay because removing them is a re-bake rather than an edit, and a re-bake rewrites
+# every glyph index in the file for no gain: the atlas is a superset, and a superset is
+# inert. If this set is ever cut back, cut it from the END, for the reason above.
 PUNCT = "./-_:?=&@#"
 
 CHARS = (" " + "0123456789" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
          "abcdefghijklmnopqrstuvwxyz" + PUNCT)
-
-# The keyboard's own alphabet, which is what the URL bar and any page input are
-# typed with, as opposed to the panel's labels above. It is checked against CHARS
-# below, so a key that would draw a gap is a failed bake rather than a keyboard
-# with a dead key on it.
-KEY_ALPHABET = ("0123456789" "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                "abcdefghijklmnopqrstuvwxyz" + PUNCT)
 
 # The panel's labels and their column, for the report below only -- the shipped
 # geometry is menu_zone.c's. They were six columns of 213 px for as long as the
@@ -648,11 +649,7 @@ def index_source():
 
 
 def check_alphabet():
-    """Every key the popup keyboard can draw must be a glyph in the atlas."""
-    missing = [c for c in KEY_ALPHABET if c not in CHARS]
-    if missing:
-        sys.exit("KEY_ALPHABET names %r, which CHARS does not carry -- those keys "
-                 "would draw a gap" % ("".join(missing),))
+    """The set must be well formed: no duplicate, and the lowercase run contiguous."""
     if len(set(CHARS)) != len(CHARS):
         sys.exit("CHARS has a duplicate in it")
     for c in "abcdefghijklmnopqrstuvwxyz":
@@ -899,10 +896,10 @@ def main():
  * character outside the set draws a gap of the space advance's width rather than
  * garbage, which is also what the old table did.
  *
- * THE SET IS ALSO THE KEYBOARD'S. menu_keyboard.h's keys name characters from it,
- * and bake_menu_font.py's KEY_ALPHABET is checked against this same string at bake
- * time -- so a key that would draw a gap fails the bake instead of shipping as a
- * dead key.
+ * THE WINDOW AND ITS KEYBOARD ARE GONE; THE GLYPHS THEY NEEDED ARE NOT. Removing
+ * them would be a re-bake, and a re-bake rewrites every glyph index in this file for
+ * no gain -- a label is uppercase and always was, so the lowercase and the punctuation
+ * runs are a superset that nothing draws from. They stay as a superset.
  *
  * THE LAYOUT IS THE FONT'S OWN METRICS, not a fixed cell. Each glyph carries its
  * pen advance and the position of its ink box relative to the pen origin and to the
@@ -934,9 +931,9 @@ def main():
 #define MENU_FONT_KERNED  %(kerned)d
 
 /* The punctuation run, in index order, appended after the lowercase -- the marks a
- * URL needs and a label never did. menu_keyboard.h's bottom row is built from it, so
- * the keyboard and the atlas name the same characters rather than two lists that
- * agree today; test_menu.c uses it to place the runs. */
+ * URL needed and a label never did. Nothing draws from it since the browser window
+ * went (2026-10-12); it is kept because cutting it is a re-bake, not an edit. test_menu.c
+ * uses it to place the runs. */
 #define MENU_FONT_PUNCT   "%(punct)s"
 
 /* The band the whole set's ink can occupy: rows MENU_FONT_INK_TOP ..
@@ -1020,8 +1017,8 @@ static inline int menu_font_cov(const struct menu_glyph *g, int col, int row)
  * test_paint_label_pens each paint their surface and check that the ink the painter laid
  * down is exactly the ink a walk of these advances over the same atlas puts there -- a
  * number the pen's origin cannot influence, so it needs no copy of the module's own
- * scaling. The fifth walker is menu_window_paint.c's, in the abandoned browser window: it
- * has no such test and no label it can be run on. */
+ * scaling. The fifth walker, in the browser window, went with the window on 2026-10-12:
+ * it had no such test and no label it could be run on. */
 static inline int menu_font_adv(unsigned char c, unsigned char next)
 {
     int i = menu_font_index(c);

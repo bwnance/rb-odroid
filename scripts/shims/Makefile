@@ -353,17 +353,6 @@ master_policy.o: master_policy.c master_policy.h
 #                  (pure, unit-tested). The second thing this shim draws.
 #   menu_draw.o    the panel's driver: maps the real /dev/fb0 and keeps the panel
 #                  on it from a thread of its own (fb_cursor.c's shape)
-#   menu_window.o  the browser window's geometry, state and hit test: the X, the
-#                  minimize, the title bar, the url field, the page rect (pure,
-#                  unit-tested). NOT a second plane -- menu_window.h states why
-#   menu_window_paint.o  the window's chrome, drawn over the page (pure, and the
-#                  same palette as the panel by construction: menu_pixel())
-#   menu_keyboard.o  the popup keyboard's table, geometry and hit test (pure,
-#                  unit-tested). Its caps are drawn from menu_font.h, which is why
-#                  the atlas grew lowercase and punctuation before this existed
-#   browser_link.o the shim's end of the pipe to the browser on the host -- the
-#                  frame mmap, the status read and the command append, and the ONLY
-#                  file I/O in the menu (browser_link.h says why /tmp is shared)
 #   drmband.o      the overlay plane the band is presented on instead, when the
 #                  machine has one (drmband.h). It carries its own copy of the
 #                  thirteen DRM uapi structs it needs rather than taking a
@@ -423,8 +412,7 @@ master_policy.o: master_policy.c master_policy.h
 # the way rbp_key.o is.
 FBSHIM_OBJS := fb_shim.o tscfake.o pointsrc.o point_xform.o touch_zone.o \
                fb_cursor.o cursor_paint.o menu_zone.o menu_paint.o menu_draw.o \
-               menu_window.o menu_window_paint.o menu_keyboard.o \
-               browser_link.o drmband.o side_zone.o side_paint.o util_zone.o \
+               drmband.o side_zone.o side_paint.o util_zone.o \
                wave_zone.o prompt_zone.o prompt_paint.o fx_zone.o fx_paint.o \
                hc_zone.o usb_label.o fxpad_zone.o fxpad_paint.o padmode_zone.o \
                deckbadge_zone.o deckbadge_paint.o deckbadge_plane.o bpmbox_zone.o
@@ -432,8 +420,7 @@ FBSHIM_HDRS := tscfake.h pointsrc.h point_xform.h touch_zone.h syscalls.h \
                padmode_zone.h hc_zone.h deckbadge_zone.h bpmbox_zone.h deckbadge_paint.h \
                deckbadge_plane.h \
                envutil.h fb_cursor.h cursor_paint.h fbdev.h menu_zone.h \
-               menu_paint.h menu_font.h menu_draw.h drmband.h menu_window.h \
-               menu_window_paint.h menu_keyboard.h browser_link.h side_zone.h \
+               menu_paint.h menu_font.h menu_draw.h drmband.h side_zone.h \
                side_paint.h rbp_vu.h util_zone.h wave_zone.h prompt_zone.h \
                prompt_paint.h fx_zone.h fx_paint.h hc_zone.h usb_label.h \
                fxpad_zone.h fxpad_paint.h pitch_state.h
@@ -457,7 +444,7 @@ tscfake.o: tscfake.c tscfake.h pointsrc.h
 fb_shim.o: CFLAGS += -Wno-nonnull-compare -Wno-maybe-uninitialized
 
 pointsrc.o: pointsrc.c pointsrc.h point_xform.h tscfake.h touch_zone.h \
-            rbp_key.h rbp_abi.h menu_zone.h menu_window.h side_zone.h rbp_vu.h \
+            rbp_key.h rbp_abi.h menu_zone.h side_zone.h rbp_vu.h \
             prompt_zone.h fx_zone.h usb_label.h fxpad_zone.h
 point_xform.o: point_xform.c point_xform.h
 touch_zone.o: touch_zone.c touch_zone.h
@@ -473,19 +460,9 @@ menu_paint.o: menu_paint.c menu_paint.h menu_zone.h menu_font.h
 # rule above already covers menu_draw.h through $(FBSHIM_HDRS), which is where its
 # header is listed.
 menu_draw.o: menu_draw.c menu_draw.h menu_paint.h menu_zone.h fbdev.h \
-             point_xform.h pointsrc.h drmband.h menu_window.h menu_window_paint.h \
+             point_xform.h pointsrc.h drmband.h \
              side_zone.h side_paint.h rbp_vu.h prompt_zone.h prompt_paint.h \
              fx_zone.h fx_paint.h fxpad_zone.h fxpad_paint.h
-# menu_window_paint.o takes menu_paint.h for the palette and the view, and
-# menu_window.h for the rectangles it must draw the marks exactly inside -- a
-# dependency that is not written down is a rebuild that silently does not happen.
-menu_window.o: menu_window.c menu_window.h menu_zone.h menu_keyboard.h
-menu_window_paint.o: menu_window_paint.c menu_window_paint.h menu_window.h \
-                     menu_paint.h
-# menu_keyboard.o is pure and knows nothing but its own table: it draws nothing
-# (menu_window_paint.c does) and it holds no state that crosses a thread, so its
-# one header is its whole dependency.
-menu_keyboard.o: menu_keyboard.c menu_keyboard.h
 # side_zone.o and side_paint.o are pure, and their headers carry the whole
 # interface: side_zone.h for the geometry and the gesture, side_paint.h for the
 # view it draws over. side_paint.o takes side_zone.h as well because every
@@ -546,10 +523,6 @@ fxpad_zone.o: fxpad_zone.c fxpad_zone.h menu_zone.h
 # exactly as fx_paint.o takes fx_zone.h's -- and it takes menu_zone.h through
 # menu_paint.h for MZ_LOGICAL_W/H, the space fxpad_paint_w/h scale out of.
 fxpad_paint.o: fxpad_paint.c fxpad_paint.h fxpad_zone.h menu_paint.h menu_zone.h
-# browser_link.o is the one object in the menu that opens a file, so its header is
-# where the three paths and the frame's own header layout live -- nothing else in
-# the shim names /tmp/rbwin.*.
-browser_link.o: browser_link.c browser_link.h
 # drmband.o is the only object that talks to the DRM device, and it does it with
 # raw ioctls through syscalls.h's real_* wrappers -- the shim interposes open and
 # ioctl, so the raw path is not optional.
@@ -700,7 +673,7 @@ pcmprobe: ../../tools/pcmprobe.c
 # fb_cursor.o is linked and the kernel is scripted, so what is pinned is the retry
 # and the rectangle -- see that file's header.
 TESTS := test_point test_audio test_midi test_flx4 test_kbd test_cursor \
-         test_evdev test_cursor_dev test_menu test_side test_window test_keyboard \
+         test_evdev test_cursor_dev test_menu test_side \
          test_menu_dev test_util test_wave test_prompt test_fx test_hc test_fxpad \
          test_led_table test_plinn_scan test_controllers test_usblabel test_netalias \
          test_pitch test_keylog test_padmode test_deckbadge test_bpmbox
@@ -740,47 +713,14 @@ test_side: test_side.c side_zone.c side_paint.c menu_zone.c menu_paint.c \
 	    -Wall -Wextra -static -o $@ test_side.c side_zone.c side_paint.c \
 	    menu_zone.c menu_paint.c
 
-# test_window links the PRODUCTION menu_window.c and menu_window_paint.c, plus
-# menu_paint.c because the chrome's palette comes from menu_pixel() -- one table,
-# so the window cannot drift into colours the panel does not have -- and
-# menu_zone.c for MZ_LOGICAL_* and MZ_STRIP_Y1, which the geometry test checks the
-# window against. Its surface is a local array: no framebuffer, no plane, no
-# thread, no browser. What it stops is a state machine or a hit test that is only
-# ever exercised by a finger -- and, in the geometry test, a window that grows over
-# the menu's own way back.
-#
-# menu_keyboard.c is here because menu_window.c calls it: the URL field raises the
-# keyboard, a cap types into the buffer and OK hides it, so the window's own tests
-# cannot be built without it. It is the PRODUCTION source, not a copy, so what the
-# window's tests exercise is the table that ships.
-#
 # side_zone.c is the same story one level down: menu_zone.c -- linked for
 # MZ_LOGICAL_* and MZ_STRIP_Y1 -- calls side_any_open() from its closed-entry arm,
 # so the band's source cannot link without the drawer's state. Real object, not a
 # stub; see test_menu's note.
-test_window: test_window.c menu_window.c menu_window_paint.c menu_paint.c \
-             menu_zone.c menu_keyboard.c side_zone.c menu_window.h \
-             menu_window_paint.h menu_paint.h menu_zone.h menu_font.h \
-             menu_keyboard.h side_zone.h
-	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
-	    -Wall -Wextra -static -o $@ test_window.c menu_window.c \
-	    menu_window_paint.c menu_paint.c menu_zone.c menu_keyboard.c \
-	    side_zone.c
-
-# test_keyboard pins the popup keyboard ALONE: the 46 character keys are exactly the
-# atlas's keyboard alphabet with no duplicate, the four specials are where the layout
-# puts them, the key rects tile the keyboard with no gap and no overlap, a hit is -1
-# while the keyboard is down, and SHIFT is consumed by a character and merely shown by
-# a cap. menu_font.c does not exist -- menu_font.h is the atlas and its coverage is a
-# table in the header -- so this needs menu_keyboard.c and nothing else, which is
-# exactly what "pure" was supposed to buy.
-test_keyboard: test_keyboard.c menu_keyboard.c menu_keyboard.h menu_font.h
-	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
-	    -Wall -Wextra -static -o $@ test_keyboard.c menu_keyboard.c
 
 # test_util pins the UTILITY screen's gesture. It links the PRODUCTION util_zone.c and
 # nothing else: menu_zone.h is #defines and declarations, so the module needs no other
-# object -- which is the same "pure" that test_keyboard's header note is about. rbp is
+# object -- which is the same "pure" that util_zone.h's own header note is about. rbp is
 # not present and cannot be: everything util_zone.c would ask rbp arrives in a
 # struct util_state the test fills in by hand, and everything it wants sent comes back
 # as an act and a signed count. What it stops is a row boundary, a coalescing rule, a
@@ -1137,15 +1077,6 @@ test_cursor_dev.o: test_cursor_dev.c fb_cursor.h fbdev.h cursor_paint.h \
 # whose plane cannot be had, so every assertion below is made against the FALLBACK
 # route -- the fb0 path this shipped with. That is exactly the path the tests were
 # written for, and it has to keep working.
-# menu_window.o and menu_window_paint.o are here because menu_draw.o now calls
-# them: the window's plane sync is part of the driver this pins. They are the REAL
-# objects for the same reason drmband.o is -- the states and the pixels have to be
-# the shipped ones, or the fallback route below is being tested against a fiction.
-# menu_keyboard.o and browser_link.o are here for the same reason one level down:
-# menu_window.o calls the keyboard, and menu_draw.o's tick calls browser_link.o. The
-# link has to resolve them, and on a host with no /tmp/rbwin.* every browser_link
-# call takes its absent-file arm -- which is the route the window must survive on a
-# unit where the host browser is not running.
 # side_zone.o, side_paint.o and fader_state.o are here because menu_draw.o now calls
 # the drawers: the plane handover and the repaint gate are part of the driver this
 # pins. side_zone.o and side_paint.o are the REAL objects for the same reason
@@ -1168,8 +1099,7 @@ test_cursor_dev.o: test_cursor_dev.c fb_cursor.h fbdev.h cursor_paint.h \
 # picker's there is no scenario that engages a finger on the cell, so what the tick pins
 # is that an IDLE pad costs the sync nothing.
 MENU_TEST_OBJS := test_menu_dev.o menu_draw.o menu_paint.o menu_zone.o \
-                  menu_window.o menu_window_paint.o menu_keyboard.o \
-                  browser_link.o point_xform.o drmband.o side_zone.o \
+                  point_xform.o drmband.o side_zone.o \
                   side_paint.o prompt_zone.o prompt_paint.o fx_zone.o fx_paint.o \
                   fxpad_zone.o fxpad_paint.o fader_state.o rbp_transport.o \
                   deckbadge_zone.o deckbadge_paint.o
@@ -1245,17 +1175,13 @@ test: $(TESTS)
 # in knobshim.so, which fbshim is loaded BEFORE.  See rbp_transport.h.
 #
 # Symbols a shim is ALLOWED to leave undefined.  Printed on every run; never silent.
-# One entry, and it is a hazard rather than a design:
-#
-#   fstat -- browser_link.o calls it in bl_frame_map() (browser_link.c:61,73).  The
-#   vendor libc exports no plain `fstat`, only __fxstat/__fxstat64, so this reference
-#   binds to nothing and fires "symbol lookup error" the first time that path runs --
-#   which is the moment the abandoned browser pane finds a /tmp/rbwin.frame to look at.
-#   It has never fired because that workstream is abandoned and the file is never
-#   there.  It is the last survivor of the class rbp-vendor-libc-has-no-stat records
-#   (stat() and time() were removed from the same file on 2026-10-04); it wants the
-#   same treatment, or the pane wants dropping, before that work resumes.
-KNOWN_DANGLING := fstat
+# EMPTY, and it was not: `fstat` stood here on its own for the browser pane, whose
+# bl_frame_map() was the only caller -- the vendor libc exports no plain `fstat`, only
+# __fxstat/__fxstat64, so it bound to nothing and would have fired "symbol lookup
+# error" the first time that path ran.  The pane is gone (2026-10-12), so the reference
+# is gone with it and the set is back to what it should always have been.  Anything
+# appearing here now is a new hazard, not an inherited one.
+KNOWN_DANGLING :=
 check: $(SHARED)
 	@echo "== GLIBC symbol versions =="
 	@rc=0; for f in $(SHARED); do \

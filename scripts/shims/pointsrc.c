@@ -17,7 +17,6 @@
 #include "tscfake.h"
 #include "touch_zone.h"
 #include "menu_zone.h"
-#include "menu_window.h"
 #include "side_zone.h"
 #include "util_zone.h"
 #include "wave_zone.h"
@@ -747,11 +746,9 @@ static void menu_fire(int button, int held_ms)
     const char *label = menu_label(button);
     int hold_ms, send_ms, code;
 
-    /* A button with no label fires nothing and says nothing. The menu's eighth cell
-     * -- the globe that opened the browser window -- used to be the one case here;
-     * it is gone with the browser (menu_zone.h's block), so menu_button_at() now
-     * answers 1..MZ_COLS or 0 and this is belt-and-braces against a future cell
-     * being added to the hit test before it is added to the label table. */
+    /* A button with no label fires nothing and says nothing. menu_button_at() answers
+     * 1..MZ_COLS or 0, so this is belt-and-braces against a future cell being added to
+     * the hit test before it is added to the label table. */
     if (label == NULL)
         return;
     code = menu_key_eff[button - 1];
@@ -1697,7 +1694,7 @@ static int wave_zoom_ok(int allow_menu)
         am_rbp = is_rbp_process();
     if (!am_rbp)
         return 0;
-    if (menu_window_is_open() || menu_is_open() || side_any_open())
+    if (menu_is_open() || side_any_open())
         return 0;
 
     return RB_WAVE_ZOOM_OK(rbp_i32(UIBROWSE_GLOBAL + UIBROWSE_OFF_MODE),
@@ -1788,30 +1785,23 @@ static void side_log_transitions(void)
     }
 }
 
-/* One report, in the one order that works: the browser WINDOW decides first if it
- * is open, then the menu decides whether rbp sees this press at all, then a drawer,
- * then rbp's own UTILITY screen if it is the one in front, then the QUANTIZE box
- * interprets it, then it goes to rbp.
+/* One report, in the one order that works: the menu decides whether rbp sees this
+ * press at all, then a drawer, then rbp's own UTILITY screen if it is the one in
+ * front, then the QUANTIZE box interprets it, then it goes to rbp.
  *
- * THE WINDOW IS FIRST because it is opaque and drawn OVER the menu's own rectangle:
- * a press that landed on the window must not also be judged by the swipe rules
- * underneath it. It answers only for points on itself, so nothing else in this
- * chain changes.
- *
- * THE MENU IS NEXT because it owns the whole report when it takes it. rbp gets
+ * THE MENU IS FIRST because it owns the whole report when it takes it. rbp gets
  * nothing -- not the touch, and not the QUANTIZE box either: a press that
  * dismisses the panel must not also press whatever is drawn under it, and
  * touch_zone_feed() is reached only through quantize_tap() below, so a swallowed
  * press never advances the box's edge state. That is what leaves the next real
  * press on a QUANTIZE box still a fresh press (test_point.c pins it).
  *
- * THE DRAWERS ARE LAST OF THE THREE, and they are asked only while the window is
- * shut: the window owns the plane and a drawer must not be opened under it. The
- * band's own precedence is inside side_zone.c instead (its closed-entry arm refuses
- * while the band is open) -- which is why an open band, which swallows at full
- * width, still answers first and a drawer cannot steal the tap that dismisses it.
- * side_feed_any() is the one call and it returns which drawer answered, because only
- * that drawer knows the channel the key or the fader value goes out on.
+ * THE DRAWERS ARE LAST OF THE THREE, and the band's own precedence is inside
+ * side_zone.c (its closed-entry arm refuses while the band is open) -- which is why an
+ * open band, which swallows at full width, still answers first and a drawer cannot
+ * steal the tap that dismisses it. side_feed_any() is the one call and it returns which
+ * drawer answered, because only that drawer knows the channel the key or the fader
+ * value goes out on.
  *
  * MZ_FEED_TAP is the one swallowed answer rbp does hear, and it hears a *different*
  * press: the swallowing surface's own copy, emitted here (menu_replay_tap /
@@ -1996,23 +1986,10 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * says why that is a rule and not a preference. */
     wave_swipe(allow_menu, down, x, y);
 
-    /* THE WINDOW FIRST, and it is asked before the menu rather than after because
-     * the two overlap on the glass: the window is opaque, so a press inside its
-     * rectangle must never reach the menu's gesture rules underneath it. It only
-     * answers for points on itself (menu_window.h), so a press anywhere else still
-     * gets both the menu and rbp exactly as before -- which is what keeps the
-     * swipe-down gesture and test_menu.c's 6,373 checks untouched.
-     *
-     * A window report is always TAKEN, never TAP: the caller must not replay it to
-     * rbp, and `button` is left alone because the window acts on its own state
-     * machine inside menu_window_feed() rather than handing a button back. */
-    if (allow_menu && menu_window_is_open())
-        verdict = menu_window_feed(down, x, y);
-
-    if (verdict == MZ_FEED_NONE && allow_menu)
+    if (allow_menu)
         verdict = menu_feed(down, x, y, &button);
 
-    if (verdict == MZ_FEED_NONE && allow_menu && !menu_window_is_open())
+    if (verdict == MZ_FEED_NONE && allow_menu)
         verdict = side_feed_any(SZ_PTR_MAIN, down, x, y, &side, &sact, &svalue);
 
     /* After the one call that can change it and before any of the three ways out, so
@@ -2036,7 +2013,7 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * leave the performance screen under a press that is already down, and a swallowed
      * press on a screen that no longer has the panel is a control firing on nothing. */
     if (verdict == MZ_FEED_NONE && fx_touch && rbp_perf_screen() &&
-        !menu_window_is_open() && !menu_is_open() && !side_any_open()) {
+        !menu_is_open() && !side_any_open()) {
         int fact = FX_ACT_NONE;
 
         if (fx_feed(down, x, y, &fact) != MZ_FEED_NONE) {
@@ -2077,7 +2054,7 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * gesture for as long as a finger is down, so a box raised by a second finger, or by
      * the band, must never have a pad engaged underneath it. */
     if (verdict == MZ_FEED_NONE && fx_touch &&
-        (fxpad_busy() || (rbp_perf_screen() && !menu_window_is_open() &&
+        (fxpad_busy() || (rbp_perf_screen() &&
                           !menu_is_open() && !side_any_open() &&
                           !fxlist_is_open() && !prompt_is_open()))) {
         struct fxpad_live fl;
@@ -2137,7 +2114,7 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * handed an up for a down it never saw. hc_latched() is that term, and hc_feed()
      * refuses the release of a gesture that began off the grid on its own. */
     if (verdict == MZ_FEED_NONE && hc_touch &&
-        (hc_latched() || (rbp_perf_screen() && !menu_window_is_open() &&
+        (hc_latched() || (rbp_perf_screen() &&
                           !menu_is_open() && !side_any_open()))) {
         int hdeck = -1, hpad = 0;
 
@@ -2158,7 +2135,7 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * band did NOT take falls through to the rungs below, so a release that no press of ours
      * began still reaches rbp -- the rule the HOT CUE rung above states for its own cells. */
     if (verdict == MZ_FEED_NONE && pm_touch &&
-        (pm_latched_deck >= 0 || (rbp_perf_screen() && !menu_window_is_open() &&
+        (pm_latched_deck >= 0 || (rbp_perf_screen() &&
                                   !menu_is_open() && !side_any_open()))) {
         int pdeck = -1;
 
@@ -2186,7 +2163,7 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * refusal by the time this rung is reached -- and the press is taken here so that a finger
      * landing on the badge cannot reach rbp as a click before the release decides. */
     if (verdict == MZ_FEED_NONE && db_touch &&
-        (db_latched_deck >= 0 || (rbp_perf_screen() && !menu_window_is_open() &&
+        (db_latched_deck >= 0 || (rbp_perf_screen() &&
                                   !menu_is_open() && !side_any_open()))) {
         int bdeck = -1;
 
@@ -2213,7 +2190,7 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * it has had first refusal by the time this is reached, and the press is taken here so a finger
      * landing on the box cannot reach rbp as a click before the release decides. */
     if (verdict == MZ_FEED_NONE && bb_touch &&
-        (bb_latched_deck >= 0 || (rbp_perf_screen() && !menu_window_is_open() &&
+        (bb_latched_deck >= 0 || (rbp_perf_screen() &&
                                   !menu_is_open() && !side_any_open()))) {
         int sdeck = -1;
 
@@ -2257,7 +2234,7 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * which is what keeps the six columns, the keyboard and the mouse working over
      * it. */
     if (verdict == MZ_FEED_NONE && allow_menu &&
-        !menu_window_is_open() && !menu_is_open() && !side_any_open()) {
+        !menu_is_open() && !side_any_open()) {
         struct util_state ust;
         int uact = UTIL_ACT_NONE, uvalue = 0;
 
@@ -2301,16 +2278,15 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
  * produced was `side left fader ch1 -> 198`.
  *
  * IT GOES TO THE DRAWERS AND NOWHERE ELSE, and that is the whole of its scope. rbp
- * has ONE pointer -- the whole rest of this file, the band, the browser window, the
- * USB STOP chooser and the UTILITY gesture are built around it -- so a second contact
- * that lands anywhere but a drawer is DROPPED, never forwarded. Forwarding it would
- * hand rbp a press it cannot interpret.
+ * has ONE pointer -- the whole rest of this file, the band, the USB STOP chooser and
+ * the UTILITY gesture are built around it -- so a second contact that lands anywhere
+ * but a drawer is DROPPED, never forwarded. Forwarding it would hand rbp a press it
+ * cannot interpret.
  *
- * THE TWO GATES ARE THE SURFACES THAT OWN THE GLASS. The USB STOP chooser takes every
- * report by design while it is up (prompt_zone.h), and the browser window is opaque
- * and drawn over everything; both would otherwise be reachable by a hand the operator
- * did not aim with. The band needs no gate here: a drawer cannot arm while the band is
- * open, which side_zone.h's closed-entry arm already enforces.
+ * THE ONE GATE IS THE SURFACE THAT OWNS THE GLASS. The USB STOP chooser takes every
+ * report by design while it is up (prompt_zone.h); it would otherwise be reachable by
+ * a hand the operator did not aim with. The band needs no gate here: a drawer cannot
+ * arm while the band is open, which side_zone.h's closed-entry arm already enforces.
  *
  * A TAP IS DROPPED, not replayed. `side_feed_any()` can answer MZ_FEED_TAP for a
  * second finger that tapped a shut drawer's entry column, and the primary path
@@ -2342,7 +2318,7 @@ static void pointer_report_alt(int down, const struct point_xform *x, int rx, in
      * the right-hand drawer's entry column runs the full height of the cell's own panel,
      * so a second finger landing there while the pad is engaged would open a drawer drawn
      * straight over the pad the operator is still dragging. */
-    if (prompt_is_open() || fxlist_is_open() || menu_window_is_open() || fxpad_busy())
+    if (prompt_is_open() || fxlist_is_open() || fxpad_busy())
         return;
 
     point_xform_abs(x, rx, ry, &lx, &ly);
@@ -2387,7 +2363,7 @@ static void read_loop_abs(int fd, const struct point_xform *x)
 {
     struct ev_input_event ev;
     /* ONE POINTER PER SLOT. Index 0 is the primary contact -- the one rbp, the band,
-     * the browser window, the USB STOP chooser and the UTILITY gesture all read, and
+     * the USB STOP chooser and the UTILITY gesture all read, and
      * the only one they are told about. Index 1 exists solely for the edge drawers,
      * whose two channel faders are the one control pair a DJ rides with both hands;
      * pointer_report_alt() below is where it goes, and a report it does not take is

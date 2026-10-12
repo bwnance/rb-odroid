@@ -336,11 +336,12 @@ static void test_geometry(void)
  *
  * The set is no longer just the panel's labels. Lowercase and ten punctuation marks
  * were appended on 2026-10-04 for the browser window's URL bar and its popup
- * keyboard, and two of the pins below moved with them: 'Z' is no longer the last
+ * keyboard (both removed 2026-10-12; the glyphs were kept, see menu_font.h), and two
+ * of the pins below moved with them: 'Z' is no longer the last
  * glyph and 'a' is no longer absent. The append-only rule is what keeps the rest of
- * this file -- and the operator's seven felt buttons -- untouched, and the keyboard's
- * own alphabet is now pinned here too, so a key the atlas cannot draw is caught on
- * the host rather than found as a blank cap on the glass.
+ * this file -- and the operator's seven felt buttons -- untouched, and the appended
+ * runs are pinned here too, so a re-bake that loses one is caught on the host rather
+ * than found as a gap on the glass.
  * ------------------------------------------------------------------------- */
 static void test_font(void)
 {
@@ -487,12 +488,12 @@ static void test_font(void)
     CHECK(menu_font_glyph('~')->adv == menu_font_glyph(' ')->adv,
           "an unsupported character does not resolve to a space");
 
-    /* THE KEYBOARD'S ALPHABET IS IN THE ATLAS. menu_keyboard.h's caps name these
-     * characters and the URL bar is typed with them; a character the atlas lacks
-     * draws a gap, which on a key cap is a blank button the operator cannot tell
-     * from a broken one. bake_menu_font.py checks the same string at bake time, so
-     * this is the belt to that braces -- it catches a keyboard that names a
-     * character the font deliberately never carried. */
+    /* THE APPENDED RUNS ARE IN THE ATLAS, INK AND ALL. Lowercase and the punctuation
+     * were appended for the browser window's URL bar and its popup keyboard, both
+     * removed on 2026-10-12 -- nothing draws them now, and they stay because cutting
+     * them is a re-bake rather than an edit (bake_menu_font.py's CHARS note). The check
+     * is kept with them: it is what a re-bake is measured against, and a character the
+     * atlas lacks draws a gap, which is a blank where a mark should be. */
     {
         static const char *keys =
             "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"

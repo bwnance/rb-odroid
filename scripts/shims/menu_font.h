@@ -44,10 +44,10 @@ WHY IT IS THINNED, which is the one thing here that is not simply the device's f
  * character outside the set draws a gap of the space advance's width rather than
  * garbage, which is also what the old table did.
  *
- * THE SET IS ALSO THE KEYBOARD'S. menu_keyboard.h's keys name characters from it,
- * and bake_menu_font.py's KEY_ALPHABET is checked against this same string at bake
- * time -- so a key that would draw a gap fails the bake instead of shipping as a
- * dead key.
+ * THE WINDOW AND ITS KEYBOARD ARE GONE; THE GLYPHS THEY NEEDED ARE NOT. Removing
+ * them would be a re-bake, and a re-bake rewrites every glyph index in this file for
+ * no gain -- a label is uppercase and always was, so the lowercase and the punctuation
+ * runs are a superset that nothing draws from. They stay as a superset.
  *
  * THE LAYOUT IS THE FONT'S OWN METRICS, not a fixed cell. Each glyph carries its
  * pen advance and the position of its ink box relative to the pen origin and to the
@@ -79,9 +79,9 @@ WHY IT IS THINNED, which is the one thing here that is not simply the device's f
 #define MENU_FONT_KERNED  0
 
 /* The punctuation run, in index order, appended after the lowercase -- the marks a
- * URL needs and a label never did. menu_keyboard.h's bottom row is built from it, so
- * the keyboard and the atlas name the same characters rather than two lists that
- * agree today; test_menu.c uses it to place the runs. */
+ * URL needed and a label never did. Nothing draws from it since the browser window
+ * went (2026-10-12); it is kept because cutting it is a re-bake, not an edit. test_menu.c
+ * uses it to place the runs. */
 #define MENU_FONT_PUNCT   "./-_:?=&@#"
 
 /* The band the whole set's ink can occupy: rows MENU_FONT_INK_TOP ..
@@ -899,8 +899,8 @@ static inline int menu_font_cov(const struct menu_glyph *g, int col, int row)
  * test_paint_label_pens each paint their surface and check that the ink the painter laid
  * down is exactly the ink a walk of these advances over the same atlas puts there -- a
  * number the pen's origin cannot influence, so it needs no copy of the module's own
- * scaling. The fifth walker is menu_window_paint.c's, in the abandoned browser window: it
- * has no such test and no label it can be run on. */
+ * scaling. The fifth walker, in the browser window, went with the window on 2026-10-12:
+ * it had no such test and no label it could be run on. */
 static inline int menu_font_adv(unsigned char c, unsigned char next)
 {
     int i = menu_font_index(c);
