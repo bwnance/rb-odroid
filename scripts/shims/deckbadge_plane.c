@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>        /* atoi */
+#include <sys/mman.h>      /* PROT_READ, MAP_SHARED */
 #include <unistd.h>
 
 #include "deckbadge_paint.h"     /* deckbadge_ring(), the one ring drawer */
@@ -19,6 +20,7 @@
 #include "drmband.h"
 #include "menu_paint.h"
 #include "pointsrc.h"        /* pointsrc_log */
+#include "syscalls.h"        /* real_mmap: the shim interposes mmap */
 
 /* The ring, and the drawer's lit frame: two device px of the accent green (side_paint.c's
  * SP_FRAME_LIT and its PLAY accent). */
@@ -54,6 +56,17 @@
                               * not do is wait for a blink's dark half, which is what made the plane
                               * go down and come back while a deck was playing. */
 
+/* HOW OFTEN THE COPY IS REFRESHED, in ticks. The copy is a memcpy out of a mapping now, not a
+ * read() per row (see fb_open_once), so the 30 ms stall and 93% of a core are gone -- but the
+ * framebuffer is UNCACHED memory, and re-reading 95x50 twice a tick at 36 ticks a second still
+ * measured 17.8% of a core. Nine ticks is ~4 Hz, which takes that to about a fiftieth of a core.
+ *
+ * WHAT IT IS FOR IS STILL ONLY THE FOSSIL: rbp's pixels in that box change when a screen changes,
+ * a track loads or a title is rewritten, and this copy exists so the plane cannot show a stale
+ * badge for a whole session. A quarter of a second of staleness is invisible, and the RING is drawn
+ * from the live bit on the show/hide paths, so nothing the operator is watching is delayed. */
+#define DB_COPY_TICKS 9
+
 #define FB_PATH "/dev/fb0"
 
 static struct drm_band band[2];
@@ -62,6 +75,7 @@ static int  usable[2];              /* this deck has a plane we can draw into */
 static int  up[2];                  /* ...and it is currently on the glass */
 static int  run[2];                 /* consecutive ticks this deck has read as playing */
 static int  idle[2];
+static int  copy_ticks[2];          /* ticks since this deck's copy was refreshed */
 static unsigned int db_last_pv;    /* the pixel the ring is drawn with, for the log */
 
 /* THE COPY IS COMPARED BEFORE IT HAPPENS. The ring sits on a copy of rbp's badge, so the copy has
@@ -84,6 +98,11 @@ static signed char     db_shown[2];      /* -1 = nothing drawn yet, else the rin
 static int  fb_fd = -1;
 static int  fb_open_done;          /* one attempt, whatever it answered */
 static int  fb_pitch;               /* BYTES per row, which is what the ioctl reports */
+/* rbp's pixels, MAPPED RATHER THAN read() (2026-10-12). See paint_plane() for why that is the
+ * whole cost: a framebuffer read is a device you ask, at ~260 us a call; the same bytes out of a
+ * mapping are a memcpy. */
+static unsigned char *fb_map;
+static size_t fb_map_len;
 static int  fb_bpp;
 static int  fb_w, fb_h;
 
@@ -146,8 +165,28 @@ static void fb_open_once(void)
     fb_w = vw;
     fb_h = vh;
     fb_fd = open(FB_PATH, O_RDONLY);
-    if (fb_fd < 0)
+    if (fb_fd < 0) {
         pointsrc_log("badge: no %s (%m) -- nothing to copy the badge from, so no ring", FB_PATH);
+        return;
+    }
+
+    /* MAP IT, DO NOT read() IT. The copy below used to be a lseek+read pair PER ROW: 50 of them per
+     * deck, 100 per tick across the two, and each pair measured ~260 us -- 93% of a core, and a
+     * THIRTY MILLISECOND STALL on the paint thread every tick, which is also the thread that owns
+     * the zones' latches. A framebuffer is a device you ask, not memory you walk: the same pixels
+     * out of a mapping are a memcpy, and the stall disappears rather than being spread out.
+     *
+     * This is what the sibling project (full-touch-ui-xdj-rx3) does everywhere and it is worth
+     * naming: no shim of theirs contains a /dev/fb read(), a lseek or an FBIO* at all. They get a
+     * CPU pointer -- DirectFB's Lock(DSLF_READ) -- and poke a few pixels. There is no reason for
+     * this project to ask the kernel for bytes it can already see. */
+    fb_map_len = (size_t)fb_pitch * (size_t)fb_h;
+    fb_map = real_mmap(NULL, fb_map_len, PROT_READ, MAP_SHARED, fb_fd, 0);
+    if (fb_map == (void *)-1 || fb_map == NULL) {
+        fb_map = NULL;
+        pointsrc_log("badge: could not map %s (%m) -- no ring (the badge still works)", FB_PATH);
+        return;
+    }
 }
 
 /* Take the 95 x 50 the badge already occupies out of rbp's buffer and put it in the plane, then
@@ -161,20 +200,20 @@ static int paint_plane(int deck, int ring)
     unsigned short *dst = band[deck].pix;
     int x0;
 
-    if (fb_fd < 0 || fb_bpp != 16 || band[deck].bpp != 16 ||
+    if (!fb_map || fb_bpp != 16 || band[deck].bpp != 16 ||
         band[deck].w != w || band[deck].h != h)
         return -1;
 
+    /* A MEMCPY OUT OF THE MAPPING, ONE ROW AT A TIME, AND NO SYSCALLS AT ALL. The old loop was a
+     * lseek+read pair per row -- see fb_open_once() for the measurement and why the mapping is the
+     * whole difference. The row arithmetic is unchanged and deliberately so: the same pitch, the
+     * same column, the same bytes, so this cannot change what the ring looks like. */
     x0 = deck ? DB_DECK2_X0 : DB_DECK1_X0;
-    for (ly = 0; ly < h; ly++) {
-        off_t off = (off_t)(DB_Y0 + ly) * fb_pitch + (off_t)x0 * (fb_bpp / 8);
-
-        if (lseek(fb_fd, off, SEEK_SET) == (off_t)-1)
-            return -1;
-        if (read(fb_fd, (char *)db_cur[deck] + (size_t)ly * w * sizeof(unsigned short),
-                 (size_t)w * sizeof(unsigned short)) != (ssize_t)(w * sizeof(unsigned short)))
-            return -1;
-    }
+    for (ly = 0; ly < h; ly++)
+        memcpy((char *)db_cur[deck] + (size_t)ly * (size_t)w * sizeof(unsigned short),
+               fb_map + (size_t)(DB_Y0 + ly) * (size_t)fb_pitch
+                      + (size_t)x0 * (size_t)(fb_bpp / 8),
+               (size_t)w * sizeof(unsigned short));
 
     /* NOTHING MOVED AND THE RING DID NOT CHANGE: leave the buffer alone. This is the branch that
      * keeps the plane still, and it is the common one. */
@@ -231,8 +270,9 @@ void deckbadge_plane_sync(const int *playing, int on_screen)
     if (!tried) {
         tried = 1;
         fb_open_once();
-        pointsrc_log("badge: fb %dx%d %d bpp pitch %d bytes -- the ring's planes copy from here",
-                     fb_w, fb_h, fb_bpp, fb_pitch);
+        pointsrc_log("badge: fb %dx%d %d bpp pitch %d bytes, mapped %zu bytes -- the ring's planes "
+                     "copy from memory here, not from a read()",
+                     fb_w, fb_h, fb_bpp, fb_pitch, fb_map_len);
         /* SET UP NOW, NOT ON THE FIRST PLAY. A third and fourth overlay plane either can be had on
          * this machine or cannot, and that is worth knowing at start-up rather than the moment the
          * operator hits play -- drm_band_setup() logs its own failures through pointsrc_log(). */
@@ -269,7 +309,10 @@ void deckbadge_plane_sync(const int *playing, int on_screen)
              * and the plane's own two thresholds decide when it exists. Synchronising it with the
              * drawer's PLAY needs the drawer's own repaint gate understood first, rather than
              * another guess. */
-            paint_plane(deck, 1);
+            if (++copy_ticks[deck] >= DB_COPY_TICKS) {
+                copy_ticks[deck] = 0;
+                paint_plane(deck, 1);
+            }
             continue;                       /* rbp cannot reach the plane, only we can */
         }
 
@@ -289,6 +332,7 @@ void deckbadge_plane_sync(const int *playing, int on_screen)
             pointsrc_log("badge: deck%d ring up at %d,%d, drawn with pv %#x", deck + 1,
                          deck ? DB_DECK2_X0 : DB_DECK1_X0, DB_Y0, db_last_pv);
             up[deck] = 1;
+            copy_ticks[deck] = 0;          /* the paint just done is the copy's tick zero */
             pointsrc_log("badge: deck%d ring up at %d,%d, drawn in pv %#x", deck + 1,
                          deck ? DB_DECK2_X0 : DB_DECK1_X0, DB_Y0, db_last_pv);
         }

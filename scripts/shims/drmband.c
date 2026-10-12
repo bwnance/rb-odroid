@@ -294,6 +294,7 @@ static int pick_plane(int fd, unsigned int index, unsigned int fourcc,
 {
     struct drm_mode_get_plane_res pr;
     unsigned int *ids, i, n;
+    unsigned int seen = 0;          /* candidates passed over -- see DRM_BAND_SKIP_OVERLAYS */
 
     memset(&pr, 0, sizeof pr);
     if (real_ioctl(fd, DRM_IOCTL_MODE_GETPLANERESOURCES, &pr) < 0)
@@ -348,6 +349,15 @@ static int pick_plane(int fd, unsigned int index, unsigned int fourcc,
             continue;
         if (plane_taken_by_us(ids[i]))
             continue;                   /* ours already -- see g_dev.taken */
+
+        /* ...PAST THE ONES THAT GO NOWHERE. See DRM_BAND_SKIP_OVERLAYS in drmband.h: the first
+         * free overlays are reported by the kernel as bound and enabled and are not composited,
+         * so every surface steps over them. This is counted per call and before the rank, so the
+         * ranks still order the surfaces relative to one another. */
+        if (seen < DRM_BAND_SKIP_OVERLAYS) {
+            seen++;
+            continue;
+        }
 
         /* ...AND THE RANK: the caller wants the (skip+1)-th free one, not the first. This is how
          * the stacking order is chosen (see drmband.h), because the driver's DEFAULT zpos follows

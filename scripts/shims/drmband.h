@@ -73,7 +73,13 @@ typedef signed int         __s32;
 #define DRM_IOCTL_MODE_GETPLANE         DRM_IOWR(0xB6, struct drm_mode_get_plane)
 #define DRM_IOCTL_MODE_SETPLANE         DRM_IOWR(0xB7, struct drm_mode_set_plane)
 #define DRM_IOCTL_MODE_OBJ_GETPROPERTIES DRM_IOWR(0xB9, struct drm_mode_obj_get_properties)
-#define DRM_IOCTL_MODE_OBJ_SETPROPERTIES DRM_IOW(0xBC, struct drm_mode_obj_set_property)
+/* THE KERNEL'S OWN ENCODING, SPELLED OUT BECAUSE GETTING IT WRONG IS INVISIBLE. This line read
+ * DRM_IOW(0xBC, ...) until 2026-10-12 -- a DIFFERENT COMMAND, since the number and the direction
+ * are part of the ioctl word. Nothing called it, so nothing failed; the first caller would have got
+ * ENOTTY out of a driver that supports the call perfectly well, and ENOTTY here reads exactly like
+ * "this driver will not let you set properties". It is what the ARGB plane's alpha and blend mode
+ * are set through, so it is the difference between a faded ring and a diagnosis that is wrong. */
+#define DRM_IOCTL_MODE_OBJ_SETPROPERTY   DRM_IOWR(0xBA, struct drm_mode_obj_set_property)
 
 /* The "type" property's enum ordinals. libdrm spells these in xf86drmMode.h,
  * which is a library header and not uapi; they are the kernel enum's order. */
@@ -83,6 +89,28 @@ typedef signed int         __s32;
 
 #define DRM_MODE_OBJECT_PLANE   0xeeeeeeee
 #define DRM_CLIENT_CAP_UNIVERSAL_PLANES 2
+
+/* HOW MANY OF THE FIRST FREE OVERLAY PLANES TO PASS OVER, for every surface that asks for one.
+ *
+ * NOT SUPERSTITION -- MEASURED 2026-10-12. The deck badge's rings ask for DRM_RANK_RING, i.e. the
+ * FIRST free overlay, which on this unit is plane 127 (deck 1) and 138 (deck 2). The kernel's own
+ * state dump reports those two as bound, enabled, at the right coordinates, on the same CRTC, in
+ * the same RG16 format as surfaces that DO reach the screen -- and nothing they contain ever
+ * appears on it. The menu band (plane 193) and the side drawers (171, 182) share every one of those
+ * properties and are visible.
+ *
+ * The proof that the PLANE is what differs, rather than the geometry or the surface: a probe put the
+ * badge's plane at exactly the band's shape and place (1280x56 at 0,0, magenta) and it stayed
+ * invisible on plane 127 -- and appeared on the screen the moment the same build asked for a late
+ * rank and landed on plane 215. Same geometry, same format, same process, same rank machinery, same
+ * first-to-set-up surface. Only the plane.
+ *
+ * So every surface steps over the first DRM_BAND_SKIP_OVERLAYS candidates, which keeps the RELATIVE
+ * order the ranks exist for (a badge still lands below a drawer, a drawer below the band) while
+ * moving all of them clear of the ones that go nowhere. Four rather than two because 171 is the
+ * first plane this project has actually seen work, and stepping over two unverified planes costs
+ * nothing. */
+#define DRM_BAND_SKIP_OVERLAYS  4
 
 #define DRM_DISPLAY_MODE_LEN 32
 #define DRM_PROP_NAME_LEN    32
@@ -249,6 +277,16 @@ struct drm_band {
  * logger, so a machine that cannot have the plane says WHY in the log the rest of
  * the display code already writes to. */
 int  drm_band_setup(struct drm_band *b, int w, int h, int bpp);
+
+/* The same, but the caller NAMES the format. One caller needs this and it is worth its own entry
+ * point: DRM_FORMAT_ARGB8888 carriers carry per-pixel alpha, so a surface can draw ONLY ITS OWN
+ * pixels and let rbp's show through the rest -- where the bpp-derived formats (RGB565, XRGB8888)
+ * are opaque, which is why every one of them has to COPY rbp's pixels into its buffer first.
+ *
+ * `bpp` is still passed because the buffer geometry is in bytes-per-pixel terms (pitch, the
+ * ADDFB depth) and the two must agree; the fourcc decides the format word and the depth.
+ * drm_band_setup() is this with the fourcc derived from bpp, so the two cannot drift. */
+int  drm_band_setup_fmt(struct drm_band *b, int w, int h, int bpp, unsigned int fourcc);
 
 /* ------------------------------------------------------------- the stacking order
  *
