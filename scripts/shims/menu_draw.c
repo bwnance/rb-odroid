@@ -406,6 +406,16 @@ struct menu_map {
     int  fxp_ok;                 /* the pad's plane is set up and mapped */
     int  fxp_on;                 /* ...and it is on the glass right now */
     int  fxp_fail;               /* this machine refused a cell-sized plane */
+    /* ...AND WHAT THE IMAGE IN THE BUFFER WAS DRAWN FOR. fxpad_paint() is a function of
+     * exactly (mark, mx, my) into a fixed buffer, so these three are the gate -- see
+     * menu_fxpad_live(), which repainted every tick until 2026-10-12 and made the whole
+     * cell flash. `fxp_painted_ok` is 0 until something has been drawn and is cleared
+     * whenever the buffer is fresh (a plane set up or re-shown after a teardown), because
+     * a new dumb buffer holds nothing anyone can read. */
+    int  fxp_painted_ok;
+    int  fxp_painted_mark;
+    int  fxp_painted_mx;
+    int  fxp_painted_my;
 
     /* The page, and the picture rect inside it, kept only so that a plane which
      * will not go up can be abandoned mid-session: the view goes back to these
@@ -1627,6 +1637,24 @@ static void menu_fxpad_live(void)
     if (!fxpad_paint_ok(&dv))
         return;
 
+    /* THE REPAINT GATE, which this box needed more than any of the others and did not
+     * have: it paints the whole cell -- the bed over rbp's own readout, then the dot --
+     * and its destination is a SINGLE-BUFFERED plane the display controller is scanning
+     * out the whole time. Repainting that every tick means the scanout can catch the cell
+     * between the bed and the dot, so the readout BLANKS and the mark comes back, over and
+     * over -- the operator's *"it flashes"* (2026-10-12). Every other plane here is gated
+     * on the values its image is a function of; this one was gated on nothing at all.
+     *
+     * A finger that is still, or an idle pad mid-restore, now costs one comparison. The
+     * SHOW is still reached on both paths: it is idempotent while the plane is already up
+     * in the same place, and it is what puts a freshly set-up buffer on the glass. */
+    if (g.fxp_painted_ok && g.fxp_painted_mark == mark &&
+        g.fxp_painted_mx == mx && g.fxp_painted_my == my) {
+        if (!g.fxp_on && drm_band_show(&g.fxp, menu_fxp_bx(), menu_fxp_by()) == 0)
+            g.fxp_on = 1;
+        return;
+    }
+
     t0 = menu_now_us();
     if (g.fxp_ok) {
         menu_fxp_page_view(&pv);
@@ -1636,6 +1664,10 @@ static void menu_fxpad_live(void)
          * pixels, so there is nothing to copy and the source is deliberately NULL. */
         fxpad_paint(&dv, NULL, mark, mx, my);
     }
+    g.fxp_painted_ok   = 1;
+    g.fxp_painted_mark = mark;
+    g.fxp_painted_mx   = mx;
+    g.fxp_painted_my   = my;
     if (g.verbose)
         pointsrc_log("fxpad: hud %ld us: mark %d at %d,%d", menu_now_us() - t0, mark, mx, my);
 
@@ -1685,6 +1717,7 @@ static void menu_fxpad_plane_sync(void)
         } else {
             g.fxp_ok = 1;
             g.fxp_on = 0;
+            g.fxp_painted_ok = 0;   /* a fresh dumb buffer holds nothing readable */
         }
     }
 
