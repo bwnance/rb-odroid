@@ -51,6 +51,8 @@
 #include "tscfake.h"
 #include "fbdev.h"
 #include "menu_draw.h"
+#include "deckmark.h"        /* the playing-deck bar, on the same seam and for the same reason */
+
 #include "syscalls.h"
 #include "envutil.h"
 #include "pointsrc.h"          /* pointsrc_log, for the vsync counter below */
@@ -341,6 +343,13 @@ int ioctl(int fd, unsigned long request, ...)
          * frames arrive at, not a rate inferred from CPU. */
         vsync_rate_tick();
         menu_frame_tick();
+        /* AND LAST, SO IT IS THE LAST WRITER OF ITS ROWS THIS FRAME. The playing-deck bar goes into
+         * rbp's own page rather than an overlay plane -- see deckmark.h for why -- and the whole
+         * reason it is drawn HERE, at the entry of the wait rather than after it, is the paragraph
+         * above: this is the one moment in rbp's frame that comes after its drawing and before the
+         * scanout. Its rows are the bottom of the deck strips (780..799), which rbp's next sweep
+         * reaches last, so the bar outlives most of the frame it was drawn into. */
+        deckmark_seam();
         return real_ioctl(fd, request, arg);
     case FBIOPAN_DISPLAY: {
         long pace_ns = pan_pacer_ns();
