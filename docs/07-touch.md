@@ -1824,11 +1824,12 @@ A later round added four things to that first design, and they change its shape:
 
 Two choices from the first round are the operator's and still fixed: the fader
 **jumps to where you touch** (absolute, not a relative nudge); and it is a **narrow
-full-height drawer**, not a small box. The third — *"closed by tapping away"* — was
-**reversed** by the operator in the round that added `SYNC`/nudge/transport: *"the
-side bar should stay up until i swipe them away"*. The only act that closes a drawer
-is now the outward background sweep; see *The gesture* below, and the reversal note
-there.
+full-height drawer**, not a small box. The third — *"closed by tapping away"* — has
+now been **reversed twice**: removed with *"the side bar should stay up until i swipe
+them away"*, and asked back on 2026-10-12 with *"if i have the side panels up and i tap
+outside of it you can hide them"*. So **two** acts close a drawer: the outward
+background sweep, and a tap on the glass between the panels. See *The gesture* below,
+which carries the cost of the second one.
 
 ### The geometry, and why the two sides are one set of rules
 
@@ -1840,7 +1841,7 @@ the mirror exists and every other rule is written once.
 | Region | left panel (local x) | right panel |
 |---|---|---|
 | panel | x 0..179, y 0..799 | x 1100..1279, y 0..799 |
-| title `CH 1` / `CH 2` | x 16..163, y 12..35 | mirrored |
+| title `CH 1 FADER` / `CH 1 PITCH` | x 16..163, y 12..35 | mirrored |
 | **SYNC** | x 16..163, y 44..115 | mirrored |
 | **nudge** `-` / `+` | `-` x 16..85, `+` x 94..163, y 128..163 | mirrored |
 | value readout `0`..`100` | x 66..113, y 206..229 | mirrored |
@@ -1980,19 +1981,38 @@ so a control rbp draws under the entry column is **delayed, never dropped**.
 While the drawer is out, **no button closes it**. That was the first design's rule —
 any release but the fader's put the panel away — and it is wrong now: with a SYNC
 button, a nudge pair and the transport all on one panel, *"SYNC, then nudge, then
-PLAY"* would be three swipes. **Exactly one act closes a drawer:**
+PLAY"* would be three swipes. **Exactly two acts close a drawer:**
 
 - a **56 px outward swipe on the panel's own background** (`SZ_CLOSE_PX`), dismissed
-  *mid-press* without waiting for the lift.
+  *mid-press* without waiting for the lift;
+- a **tap on the glass between the panels** — the "away" dismissal, `side_feed_any()`'s
+  step 3 — latched at its down edge and fired on the **lift**, so both drawers go at once
+  and a finger that lands and wanders off is still one tap.
 
-**The reversal, recorded.** The first round also closed a drawer on any press that
-began off every open panel — the *"tap away to close"* in `side_feed_any()`'s old
-"away" step, which closed **both** drawers at once. The operator removed it: *"the
-side bar should stay up until i swipe them away."* So a press on the centre glass
-while a drawer is out is no longer a dismissal at all — it is handed to rbp
-untouched, on its down edge and its release alike, and the drawer that was already
-out is still out afterwards. `side_feed_any()`'s step 3 is no longer a special case
-but the ordinary one: *nothing here claimed it, return `MZ_FEED_NONE`*.
+**The "away" step has been reversed twice, and that is worth its own paragraph because it
+is the one thing here the operator has changed their mind about.** The first round closed
+a drawer on any press that began off every open panel — the *"tap away to close"*, closing
+**both** drawers. They removed it: *"the side bar should stay up until i swipe them away."*
+On 2026-10-12 they asked for it back: *"if i have the side panels up and i tap outside of
+it you can hide them."*
+
+**WHAT IT COSTS, in full, because the cost is why it was removed the first time:** while a
+drawer is out, the **first** tap on the glass rbp draws for itself is spent closing the
+panels, and rbp does not get that tap. A tap the operator wants rbp to act on is the next
+one. Nothing else on the screen is affected — steps 1 and 2 above have already claimed
+every press that lands on an open panel or in a shut drawer's entry column, so step 3 only
+ever reaches the glass *between* the panels — and **with no drawer open nothing is latched
+at all**, so the centre of the screen behaves exactly as it did while the dismissal was
+gone.
+
+Two details that are easy to get wrong and are pinned by `test_side.c`'s
+`test_away_dismissal()`: the latch **owns every report of its own press** (step 0b, before
+the two panel steps), so a finger that dismisses a panel and then wanders onto the *other*
+edge is not re-read as a swipe on a shut drawer's entry column — without that the lift
+would come back a `MZ_FEED_TAP` and replay a press to rbp that rbp never saw a down for;
+and it is **the primary hand's only**, because `side_zone.h` says the second contact is
+"offered to the drawers and to nothing else" and a second finger resting on the glass must
+not clear the panel.
 
 A press on the drawer's own background that does not travel is therefore not a
 dismissal: it is swallowed and does nothing. A press that began on the fader lane is
@@ -2071,6 +2091,128 @@ nine sends and no repeats.
 **The value drawn before the first touch** is `g_fader[ch]`, the same number rbp's
 mixer is being sent, so what the drawer shows is what the channel is doing. That array
 is the subject of the next subsection, and it is the sharpest trap in this change.
+
+### The header is the FADER/PITCH toggle
+
+The title row is a **control**, and it is the whole of the toggle: the operator's *"some
+type of label toggle (fader/pitch) so it switches between a volume fader and a pitch
+control"* (2026-10-12). A tap on it flips **that panel's** fader between the channel fader
+and rbp's tempo slider, and the label says which it is — `CH 1 FADER` or `CH 1 PITCH` — so
+the strip never has to be read twice. It is per SIDE: the volume can be ridden on one deck
+and the pitch on the other.
+
+**The mode is panel state, not press state.** It lives in `side_zone.c` beside `sz_open[]`,
+and it is deliberately **not** cleared by `side_reset()` — that exists for a finger that
+stopped existing, and a drawer that flipped back to volume because the touch device
+hiccuped would be the panel changing a setting behind the operator. It starts at VOLUME on
+every launch. `side_zone.c` owns the whole state machine: the tap flips the mode *there*
+and then reports `SZ_ACT_MODE`, which carries no message for rbp (a caller that ignores it
+still gets a working toggle). The act is `8`, the hit is `SZ_HIT_TITLE`.
+
+**A tap toggles; a sweep from the header still dismisses.** Before the toggle the header
+was `SZ_HIT_BG`, so an outward sweep starting on it put the drawer away. Turning it into a
+control could have taken that gesture away silently — so the dismissal rule accepts a press
+that began on the header exactly as it accepts one that began on the background. The two
+cannot collide: the dismissal needs **`SZ_CLOSE_PX` of outward travel**, the toggle needs a
+press that **ended where it began**. `test_side.c` pins both.
+
+**What each mode sends is what the panel beside it already sends:**
+
+| mode | the drag sends | the value the knob is drawn at |
+|---|---|---|
+| VOLUME | `K_FADER 0x501e` / `OP_VALUE`, the value itself | `g_fader[side_channel()]` |
+| PITCH | `K_TEMPO_SLIDER 0x4109` / `OP_VALUE` — *exactly* what the nudge pair sends | `g_pitch_norm[deck]` |
+
+`side_zone.c` reports the same 0..1023 position either way — its arithmetic does not know
+about modes, because this family's contract is that the module says **which** control and
+leaves the message to the caller. `pointsrc.c`'s `SZ_ACT_FADER` arm is the one place they
+differ, and in PITCH it sends the fader's own value **as the 10-bit argument**, deriving the
+norm from it rather than the other way round: the forward map truncates, so re-deriving v10
+from the norm would lose a step for 84 of the 1024 positions. It then **publishes** the
+position with `pitch_state_set()`, which is what keeps the nudge pair honest — a nudge moves
+*from* where the pitch fader left the tempo. **The channel fader is not touched in PITCH
+mode**, which is the one thing a pitch control must never do.
+
+THE TWO ARRAYS ARE INDEXED DIFFERENTLY, and `menu_draw.c`'s `menu_side_value()` is the one
+place it shows: `g_fader` is indexed by **channel** (1..2, `side_channel()`) and
+`g_pitch_norm` by **deck** (0..1, which is `SZ_LEFT`/`SZ_RIGHT`). Using `side_channel()` on
+the pitch array would read index 2 — past its end — for the right drawer.
+
+**The style is the cdj3k-emu mixer's own fader**, brought over on the operator's ask of
+2026-10-12 — *"the style should look more like the faders we created in the cdj3k-emu repo
+and look like fader_knob.png"*. That fader (`crates/cdj3k-emu-ui/src/app/mixer.rs`,
+`channel_fader()`) is three things, and all three are here:
+
+* **A THIN RAIL, not a wide well** — the groove is `SP_RAIL_W` (8 px) of `MENU_DIV` down
+  the middle, and it is the marks either side that make the scale.
+* **TWENTY-ONE MARKS, ALL THE SAME LENGTH** (`SP_MARK_IN` 18 → `SP_MARK_RAIL` 67, so each
+  is 49 px), running out to 3/4 of the panel from a common inner end. The reference
+  alternates long and short, and this did too until the operator's own correction —
+  *"make all the lines the same width vs alternating"* — and then *"get each line a bit
+  closer to the middle grey strip"*, which is what moved the inner ends in to hug the
+  groove. The marks are `MENU_BORDER`.
+* **A CAP WIDER THAN THE RAIL WITH A GRIP LINE ACROSS IT** — face `MENU_BTN`, outline
+  `MENU_BORDER`, and the grip in `MENU_LABEL`, which is the reference's white. The grip is
+  the one mark that says "put your finger here" rather than "this is the level".
+
+The mapping onto this panel's palette is close by the numbers: the reference's rail core is
+`(70,73,78)` against `MENU_DIV`'s `(70,74,80)`; its cap face `(61,64,69)` against
+`MENU_BTN`'s `(40,44,52)`; its outline `(155,158,164)` against `MENU_BORDER`'s
+`(200,204,210)`; its grip white against `MENU_LABEL`'s `(240,242,246)`. Its marks
+`(116,119,124)` fall between `MENU_DIV` and `MENU_BORDER`, and `MENU_BORDER` is taken
+because this drawer's bed is **black** where the reference's is a grey panel — a mark has
+to be lighter here to read at all. **Corners stay square**, which is the one deliberate
+departure: the reference rounds its cap by 2 px, and every other control on this panel is a
+square box, so rounding one element of the family would read as a mistake.
+
+**And the readout is volume-only.** The shim is never told rbp's tempo range, so any number
+there would be a tempo it cannot know — and "%d of the fader's travel" is not a tempo
+either. The knob, the marks and the grip carry the pitch position instead.
+
+**The knob is the same in both modes, and that is a reversal.** It began as two widths —
+the operator's *"make them visually different"* — and their own correction made it one:
+*"the knob should look the same as the fader knob"*. `SP_CAP_W` is 80 px, wider than the
+rail so it reads as a knob and inside the grab lane so the knob you can see is the knob
+you can grab. What still separates the two modes is the **title**, whether the **readout**
+is drawn, and the scale's labels below.
+
+**The pitch scale carries `-`, `0` and `+`.** One column, on the left side of the hash
+marks where a printed scale keeps its numbers, each **vertically centred on the mark it
+labels**: `-` on the top mark, `0` on the detent, `+` on the bottom one. They are the
+whole of the orientation — the fader runs top-is-slow, so `-` is at the top — and without
+them which way the control runs is something the operator has to remember.
+
+They are **drawn, not set**, and that is not a preference. The atlas is a single 19 px bake
+and `menu_font.h`'s rule is that nothing here scales a glyph, so the operator's ask for
+*fewer* pixels than the font has — *"font is too big, for the + 0"*, then *"make the font
+not bold"* — is met by drawing the marks instead: `-` is one bar, `+` that bar crossed, `0`
+a small ring, all one pixel thick, which is the **hash marks' own weight**. A label drawn
+heavier than the marks it labels reads as a different kind of thing. It is the same
+decision `sp_sign()` already makes for the nudge pair, which is drawn because the atlas has
+no `+` at all — and, unlike a `sp_text()` label, a drawn mark mirrors with its panel, so
+the two drawers stay symmetric.
+
+They are drawn **with** the marks, before the cap, so the knob rides over the zero when it
+is sitting on the detent instead of the zero being painted across the knob's face.
+
+**A mode flip is a picture change, so it is in the repaint gate.** `menu_draw.c` rebuilds a
+drawer only when one of the values it was drawn with changes, and the mode is now the fifth
+of them (`side_painted_mode[]`, initialised to `-1` because `0` is a real mode). Leaving it
+out would swallow the one change the toggle exists to make — the positions can coincide (a
+channel fader at the same number as the pitch position), so the value alone is not enough
+to notice.
+
+**THE PITCH FADER RUNS THE OTHER WAY UP: TOP IS SLOW.** The operator, on the glass,
+2026-10-12: *"for the pitch control sliding up should bring the tempo down not up"* — which
+is how a CDJ's tempo slider has always worked, and the opposite of the volume fader drawn
+directly above it on the same panel. `pitch_state.h`'s `pitch_v10_for_fader()` /
+`pitch_norm_for_fader()` are the whole of that mapping, and **both** the draw
+(`menu_draw.c`) and the send (`pointsrc.c`) go through them, so the handle and the wire
+cannot disagree about which way up the control is. The NORM itself is unchanged — still
+-1 slower / +1 faster — and a nudge's `+` still means forward; only the drawer's own
+slider is turned over, because only the drawer draws a slider. `test_pitch.c`'s
+`test_fader_inversion()` pins both ends and the round trip (which costs at most one step,
+and that is stated there rather than hidden).
 
 ### One `g_fader` across both shims (`fader_state.c`)
 

@@ -36,10 +36,13 @@
  *
  * WHAT A PRESS IS OFFERED TO, now that two panels can be out: the drawer whose panel
  * contains it, then the entry column of a SHUT drawer (so the second drawer can be
- * swiped out while the first is up). Anything else -- the glass in the middle, which
- * is rbp's own screen -- is handed straight back. There used to be a third step, an
- * "away" dismissal that closed every open drawer; the operator reversed it (*"the
- * side bar should stay up until i swipe them away"*), so it is gone.
+ * swiped out while the first is up), and then -- if a drawer is still out -- the press
+ * itself as an "away" dismissal: anything on the glass BETWEEN the panels puts them away.
+ * That last step was here once, was withdrawn (*"the side bar should stay up until i swipe
+ * them away"*), and came back on the operator's ask of 2026-10-12: *"if i have the side
+ * panels up and i tap outside of it you can hide them"*. Its cost is stated in full at
+ * the step itself in side_zone.c. With NO drawer out, an unclaimed press is handed
+ * straight back to rbp, exactly as it was while the dismissal was gone.
  */
 #ifndef RBPI4B_SIDE_ZONE_H
 #define RBPI4B_SIDE_ZONE_H
@@ -107,13 +110,39 @@
  * cap box (menu_font.h's rule), so nothing here follows the ink. */
 #define SZ_LINE       24
 
-/* Title (the channel label). Rows are one line box tall and 12 rows in from the
- * panel's top; test_side.c pins the text against the width it is drawn into, so a
- * label can never overflow the panel it names. */
+/* Title (the channel label), AND IT IS A CONTROL NOW. Rows are one line box tall and
+ * 12 rows in from the panel's top; test_side.c pins the text against the width it is
+ * drawn into, so a label can never overflow the panel it names.
+ *
+ * THE OPERATOR'S TOGGLE. *"can you have some type of label toggle (fader/pitch) so it
+ * switches between a volume fader and a pitch control"* (2026-10-12). The title row is
+ * the whole of it -- it is the panel's one piece of idle glass, it already names the
+ * strip, and a cell you tap to change what the cell says is the least machinery that
+ * can answer the ask. It reads `CH 1 FADER` or `CH 1 PITCH` (side_paint.c), so the
+ * label states which control the fader IS at the moment you read it.
+ *
+ * A TAP TOGGLES; A SWEEP FROM IT STILL DISMISSES. Before this existed the title was
+ * SZ_HIT_BG, so an outward sweep that STARTED on it put the drawer away. Turning it
+ * into a control could have taken that away silently -- the operator's own gesture,
+ * removed by a change they did not ask for -- so the dismissal rule accepts a press
+ * that began on the title exactly as it accepts one that began on the background.
+ * The two cannot collide: the dismissal needs SZ_CLOSE_PX of outward travel and the
+ * toggle needs a press that ended where it began. */
 #define SZ_TITLE_X0    SZ_PAD
 #define SZ_TITLE_X1    (SZ_W - 1 - SZ_PAD)
 #define SZ_TITLE_Y0    12
 #define SZ_TITLE_Y1    (SZ_TITLE_Y0 + SZ_LINE - 1)   /* 35 */
+
+/* WHAT THE FADER IS. Per SIDE (per panel), because the two decks are independent and
+ * an operator may want the volume on one and the pitch on the other while beatmatching
+ * -- which is the whole reason this is panel state and not one global switch.
+ *
+ * NOT A PRESS FACT, so it is deliberately NOT cleared by side_reset(): that exists for
+ * a FINGER that stopped existing, and a drawer that flipped back to volume because the
+ * touch device hiccuped would be the panel changing a setting behind the operator. It
+ * starts at SZ_MODE_VOL on every launch -- the control the drawer was built for. */
+#define SZ_MODE_VOL    0
+#define SZ_MODE_PITCH  1
 
 /* ---------------------------------------------------------------------------
  * THE LAYOUT, TOP TO BOTTOM, and every row of it is the operator's own order: a
@@ -153,13 +182,50 @@
 #define SZ_BTN_X1      (SZ_W - 1 - SZ_PAD)           /* 163 */
 #define SZ_BTN_H       72
 
-/* BEAT SYNC, at the top -- the operator's *"add a beat sync button at the top of the
- * strip"*. It sits under the title and above everything else because it is the
- * control a hand reaches for between two tracks, and because on the hardware it is
- * above the transport too. Full width, like CUE and PLAY: "SYNC" is four glyphs
- * against an atlas whose worst case is eight, so it has room to spare. */
+/* BEAT SYNC IS TWO BUTTONS NOW -- SYNC and MASTER -- the operator's ask of 2026-10-12:
+ * *"split the sync button into 2 buttons sync and master in the side panels"*. They sit
+ * side by side in the row SYNC had on its own, split the way the nudge pair below them is
+ * split: two half-width cells with an 8 px seam, so a press that straddles the middle is
+ * nobody's. Together they are the beat-match pair -- MASTER picks the deck the others
+ * follow, SYNC makes this one follow it -- which is why they belong beside each other
+ * rather than SYNC keeping the full width. */
+#define SZ_SYNC_GAP    8
+#define SZ_SYNC_X0     SZ_BTN_X0                                    /* 16  */
+#define SZ_SYNC_X1     ((SZ_BTN_X0 + SZ_BTN_X1 - SZ_SYNC_GAP) / 2)  /* 85  */
+#define SZ_MASTER_X0   (SZ_SYNC_X1 + 1 + SZ_SYNC_GAP)                /* 94  */
+#define SZ_MASTER_X1   SZ_BTN_X1                                    /* 163 */
 #define SZ_SYNC_Y0     44
 #define SZ_SYNC_Y1     (SZ_SYNC_Y0 + SZ_BTN_H - 1)    /* 115 */
+
+/* ---------------------------------------------------------------------------
+ * THE TWO ROUND BUTTONS, ABOVE THE FADER: the tempo RANGE (+-6 / +-10 / +-16 / WIDE) and
+ * MASTER TEMPO. The operator's ask of 2026-10-12.
+ *
+ * THEY ARE ON THE PITCH CONTROL, and that is the operator's own correction the same day:
+ * *"TR and MT should be on the pitch control"*. So they exist only while the fader is a
+ * pitch fader -- which is the only time either of them means anything, since a tempo range
+ * and a key lock are both properties of playing a track at a speed. side_mode() is what
+ * side_hit() and side_paint() ask, and the repaint gate already carries the mode, so a
+ * flip to VOLUME repaints and takes them away with it.
+ *
+ * THEY ARE ROUND, and that is not decoration: they are the two controls here that CHANGE A
+ * SETTING rather than ride one, and a disc is what a settings key looks like on this
+ * hardware. They are drawn by sp_fill_round() with a radius of half their width -- nothing
+ * else on this panel is round.
+ *
+ * THE ROW LEAVES A GAP UNDER THE NUDGE PAIR, which is the operator's own ask (*"have some
+ * padding b/w the -/+ buttons"*): the nudge pair ends at 163 and the discs begin at 174, so
+ * eleven rows separate the two pitch controls. Below them is the value readout's row,
+ * which in PITCH mode is empty by construction -- the readout is volume-only -- so 205 is
+ * as far down as a disc can go and still be clear of the fader's own grab lane at 206.
+ * They are symmetric about the panel's centre, 28 px either side of 89.5. */
+#define SZ_RND_D       32                                   /* the disc's diameter */
+#define SZ_RND_Y0      174
+#define SZ_RND_Y1      (SZ_RND_Y0 + SZ_RND_D - 1)           /* 205 */
+#define SZ_RNG_X0      46                                   /* tempo RANGE */
+#define SZ_RNG_X1      (SZ_RNG_X0 + SZ_RND_D - 1)           /* 77  */
+#define SZ_MT_X0       102                                  /* MASTER TEMPO */
+#define SZ_MT_X1       (SZ_MT_X0 + SZ_RND_D - 1)            /* 133 */
 
 /* THE NUDGE PAIR, side by side and full width between them, AND HALF THE HEIGHT of
  * every other button. Two cells of (SZ_BTN_X1 - SZ_BTN_X0 + 1 - SZ_NUDGE_GAP) / 2 = 70
@@ -270,6 +336,10 @@
 #define SZ_HIT_PLAY    5
 #define SZ_HIT_FADER   6   /* the grab lane */
 #define SZ_HIT_BG      7   /* inside the panel, on no control */
+#define SZ_HIT_TITLE   8   /* the header row: the FADER/PITCH toggle */
+#define SZ_HIT_MASTER  9   /* the MASTER half of the beat-match pair */
+#define SZ_HIT_RANGE  10   /* the round tempo-RANGE button */
+#define SZ_HIT_MT     11   /* the round MASTER TEMPO button */
 
 /* What the caller must DO with a swallowed report, beside swallowing it. Cleared on
  * every call that is not a TAKEN report, exactly as menu_feed() clears its button.
@@ -294,6 +364,12 @@
 #define SZ_ACT_CUE         5   /* send K_CUE press+release on this side's channel */
 #define SZ_ACT_PLAY        6   /* send K_PLAY press+release on this side's channel */
 #define SZ_ACT_FADER       7   /* send K_FADER/OP_VALUE = *value on this side's channel */
+#define SZ_ACT_MODE        8   /* the title was tapped: the mode has ALREADY been flipped
+                                * here, and this is the notification. It carries no
+                                * message for rbp -- see the note under side_set_mode(). */
+#define SZ_ACT_MASTER      9   /* send K_MASTER on this side's channel */
+#define SZ_ACT_RANGE      10   /* send K_TEMPO_RANGE: cycle +-6 / +-10 / +-16 / WIDE */
+#define SZ_ACT_MT         11   /* send K_MT: toggle master tempo (key lock) */
 
 /* ---------------------------------------------------------------------------
  * The coordinate transform. Local x 0 is the OUTER edge on both sides, so the two
@@ -307,6 +383,33 @@ static inline int side_local_x(int side, int x)
 static inline int side_abs_x(int side, int lx)
 {
     return side == SZ_RIGHT ? (MZ_LOGICAL_W - 1 - lx) : lx;
+}
+
+/* ---------------------------------------------------------------------------
+ * "SCREEN ORDER, NOT PANEL ORDER", and it is ONE rule for the three rows it applies to.
+ *
+ * THE DRAWER MIRRORS ITS LAYOUT, and three things on it must NOT mirror with it -- all of
+ * them rows that are read as words rather than as positions:
+ *
+ *   - the pitch scale's `-` / `0` / `+` labels, which must stay on the SCREEN's left on
+ *     both decks, or the operator re-reads the scale every time they look at the other
+ *     one. The operator's ask of 2026-10-12: *"the +/-/0 indicators on the right panel
+ *     should also be on the left side not right"*.
+ *   - the SYNC | MASTER pair. *"channel 2 should be sync and then master not master and
+ *     then sync order"*.
+ *   - the tempo-RANGE | MASTER-TEMPO discs, *"same with the TR/MT buttons"*.
+ *
+ * EVERY ONE OF THOSE IS A TWO-CELL ROW SPLIT SYMMETRICALLY ABOUT THE PANEL'S CENTRE, so
+ * "keep the screen order" is exactly "reflect the local x once more" -- and that is all
+ * this is. It is its own inverse, which is what lets the HIT test and the PAINTER both go
+ * through it: a cell that is swapped cannot then be drawn in one place and pressed in
+ * another, which is the only way this could go wrong.
+ *
+ * Everything else on the panel -- the rail, the marks, the cap, CUE, PLAY, the nudge pair
+ * -- mirrors as it always did. */
+static inline int side_screen_x(int side, int lx)
+{
+    return side == SZ_RIGHT ? (SZ_W - 1 - lx) : lx;
 }
 
 /* The channel this side drives: the deck number rbp's send_rx_key() wants as its
@@ -361,13 +464,18 @@ int side_fader_pct(int v);
  *   column (lx <= SZ_ENTRY_W-1 and
  *   y >= SZ_ENTRY_Y0)
  *   down, shut, anywhere else        -- NOT ours end to end: rbp keeps the whole
- *                                       press natively, with no replay.
+ *                                       press natively, with no replay. AND THAT IS
+ *                                       UNCHANGED BY THE "AWAY" DISMISSAL: a press is
+ *                                       only ever away while a drawer is OUT.
  *   down, out                        -- swallowed; remembers which control it began
  *                                       on. A press on the FADER lane jumps to the
  *                                       landing y and sends that value AT ONCE (the
  *                                       operator's "jump to where you touch"); a
  *                                       press on either nudge cell moves the tempo
- *                                       slider in that cell's direction.
+ *                                       slider in that cell's direction. A press on
+ *                                       the TITLE does nothing at the down edge -- it
+ *                                       waits for the lift to know whether it was a tap
+ *                                       or the start of a dismissal sweep.
  *   while down, armed & shut         -- opens on inward travel dx >= SZ_SWIPE_PX AND
  *                                       dx > |dy|: predominantly horizontal, so a
  *                                       vertical drag from the edge is not a swipe
@@ -376,9 +484,14 @@ int side_fader_pct(int v);
  *   while down, out, press began     -- the drag: recompute the value and send only
  *   on the fader lane                   when it CHANGES (the caller's dedup, the
  *                                       same one map_flx4.c:623-625 makes).
- *   while down, out, press began on  -- a swipe of SZ_CLOSE_PX OUTWARD toward its
- *   the background                      own edge, same dominant-axis test, closes
- *                                       it mid-press.
+ *   while down, out, press began     -- a swipe of SZ_CLOSE_PX OUTWARD toward its
+ *   on the background OR THE TITLE      own edge, same dominant-axis test, closes
+ *                                       it mid-press. THE TITLE IS INCLUDED because it
+ *                                       used to be background and an outward sweep from
+ *                                       the header is a gesture the operator already
+ *                                       has; the toggle needs a press that ended where
+ *                                       it began, so travel and a tap cannot be
+ *                                       confused for one another.
  *   release, started out             -- fires SYNC, CUE or PLAY only if the press
  *                                       began AND ended on the same box (slide-off
  *                                       cancels, menu_zone.h's fire-on-release
@@ -387,6 +500,9 @@ int side_fader_pct(int v);
  *                                       not the finger is still on the cell, and does
  *                                       NOT fire the button a slide-off landed on --
  *                                       a nudge that wandered is not a button press.
+ *                                       A press that began and ended on the TITLE
+ *                                       flips the fader's mode (SZ_ACT_MODE) by the
+ *                                       same rule -- tap, not travel.
  *                                       The ONE exception to fire-on-release is a press
  *                                       that began on the FADER lane: the value has
  *                                       already been sent.
@@ -395,9 +511,14 @@ int side_fader_pct(int v);
  *   release but the fader's; with a SYNC button, a nudge pair and the operator's
  *   *"allow for both side panels to be visable at the same time"*, a self-closing
  *   panel is unusable -- SYNC then NUDGE then PLAY would be three swipes. What closes
- *   a drawer is now only ever ONE act: a swipe outward from its own background (above).
- *   A press anywhere else, including the glass rbp draws for itself, is not this
- *   module's at all and comes back MZ_FEED_NONE on both edges.
+ *   a drawer is now only ever TWO acts: a swipe outward from its own background (above),
+ *   and -- while a drawer is out -- a press on the glass between the panels, which is
+ *   the "away" dismissal side_feed_any() answers.
+ *
+ *   THE "AWAY" PRESS IS THE ONE PRESS THIS MODULE LATCHES THAT IS NOT A SIDE'S, and it
+ *   is in side_feed_any() rather than here because a press between the panels belongs to
+ *   neither drawer. It is answered TAKEN on every edge once latched, so the whole press
+ *   is swallowed and rbp is never handed an up for a down it did not see.
 
  *   release, started shut, opened    -- the drawer STAYS OPEN: lifting the finger
  *                                       does not take it away.
@@ -452,13 +573,19 @@ int side_nudging(int side);
  *      open its column still lies outside the other's panel, so the columns stay
  *      disjoint in every state. The open drawer is simply not a candidate at this
  *      step, which is what makes the check one `if` per side rather than a tangle.)
- *   3. failing that, NOTHING HERE CLAIMS IT. A press on the glass rbp draws for
- *      itself -- the centre of the screen, most of what the operator touches -- is
- *      handed back untouched, on its down edge and on its release alike, so rbp's
- *      own UI keeps working with a drawer out. Nothing latches it, so nothing has to
- *      unlatch it and a device that vanishes mid-press cannot leave this module stuck.
- *      (There used to be an "away" dismissal here that closed every open drawer. The
- *      operator reversed it: the drawers stay up until they are swiped away.)
+ *   3. failing that, THE "AWAY" DISMISSAL, while a drawer is out: the press is latched
+ *      by its own pointer and its RELEASE closes BOTH drawers. It is the operator's ask
+ *      of 2026-10-12 -- *"if i have the side panels up and i tap outside of it you can
+ *      hide them"* -- and it was a step here once before, withdrawn after *"the side bar
+ *      should stay up until i swipe them away"*. What it costs is stated in full in
+ *      side_zone.c: the first tap on rbp's own glass while a drawer is out is spent
+ *      closing the panels and rbp does not get it.
+ *
+ *      WITH NO DRAWER OUT THIS STEP DOES NOT EXIST and nothing is latched: a press on
+ *      the glass rbp draws for itself -- the centre of the screen, most of what the
+ *      operator touches -- is handed back untouched, on its down edge and on its release
+ *      alike, so rbp's own UI keeps working exactly as it did while the dismissal was
+ *      gone.
  *
  * Sets *side_out to SZ_LEFT or SZ_RIGHT for a report either drawer took, or -1 for
  * MZ_FEED_NONE; *act / *value are side_feed()'s, and are cleared on every path that
@@ -478,6 +605,22 @@ int side_is_open(int side);
  * two so the gate cannot be written with a side missing. */
 int side_any_open(void);
 
+/* WHICH CONTROL THIS DRAWER'S FADER IS, SZ_MODE_VOL or SZ_MODE_PITCH.
+ *
+ * side_zone.c OWNS THE MODE. A tap on the title flips it there and *then* reports
+ * SZ_ACT_MODE, so the panel's own state machine stays inside the module that owns it --
+ * the alternative, making the caller flip it, would put one half of a state machine in
+ * pointsrc.c and the other half here. SZ_ACT_MODE is therefore a NOTIFICATION and not
+ * an instruction: it carries no message for rbp, and a caller that does nothing with it
+ * still gets a working toggle.
+ *
+ * `side_set_mode()` exists for the caller's own tests and for a future surface that
+ * wants to set the mode rather than cycle it -- both host tests drive it directly to
+ * restore SZ_MODE_VOL between scenarios, because the mode deliberately survives
+ * side_reset(). */
+int  side_mode(int side);
+void side_set_mode(int side, int mode);
+
 /* The control currently under the finger, SZ_HIT_* -- what the painter highlights.
  * SZ_HIT_NONE when no press of ours is down. BOTH POINTERS ARE ASKED, the primary
  * first, because a highlight is a fact about the panel and either hand can put one
@@ -494,7 +637,12 @@ void side_tap_point(int side, int *x, int *y);
 
 /* Forget everything for one side, and for both. Called where the touch device is
  * lost (beside menu_reset()): a drawer left open by a finger that went away with the
- * device would be a drawer nothing can dismiss. */
+ * device would be a drawer nothing can dismiss.
+ *
+ * "EVERYTHING" HERE MEANS EVERY PRESS. It does not mean the mode: whether the fader is
+ * a volume or a pitch control is the operator's setting and not a fact about a finger,
+ * so side_reset() leaves side_mode() alone. A host test that toggles the mode must put
+ * it back with side_set_mode() itself. */
 void side_reset(int side);
 void side_reset_all(void);
 

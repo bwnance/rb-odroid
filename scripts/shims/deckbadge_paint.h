@@ -3,7 +3,7 @@
  *
  * The other half of deckbadge_zone.h's ask: the rectangle around `DECK ( 1 )` is a play/stop
  * button, and this is the frame that says so -- the same accent and the same lit thickness the
- * side panel's PLAY wears (side_paint.c's sp_frame_w with an accent class and SP_FRAME_LIT), so
+ * side panel's PLAY wears (side_paint.c's sp_frame_round with an accent class and SP_FRAME_LIT), so
  * the two surfaces read the same way.
  *
  * IT DRAWS ON THE PAGE, and that is why there is no "take it down" call. rbp repaints its own

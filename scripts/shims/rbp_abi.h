@@ -764,6 +764,12 @@ static const signed char bfx_type_to_pos[15] = {
 /* rbp LedStat ids we have identified (channels 1/2 = deck 1/2):
  *   49 = deck PLAY  (state 2 while paused  -> panel must blink)
  *    4 = SYNC       3 = VINYL      6 = KEY LOCK      11 = SLIP */
+/* 5 = MASTER, and it is MEASURED rather than inferred: rbp MOVES this entry's channel when
+ * the master changes decks (2026-10-12, work/ledstat.py, the only difference across one MASTER
+ * press on the left drawer: `id=5 ch=2` -> `id=5 ch=1`). Because it moves, the table itself
+ * answers "which deck is master" -- there is nothing to keep in step, and only one deck can
+ * be master, so at most one channel is ever lit. */
+#define LEDSTAT_MASTER  5
 #define LEDSTAT_PLAY   49
 #define LEDSTAT_SYNC   4
 #define LEDSTAT_VINYL  3

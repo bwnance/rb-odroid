@@ -461,7 +461,7 @@ menu_paint.o: menu_paint.c menu_paint.h menu_zone.h menu_font.h
 # header is listed.
 menu_draw.o: menu_draw.c menu_draw.h menu_paint.h menu_zone.h fbdev.h \
              point_xform.h pointsrc.h drmband.h \
-             side_zone.h side_paint.h rbp_vu.h prompt_zone.h prompt_paint.h \
+             side_zone.h side_paint.h rbp_vu.h pitch_state.h prompt_zone.h prompt_paint.h \
              fx_zone.h fx_paint.h fxpad_zone.h fxpad_paint.h
 # side_zone.o and side_paint.o are pure, and their headers carry the whole
 # interface: side_zone.h for the geometry and the gesture, side_paint.h for the
@@ -1102,7 +1102,7 @@ MENU_TEST_OBJS := test_menu_dev.o menu_draw.o menu_paint.o menu_zone.o \
                   point_xform.o drmband.o side_zone.o \
                   side_paint.o prompt_zone.o prompt_paint.o fx_zone.o fx_paint.o \
                   fxpad_zone.o fxpad_paint.o fader_state.o rbp_transport.o \
-                  deckbadge_zone.o deckbadge_paint.o
+                  pitch_state.o deckbadge_zone.o deckbadge_paint.o
 
 # The drawer's wrappers, and they are the ONE exception to "drmband.o is the real
 # object". --wrap=drm_band_* lets scenario_drawer() hand the module a plane that

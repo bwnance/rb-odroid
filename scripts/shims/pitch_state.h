@@ -114,4 +114,48 @@ static inline int pitch_v10_from_norm(float norm)
     return v10;
 }
 
+/* THE OTHER WAY, for the drawer's pitch fader: a 0..1023 position to the norm the
+ * message's float companion and its 14-bit companion are built from.
+ *
+ * THIS IS NOT A TRUE INVERSE OF pitch_v10_from_norm(), and the distinction is worth the
+ * sentence: that one TRUNCATES, so `pitch_v10_from_norm(pitch_norm_from_v10(v))` loses a
+ * step for 84 of the 1024 positions. A caller that already holds a 10-bit position must
+ * therefore SEND THAT POSITION AS ITS OWN 10-bit argument and use this only for the norm
+ * -- which is exactly what pointsrc.c's pitch fader arm does, so the value on the wire is
+ * bit-for-bit the deduped value side_zone.c produced. */
+static inline float pitch_norm_from_v10(int v)
+{
+    if (v < 0)
+        v = 0;
+    if (v > 1023)
+        v = 1023;
+    return (float)v / 511.5f - 1.0f;
+}
+
+/* ---------------------------------------------------------------------------
+ * THE DRAWER'S PITCH FADER RUNS THE OTHER WAY UP, and it is rbp's own convention
+ * rather than a preference. The operator, on the glass, 2026-10-12: *"for the pitch
+ * control sliding up should bring the tempo down not up"* -- which is how a CDJ's tempo
+ * slider has always worked (the `-` end is at the top), and the opposite of the volume
+ * fader drawn directly above it on the same panel.
+ *
+ * So the TOP of the track is the SLOW end, where the norm is -1. These two are the WHOLE
+ * of that mapping, and both directions go through them -- the draw in menu_draw.c and the
+ * send in pointsrc.c -- so the handle the operator sees and the value rbp is told can
+ * never disagree about which way up the control is.
+ *
+ * Note what this does NOT change: the NORM is still -1 slower / +1 faster (pitch_state.h's
+ * first paragraph), and a nudge's '+' is still "forward". Only the drawer's own fader is
+ * turned over, because only the drawer draws a slider.
+ * ------------------------------------------------------------------------- */
+static inline int pitch_v10_for_fader(float norm)
+{
+    return 1023 - pitch_v10_from_norm(norm);
+}
+
+static inline float pitch_norm_for_fader(int v10)
+{
+    return -pitch_norm_from_v10(v10);
+}
+
 #endif /* RBPI4B_PITCH_STATE_H */

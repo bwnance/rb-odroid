@@ -524,8 +524,8 @@ extern int  __real_drm_band_show(struct drm_band *b, int x, int y);
 extern void __real_drm_band_hide(struct drm_band *b);
 extern void __real_drm_band_teardown(struct drm_band *b);
 extern void __real_side_paint(const struct menu_view *v, int side,
-                              int pressed_hit, int fader_v,
-                              int sync, int cue, int play);
+                              int pressed_hit, int fader_v, int mode,
+                              int sync, int cue, int play, int mt, int master);
 extern void __real_prompt_paint(const struct menu_view *v,
                                 const struct prompt_state *S, int pressed_cell,
                                 int selected_cell);
@@ -615,7 +615,8 @@ void __wrap_deckbadge_plane_sync(const int *playing, int on_screen)
 }
 
 void __wrap_side_paint(const struct menu_view *v, int side, int pressed_hit,
-                       int fader_v, int sync, int cue, int play)
+                       int fader_v, int mode, int sync, int cue, int play, int mt,
+                       int master)
 {
     side_paints++;
     if (side == SZ_RIGHT)
@@ -624,7 +625,8 @@ void __wrap_side_paint(const struct menu_view *v, int side, int pressed_hit,
         side_paints_left++;
     side_last_which = side;
     side_last_led   = sync | (cue << 1) | (play << 2);
-    __real_side_paint(v, side, pressed_hit, fader_v, sync, cue, play);
+    __real_side_paint(v, side, pressed_hit, fader_v, mode, sync, cue, play, mt,
+                      master);
 }
 
 void __wrap_prompt_paint(const struct menu_view *v, const struct prompt_state *S,
@@ -1120,7 +1122,7 @@ static int plane_is_drawer(int which, int hit, int v, const char *what, int line
     sv.bpp   = FB_BPP;
     sv.dw    = pw;
     sv.dh    = FB_H;
-    __real_side_paint(&sv, which, hit, v, 0, 0, 0);
+    __real_side_paint(&sv, which, hit, v, SZ_MODE_VOL, 0, 0, 0, 0, 0);
     if (memcmp(plane_use_alt ? plane_alt : plane_buf, want, sizeof want) == 0)
         return 1;
     failures++;
@@ -1163,7 +1165,7 @@ static int page_is_drawer(int which, int hit, int v, const char *what, int line)
     sv.bpp   = FB_BPP;
     sv.dw    = pw;
     sv.dh    = FB_H;
-    __real_side_paint(&sv, which, hit, v, 0, 0, 0);
+    __real_side_paint(&sv, which, hit, v, SZ_MODE_VOL, 0, 0, 0, 0, 0);
 
     memset(want, 0, sizeof want);
     for (y = 0; y < FB_H; y++)

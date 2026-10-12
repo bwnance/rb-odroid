@@ -128,6 +128,7 @@
 #include "fxpad_zone.h"        /* the momentary X/Y pad: whether it is holding a finger */
 #include "fxpad_paint.h"       /* ...and the HUD it draws over rbp's BPM cell */
 #include "rbp_vu.h"            /* g_fader[]: the value the drawer's handle follows */
+#include "pitch_state.h"       /* ...and g_pitch_norm[], when the fader is a PITCH one */
 #include "drmband.h"           /* the overlay plane, when this machine has one */
 #include "fbdev.h"
 #include "point_xform.h"
@@ -277,6 +278,13 @@ struct menu_map {
     int  side_painted_led[2];    /* ...and its SYNC/CUE/PLAY state, packed; see
                                   * menu_side_leds(). -1 for "no image yet", because 0
                                   * is the real and common "all three dark". */
+    int  side_painted_mode[2];   /* ...and WHICH CONTROL the fader was drawn as,
+                                  * SZ_MODE_VOL/SZ_MODE_PITCH. A mode flip is a picture
+                                  * change -- a different knob, a different title, and
+                                  * the readout appearing or going -- so leaving it out
+                                  * of the gate would swallow the ONE change the toggle
+                                  * exists to make. -1 for "no image yet", because 0 is
+                                  * a real mode. */
     void  *side_img[2][2];       /* [drawer][front,back]; NULL when none could be had */
     size_t side_img_bytes;       /* one image, bytes */
     int    side_buf_w;           /* the image's geometry, cached at allocation ... */
@@ -520,14 +528,41 @@ static int menu_side_pw(void)
     return pw < 1 ? 1 : pw;
 }
 
-/* The value the handle is drawn at: the SHARED fader position, so the drawer follows
- * the hardware fader when there is one and the hardware fader follows the drawer when
- * there is not -- one number, in fader_state.c, written by both (rbp_vu.h). 1023 is
- * both the seed and the legal maximum, so an untouched machine draws the handle at
- * the top, which is exactly what rbp's mixer is doing there. */
-static int menu_side_value(int which)
+/* The value the handle is drawn at, IN WHICHEVER SPACE THE MODE IMPLIES.
+ *
+ * VOLUME is the SHARED channel-fader position, so the drawer follows the hardware fader
+ * when there is one and the hardware fader follows the drawer when there is not -- one
+ * number, in fader_state.c, written by both (rbp_vu.h). 1023 is both the seed and the
+ * legal maximum, so an untouched machine draws the handle at the top, which is exactly
+ * what rbp's mixer is doing there.
+ *
+ * PITCH is the tempo slider's position from pitch_state.h -- the same number a nudge cell
+ * moves FROM and the same one the FLX4's own pitch fader publishes. It is 0 (the centre,
+ * and rbp's own cold-start tempo position) until some surface has reported a fader, which
+ * is why the drawer draws a centred pitch handle on a machine with no controller rather
+ * than a guess. `pitch_v10_for_fader()` and not `pitch_v10_from_norm()`: the drawer's
+ * pitch fader is drawn the other way up -- top is SLOW -- which is rbp's own convention
+ * and the operator's own correction (pitch_state.h carries the quote). The send in
+ * pointsrc.c goes through the matching `pitch_norm_for_fader()`, so the handle and the
+ * wire cannot disagree about which way up the control is.
+ *
+ * THE TWO ARRAYS ARE INDEXED DIFFERENTLY AND THIS IS THE ONE PLACE IT SHOWS: g_fader is
+ * indexed by CHANNEL (1..2, via side_channel()) and g_pitch_norm by DECK (0..1, which is
+ * exactly SZ_LEFT/SZ_RIGHT). side_channel() on the pitch array would read index 2 -- past
+ * its end -- for the right drawer.
+ *
+ * `mode` is PASSED IN rather than read here, and the caller captures it once for the
+ * gate, this lookup and the paint. Reading side_mode() twice would let a flip that lands
+ * between the two reads draw mode A while recording mode B -- self-correcting a tick
+ * later, but free to avoid. */
+static int menu_side_value(int which, int mode)
 {
-    int v = g_fader[side_channel(which)];
+    int v;
+
+    if (mode == SZ_MODE_PITCH)
+        v = pitch_v10_for_fader(g_pitch_norm[which]);
+    else
+        v = g_fader[side_channel(which)];
 
     if (v < 0)
         v = 0;
@@ -618,20 +653,23 @@ static void menu_side_view(struct menu_view *sv, int which)
 static void menu_side_repaint(int which)
 {
     struct menu_view sv;
+    int mode = side_mode(which);
     int hit = side_pressed(which);
-    int v   = menu_side_value(which);
+    int v   = menu_side_value(which, mode);
     int led = menu_side_leds(which);
 
     if (g.side_painted_which[which] == which && g.side_painted_hit[which] == hit &&
-        g.side_painted_v[which] == v && g.side_painted_led[which] == led)
+        g.side_painted_v[which] == v && g.side_painted_led[which] == led &&
+        g.side_painted_mode[which] == mode)
         return;
     menu_side_view(&sv, which);
     if (side_paint_ok(&sv))
-        side_paint(&sv, which, hit, v, led & 1, (led >> 1) & 1, (led >> 2) & 1);
+        side_paint(&sv, which, hit, v, mode, led & 1, (led >> 1) & 1, (led >> 2) & 1, (led >> 4) & 1, (led >> 5) & 1);
     g.side_painted_which[which] = which;
     g.side_painted_hit[which]   = hit;
     g.side_painted_v[which]     = v;
     g.side_painted_led[which]   = led;
+    g.side_painted_mode[which]  = mode;
 }
 
 /* A view over one drawer's SCRATCH image, for the off-lock build. Deliberately not
@@ -668,7 +706,7 @@ static void menu_side_buf_view(struct menu_view *sv, void *buf)
 static void menu_side_build(int which)
 {
     struct menu_view sv;
-    int hit, v, led;
+    int hit, v, led, mode;
     void *t;
     long t0;
 
@@ -678,13 +716,15 @@ static void menu_side_build(int which)
     if (!side_is_open(which))
         return;
 
-    hit = side_pressed(which);
-    v   = menu_side_value(which);
-    led = menu_side_leds(which);
+    mode = side_mode(which);
+    hit  = side_pressed(which);
+    v    = menu_side_value(which, mode);
+    led  = menu_side_leds(which);
     if (g.side_painted_which[which] == which &&
         g.side_painted_hit[which] == hit &&
         g.side_painted_v[which] == v &&
-        g.side_painted_led[which] == led)
+        g.side_painted_led[which] == led &&
+        g.side_painted_mode[which] == mode)
         return;                      /* the published image is already this one */
 
     menu_side_buf_view(&sv, g.side_img[which][1]);
@@ -692,7 +732,7 @@ static void menu_side_build(int which)
         return;
 
     t0 = menu_now_us();
-    side_paint(&sv, which, hit, v, led & 1, (led >> 1) & 1, (led >> 2) & 1);
+    side_paint(&sv, which, hit, v, mode, led & 1, (led >> 1) & 1, (led >> 2) & 1, (led >> 4) & 1, (led >> 5) & 1);
     if (g.verbose)
         pointsrc_log("side: build %ld us: %s drawer for %d/%d at %d",
                      menu_now_us() - t0, which == SZ_LEFT ? "left" : "right", hit, v,
@@ -706,6 +746,7 @@ static void menu_side_build(int which)
     g.side_painted_hit[which]   = hit;
     g.side_painted_v[which]     = v;
     g.side_painted_led[which]   = led;
+    g.side_painted_mode[which]  = mode;
     g.side_pending[which]       = 1;
     pthread_mutex_unlock(&g_lock);
 }
@@ -791,12 +832,14 @@ static void menu_side_live(int which)
          * and its shimmer, and it is only ever reached on a machine where the plane
          * cannot be had. */
         struct menu_view sv;
-        int led = menu_side_leds(which);
+        int led  = menu_side_leds(which);
+        int mode = side_mode(which);
 
         menu_side_view(&sv, which);
         if (side_paint_ok(&sv))
-            side_paint(&sv, which, side_pressed(which), menu_side_value(which),
-                       led & 1, (led >> 1) & 1, (led >> 2) & 1);
+            side_paint(&sv, which, side_pressed(which),
+                       menu_side_value(which, mode), mode,
+                       led & 1, (led >> 1) & 1, (led >> 2) & 1, (led >> 4) & 1, (led >> 5) & 1);
         return;
     }
     menu_side_repaint(which);
@@ -856,6 +899,7 @@ static void menu_side_plane_sync(void)
             g.side_painted_hit[i]   = SZ_HIT_NONE;
             g.side_painted_v[i]     = -1;
             g.side_painted_led[i]   = -1;
+            g.side_painted_mode[i]  = -1;
             g.side_pending[i]       = 0;
             g.side_fail[i] = 0;
             continue;
@@ -2038,6 +2082,10 @@ static int menu_fb_open_unlocked(int loud)
      * reading here -- all three buttons dark -- so a zeroed struct would let the first
      * gate pass draw a dark drawer over a lit one it had never looked at. */
     g.side_painted_led[SZ_LEFT] = g.side_painted_led[SZ_RIGHT] = -1;
+    /* ...and the FADER/PITCH mode for the same reason, third time: 0 is SZ_MODE_VOL, a
+     * real mode, so a zeroed struct would record that the buffer already held a VOL
+     * image -- and the drawer's own first paint would be gated away. */
+    g.side_painted_mode[SZ_LEFT] = g.side_painted_mode[SZ_RIGHT] = -1;
     g.band_off = !env_flag("MENU_PLANE", 1);
     if (g.band_off) {
         pointsrc_log("menu: MENU_PLANE=0 -- the band is repaired on the page, as it"

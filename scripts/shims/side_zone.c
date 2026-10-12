@@ -59,20 +59,55 @@ static struct side_st st[2][SZ_PTRS];
 /* Is this drawer out? Per PANEL, shared by both pointers. */
 static int sz_open[2];
 
+/* WHICH CONTROL EACH DRAWER'S FADER IS (SZ_MODE_VOL / SZ_MODE_PITCH). Per panel, like
+ * sz_open[] and for the same reason -- it is a fact about the strip and not about a
+ * finger -- but unlike sz_open[] it is NOT cleared by side_reset(): see side_zone.h. */
+static int sz_mode[2];
+
+/* A PRESS THAT BEGAN OFF EVERY OPEN PANEL, latched at its down edge so its release can
+ * put the drawers away -- the "away" dismissal, back at the operator's ask (2026-10-12):
+ * *"if i have the side panels up and i tap outside of it you can hide them"*.
+ *
+ * PER POINTER, like everything else here: two hands can each have a press down, and one
+ * of them tapping the glass while the other rides a fader is the ordinary case, not a
+ * corner. The latch is what makes the whole press ours -- a press that is swallowed must
+ * see its own release, or rbp is handed an up for a down it never saw. */
+static int away_down[SZ_PTRS];
+
+int side_mode(int side)
+{
+    if (side != SZ_LEFT && side != SZ_RIGHT)
+        return SZ_MODE_VOL;
+    return sz_mode[side];
+}
+
+void side_set_mode(int side, int mode)
+{
+    if (side != SZ_LEFT && side != SZ_RIGHT)
+        return;
+    /* Anything that is not SZ_MODE_PITCH is SZ_MODE_VOL: the mode is a two-state
+     * control and a caller passing a stray number must not make it a third. */
+    sz_mode[side] = (mode == SZ_MODE_PITCH) ? SZ_MODE_PITCH : SZ_MODE_VOL;
+}
+
 /* ---------------------------------------------------------------------------
- * THERE IS NO "AWAY" PRESS ANY MORE. It used to live here as `away_down`: a
- * press beginning off every open panel was latched at its down edge and its
- * release closed BOTH drawers -- the operator's earlier "tap away to close".
+ * THE "AWAY" PRESS CAME BACK, AND IT IS THE ONLY LATCHED PRESS THAT IS NOT A SIDE'S.
  *
- * They reversed it: "the side bar should stay up until i swipe them away". So a
- * press that lands on the glass rbp draws for itself is not ours at all. It
- * falls through every step of side_feed_any() and comes back MZ_FEED_NONE, on
- * BOTH edges, which is what lets the centre of the screen keep working while a
- * drawer is out. The one dismissal left is the outward sweep in side_feed().
+ * It was here once (as `away_down`), the operator removed it -- *"the side bar should stay
+ * up until i swipe them away"* -- and on 2026-10-12 they asked for it again: *"if i have
+ * the side panels up and i tap outside of it you can hide them"*. So a press beginning off
+ * every open panel is latched by its own pointer and its release closes BOTH drawers.
  *
- * The latch was also the reason a press had to be answered for its whole life;
- * with it gone there is nothing here that can be latched across a device
- * vanishing, so side_reset_all() has one less thing to clear.
+ * WHAT IT COSTS, stated once and in full: while a drawer is out, the first tap on the
+ * glass rbp draws for itself is spent closing the panels and rbp does not get it. That is
+ * the whole of the trade, and it is the operator's own ask.
+ *
+ * WITH NO DRAWER OPEN NOTHING IS LATCHED and the centre of the screen behaves exactly as
+ * it did with the dismissal gone: the press is handed back untouched on both edges.
+ *
+ * AND IT IS CLEARED BY side_reset_all(), which is the one place that has to know about it
+ * -- a finger lost with a dismissing press down would otherwise leave the next press of
+ * that pointer swallowed by a drawer that had long since gone.
  * ------------------------------------------------------------------------- */
 
 static int iabs(int v)
@@ -80,9 +115,30 @@ static int iabs(int v)
     return v < 0 ? -v : v;
 }
 
+/* THE ACT A PLAIN BUTTON FIRES, or SZ_ACT_NONE for anything that is not one. This list IS
+ * the fire-on-release set -- SYNC, MASTER, CUE, PLAY and the two discs above the fader --
+ * and it is one function rather than a chain of ?: so that adding a button is adding a
+ * case and not editing a conditional that four others already depend on.
+ *
+ * It is a pure function of the hit, deliberately: the RULE (must have begun and ended on
+ * the same box) lives at the caller, which is the only place that knows what the press
+ * did in between. */
+static int side_button_act(int hit)
+{
+    switch (hit) {
+    case SZ_HIT_SYNC:   return SZ_ACT_SYNC;
+    case SZ_HIT_MASTER: return SZ_ACT_MASTER;
+    case SZ_HIT_CUE:    return SZ_ACT_CUE;
+    case SZ_HIT_PLAY:   return SZ_ACT_PLAY;
+    case SZ_HIT_RANGE:  return SZ_ACT_RANGE;
+    case SZ_HIT_MT:     return SZ_ACT_MT;
+    default:            return SZ_ACT_NONE;
+    }
+}
+
 int side_hit(int side, int x, int y)
 {
-    int lx;
+    int lx, sx;
 
     if (side != SZ_LEFT && side != SZ_RIGHT)
         return SZ_HIT_NONE;
@@ -103,18 +159,54 @@ int side_hit(int side, int x, int y)
      * The readout at y 206..225 sits inside the lane's own top slack, so touching the
      * number is a grab and not background -- the friendlier of the two answers, and
      * the one this header has promised since the fader existed. */
-    if (lx >= SZ_BTN_X0 && lx <= SZ_BTN_X1) {
-        if (y >= SZ_SYNC_Y0 && y <= SZ_SYNC_Y1)
+    if (lx >= SZ_TITLE_X0 && lx <= SZ_TITLE_X1 &&
+        y >= SZ_TITLE_Y0 && y <= SZ_TITLE_Y1)
+        return SZ_HIT_TITLE;
+    /* THE THREE ROWS THAT KEEP THEIR SCREEN ORDER are read through side_screen_x(), which
+     * reflects the panel-local x once more on the right drawer -- see its note in
+     * side_zone.h. `sx` is this point as those rows see it: the same range on BOTH decks,
+     * so the cell the operator sees on the screen's left is always the same control. */
+    sx = side_screen_x(side, lx);
+
+    /* THE BEAT-MATCH PAIR, side by side in the row SYNC used to have to itself. The 8 px
+     * seam between them is nobody's, the same rule the nudge pair's seam follows. */
+    if (y >= SZ_SYNC_Y0 && y <= SZ_SYNC_Y1) {
+        if (sx >= SZ_SYNC_X0 && sx <= SZ_SYNC_X1)
             return SZ_HIT_SYNC;
+        if (sx >= SZ_MASTER_X0 && sx <= SZ_MASTER_X1)
+            return SZ_HIT_MASTER;
+    }
+    /* THE TWO DISCS, AND ONLY WHILE THE FADER IS A PITCH FADER -- *"TR and MT should be on
+     * the pitch control"*. This is the ONE place side_hit() reads this module's own state
+     * rather than only its arguments, and it has to: a control that is not drawn must not
+     * be hittable, or a press on the blank glass where a disc used to be would be swallowed
+     * by a button that is not there.
+     *
+     * THEIR HIT IS THEIR BOX ON PURPOSE -- a disc that answered only inside its own outline
+     * would have four dead corners that look like a button, and no finger aims at a corner
+     * of a circle. */
+    if (side_mode(side) == SZ_MODE_PITCH && y >= SZ_RND_Y0 && y <= SZ_RND_Y1) {
+        if (sx >= SZ_RNG_X0 && sx <= SZ_RNG_X1)
+            return SZ_HIT_RANGE;
+        if (sx >= SZ_MT_X0 && sx <= SZ_MT_X1)
+            return SZ_HIT_MT;
+    }
+    if (lx >= SZ_BTN_X0 && lx <= SZ_BTN_X1) {
         if (y >= SZ_CUE_Y0 && y <= SZ_CUE_Y1)
             return SZ_HIT_CUE;
         if (y >= SZ_PLAY_Y0 && y <= SZ_PLAY_Y1)
             return SZ_HIT_PLAY;
     }
+    /* THE NUDGE PAIR, AND IT KEEPS ITS SCREEN ORDER TOO: '-' on the screen's left and '+'
+     * on its right, on both decks -- the operator's own correction of 2026-10-12, *"the
+     * +/- on the pitch strip should always be in that order"*. A pair whose cells swap
+     * sides is a pair you have to look at twice every time you move to the other deck, and
+     * -/+ is a word rather than a position. So these go through side_screen_x() like the
+     * three rows above. */
     if (y >= SZ_NUDGE_Y0 && y <= SZ_NUDGE_Y1) {
-        if (lx >= SZ_NUDGE_M_X0 && lx <= SZ_NUDGE_M_X1)
+        if (sx >= SZ_NUDGE_M_X0 && sx <= SZ_NUDGE_M_X1)
             return SZ_HIT_NUDGE_M;
-        if (lx >= SZ_NUDGE_P_X0 && lx <= SZ_NUDGE_P_X1)
+        if (sx >= SZ_NUDGE_P_X0 && sx <= SZ_NUDGE_P_X1)
             return SZ_HIT_NUDGE_P;
     }
     if (lx >= SZ_FADER_GX0 && lx <= SZ_FADER_GX1 &&
@@ -265,8 +357,16 @@ void side_reset(int side)
 
 void side_reset_all(void)
 {
+    int ptr;
+
     side_reset(SZ_LEFT);
     side_reset(SZ_RIGHT);
+    /* ...AND THE AWAY LATCH, which does not belong to a side. It is cleared here rather
+     * than in side_reset() because it is not one panel's state, and it MUST be cleared --
+     * a finger lost with a panel-dismissing press down would leave the next press of that
+     * pointer swallowed by a drawer that had long since gone. */
+    for (ptr = 0; ptr < SZ_PTRS; ptr++)
+        away_down[ptr] = 0;
 }
 
 int side_feed(int side, int ptr, int down, int x, int y, int *act, int *value)
@@ -308,10 +408,29 @@ int side_feed(int side, int ptr, int down, int x, int y, int *act, int *value)
              * side_feed_any() answers. Neither can happen while this press is latched,
              * so a press that began with the drawer out never closes it. */
             if (s->started_open) {
-                if ((s->press_hit == SZ_HIT_SYNC || s->press_hit == SZ_HIT_CUE ||
-                     s->press_hit == SZ_HIT_PLAY) && s->cur_hit == s->press_hit)
-                    a = (s->press_hit == SZ_HIT_SYNC) ? SZ_ACT_SYNC :
-                        (s->press_hit == SZ_HIT_CUE)  ? SZ_ACT_CUE : SZ_ACT_PLAY;
+                /* THE PLAIN BUTTONS, all of them by ONE rule: a press that began AND ended
+                 * on the same box. A slide-off cancels -- menu_zone.h's fire-on-release
+                 * rule -- which is why cur_hit is compared at all, and the reason a finger
+                 * that rolls from SYNC onto MASTER fires neither. side_button_act() is the
+                 * list; this is the rule. */
+                int btn = (s->cur_hit == s->press_hit)
+                          ? side_button_act(s->press_hit) : SZ_ACT_NONE;
+
+                if (btn != SZ_ACT_NONE)
+                    a = btn;
+                else if (s->press_hit == SZ_HIT_TITLE && s->cur_hit == s->press_hit) {
+                    /* THE TOGGLE. It flips the mode HERE, not in the caller, so the
+                     * whole of this panel's state machine stays inside this module --
+                     * side_zone.h's side_mode() note carries the argument. The same
+                     * press-that-ended-where-it-began rule as SYNC/CUE/PLAY, so a
+                     * finger that rolled off the header toggles nothing; and a press
+                     * that travelled is the dismissal sweep instead, which is checked
+                     * while the finger is still down and has already put the drawer
+                     * away by the time this runs, leaving cur_hit 0 here. */
+                    sz_mode[side] = (sz_mode[side] == SZ_MODE_PITCH)
+                                    ? SZ_MODE_VOL : SZ_MODE_PITCH;
+                    a = SZ_ACT_MODE;
+                }
                 else if (s->press_hit == SZ_HIT_NUDGE_M ||
                          s->press_hit == SZ_HIT_NUDGE_P)
                     /* THE NUDGE ALWAYS ENDS, and the restore is emitted whether or
@@ -460,11 +579,18 @@ int side_feed(int side, int ptr, int down, int x, int y, int *act, int *value)
             }
             return MZ_FEED_TAKEN;
         }
-        if (s->press_hit == SZ_HIT_BG) {
+        if (s->press_hit == SZ_HIT_BG || s->press_hit == SZ_HIT_TITLE) {
             /* A swipe OUTWARD toward this drawer's own edge dismisses it. Outward is
              * -lx, so the distance is start_lx - lx and never negative for a finger
              * still inside the panel; a finger that has left the panel simply gets a
-             * larger number, which is still a dismissal. */
+             * larger number, which is still a dismissal.
+             *
+             * THE TITLE IS INCLUDED, and that is not a detail: before the toggle
+             * existed the header was background, so an outward sweep starting on it
+             * put the drawer away. Making it a control would have taken that gesture
+             * from the operator without being asked to, and the two rules cannot be
+             * confused anyway -- this one needs SZ_CLOSE_PX of travel and the toggle
+             * needs a press that ended where it began. */
             int out = s->start_lx - lx;
             int dy = iabs(y - s->start_y);
 
@@ -527,6 +653,21 @@ int side_feed_any(int ptr, int down, int x, int y, int *side_out, int *act,
         }
     }
 
+    /* 0b. THE "AWAY" LATCH OWNS EVERY REPORT OF ITS OWN PRESS, and this is second only
+     * because step 0 owns presses a DRAWER latched. A press is swallowed for its whole
+     * life or not at all (the module's latch rule), so a motion of an away press must not
+     * be re-offered below: a finger that put a panel away and then wandered onto the OTHER
+     * edge would otherwise be read as a fresh swipe on a shut drawer's entry column, and
+     * the lift would come back a TAP and replay a press to rbp that rbp never had a down
+     * for. That is the whole reason this is here and not with the latch below. */
+    if (away_down[ptr]) {
+        if (down)
+            return MZ_FEED_TAKEN;              /* still this press, still swallowed */
+        away_down[ptr] = 0;
+        sz_open[SZ_LEFT] = sz_open[SZ_RIGHT] = 0;
+        return MZ_FEED_TAKEN;
+    }
+
     /* 1. A FRESH PRESS ON AN OPEN DRAWER'S OWN PANEL -- and it is the only step that
      * can fire a control. The `side_hit() != SZ_HIT_NONE` test is what keeps a press
      * in the middle of the glass OUT of this step: without it, a drawer would swallow
@@ -566,11 +707,36 @@ int side_feed_any(int ptr, int down, int x, int y, int *side_out, int *act,
         }
     }
 
-    /* 3. NOTHING HERE CLAIMED IT. With the "away" dismissal gone this is no longer a
-     * special case but the ordinary one: a press on the glass rbp draws for itself --
-     * the centre of the screen, most of what the operator touches -- is handed back
-     * untouched, on its down edge and on its release alike. Nothing latches it, so
-     * nothing has to unlatch it. The only dismissal left is the outward background
-     * sweep in side_feed(). */
+    /* 3. THE "AWAY" DISMISSAL, AND IT IS BACK. It was here once and the operator removed
+     * it -- *"the side bar should stay up until i swipe them away"* -- and on 2026-10-12
+     * they asked for it again: *"if i have the side panels up and i tap outside of it you
+     * can hide them"*. Reached only by a FRESH press, because steps 1 and 2 have already
+     * claimed every press that lands on an open panel or in a shut drawer's entry column,
+     * and once latched the press is owned by 0b above.
+     *
+     * THE COST IS THE OLD ONE AND IT IS WORTH STATING: while a drawer is out, the FIRST
+     * tap on the glass rbp draws for itself is spent closing the panels and rbp does not
+     * get it. That is what "tap outside to hide them" means; a tap the operator wants rbp
+     * to act on is then the next one.
+     *
+     * THE PRIMARY HAND ONLY, and that is the second contact's own contract rather than a
+     * detail: side_zone.h says the alt pointer is "offered to the DRAWERS and to nothing
+     * else", and a second finger that happened to rest on the glass while the operator
+     * read a panel must not put the panel away. So the latch is only ever set for
+     * SZ_PTR_MAIN.
+     *
+     * WITH NO DRAWER OPEN THERE IS NO LATCH AND NOTHING CHANGES: a tap on rbp's own screen
+     * is handed back untouched on both edges, exactly as it is with the dismissal gone. */
+    if (down && ptr == SZ_PTR_MAIN &&
+        (sz_open[SZ_LEFT] || sz_open[SZ_RIGHT])) {
+        away_down[ptr] = 1;
+        return MZ_FEED_TAKEN;
+    }
+
+    /* NOTHING HERE CLAIMED IT, and no panel is out: a press on the glass rbp draws for
+     * itself -- the centre of the screen, most of what the operator touches -- is handed
+     * back untouched, on its down edge and on its release alike. Nothing latches it, so
+     * nothing has to unlatch it. The other dismissal is the outward background sweep in
+     * side_feed(). */
     return MZ_FEED_NONE;
 }

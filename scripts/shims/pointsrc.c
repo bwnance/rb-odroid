@@ -1383,11 +1383,15 @@ static void hc_fire(int deck, int pad)
  * wire, a hand on that fader: the press moves it and the release puts it back.
  *
  * THE RELEASE READS THE FADER AT THAT MOMENT rather than restoring a value captured at
- * the press, and the difference is deliberate. If the operator moves the real fader
- * during the hold, the fader's own messages have already taken the tempo there, and a
- * release that restored a stale capture would yank the tempo back and fight the hand
- * that had just moved it. Reading at the release is right in both cases -- and it is
- * the same number when the fader never moved, which is the only case a bench shows.
+ * the press, and the difference is deliberate. If something moves the fader during the
+ * hold -- the hardware's own pitch fader, or the DRAWER's when it is in pitch mode, which
+ * is a second writer of the same number since 2026-10-12 -- its messages have already
+ * taken the tempo there, and a release that restored a stale capture would yank the tempo
+ * back and fight the hand that had just moved it. Reading at the release is right in both
+ * cases -- and it is the same number when the fader never moved, which is the only case a
+ * bench shows. The cost of the second writer is that a nudge and a pitch-fader drag
+ * landing on the same deck at the same time resolve to "whichever spoke last", which is
+ * the honest answer for two hands on one control.
  *
  * The position comes from pitch_state.o, which exists precisely because the writer is
  * knobshim.so's map and this is fbshim.so, loaded FIRST: see that header. With no
@@ -1455,28 +1459,52 @@ static void side_nudge_sync(void)
         side_nudge(i, side_nudging(i));
 }
 
+/* A BUTTON THAT IS ONE KEYCODE AND NOTHING ELSE: press, release, and the line that says
+ * which. Six of the drawer's controls are exactly this -- SYNC, MASTER, CUE, PLAY and the
+ * two discs -- and they were six copies of the same four lines until the discs arrived, at
+ * which point the copy stopped being shorter than the call. `what` is the word that goes
+ * in the log, and it is the LABEL on the glass so that a log line and a button can be
+ * matched by eye. */
+static void side_key(int side, int key, const char *what)
+{
+    int ch = side_channel(side);
+
+    pointsrc_log("pointsrc: side %s %s -> key %#x ch%d", side ? "right" : "left",
+                 what, key, ch);
+    send_rx_key(key, OP_PRESS, ch, 0);
+    send_rx_key(key, OP_RELEASE, ch, 0);
+}
+
 static void side_act(int side, int act, int value)
 {
     int ch = side_channel(side);
 
     switch (act) {
     case SZ_ACT_SYNC:
-        pointsrc_log("pointsrc: side %s SYNC -> key %#x ch%d", side ? "right" : "left",
-                     K_SYNC, ch);
-        send_rx_key(K_SYNC, OP_PRESS, ch, 0);
-        send_rx_key(K_SYNC, OP_RELEASE, ch, 0);
+        side_key(side, K_SYNC, "SYNC");
+        break;
+    case SZ_ACT_MASTER:
+        /* K_MASTER is rbp's "this deck is the master" designation -- the other half of the
+         * beat-match pair SYNC sits beside. It carries no value: which deck is master is
+         * rbp's own state and it is what rbp's screen shows. */
+        side_key(side, K_MASTER, "MASTER");
         break;
     case SZ_ACT_CUE:
-        pointsrc_log("pointsrc: side %s CUE -> key %#x ch%d", side ? "right" : "left",
-                     K_CUE, ch);
-        send_rx_key(K_CUE, OP_PRESS, ch, 0);
-        send_rx_key(K_CUE, OP_RELEASE, ch, 0);
+        side_key(side, K_CUE, "CUE");
         break;
     case SZ_ACT_PLAY:
-        pointsrc_log("pointsrc: side %s PLAY -> key %#x ch%d", side ? "right" : "left",
-                     K_PLAY, ch);
-        send_rx_key(K_PLAY, OP_PRESS, ch, 0);
-        send_rx_key(K_PLAY, OP_RELEASE, ch, 0);
+        side_key(side, K_PLAY, "PLAY");
+        break;
+    case SZ_ACT_RANGE:
+        /* A CYCLE, not a value: rbp advances +-6 -> +-10 -> +-16 -> WIDE on each press, and
+         * the shim is never told which one it lands on (pitch_state.h), which is why the
+         * disc has no lit state and why the nudge's size is expressed in fader travel. */
+        side_key(side, K_TEMPO_RANGE, "tempo range");
+        break;
+    case SZ_ACT_MT:
+        /* MASTER TEMPO (key lock). A toggle on rbp's side; the disc lights from rbp's own
+         * predicate, through RBP_TRANSPORT_MT. */
+        side_key(side, K_MT, "master tempo");
         break;
     case SZ_ACT_NUDGE_REV:
         side_nudge(side, -1);
@@ -1487,14 +1515,60 @@ static void side_act(int side, int act, int value)
     case SZ_ACT_NUDGE_STOP:
         side_nudge(side, 0);
         break;
+    case SZ_ACT_MODE:
+        /* THE TOGGLE HAS ALREADY HAPPENED. side_zone.c flips its own mode and reports
+         * this as the notification (side_zone.h's side_mode() note), so there is nothing
+         * to send: the mode is the panel's, and rbp is told the fader's VALUE by whichever
+         * of the two messages the next drag produces. The line exists because it is the
+         * only place that says which control the strip is on -- and a drag's own line
+         * does not, since both modes report the same 0..1023 position. */
+        pointsrc_log("pointsrc: side %s fader is now %s", side ? "right" : "left",
+                     side_mode(side) == SZ_MODE_PITCH ? "PITCH" : "VOLUME");
+        break;
     case SZ_ACT_FADER:
-        /* The value is logged for every change -- a full-height drag is a few hundred
-         * lines and not a few thousand, because side_zone.c only reports a change --
-         * and it is the only line that says what the drawer actually sent. */
-        pointsrc_log("pointsrc: side %s fader ch%d -> %d", side ? "right" : "left",
-                     ch, value);
-        send_rx_key_f(K_FADER, OP_VALUE, ch, value, (float)value / 1023.0f);
-        fader_state_set(ch, value);
+        /* WHICH MESSAGE THIS IS DEPENDS ON WHAT THE FADER IS, and this arm is the only
+         * place the two modes differ. The drawer reports the same 0..1023 position either
+         * way: its arithmetic does not know about modes, because side_zone.h's contract
+         * is that the module says WHICH control and leaves the message to the caller.
+         *
+         * PITCH sends exactly what the nudge pair sends, from exactly the same place --
+         * the position the finger is on, as the tempo slider's own 10-bit value, with the
+         * norm DERIVED FROM IT rather than the other way round. pitch_state.h's
+         * pitch_norm_from_v10() note says why: the forward map truncates, so re-deriving
+         * v10 from the norm would lose a step for 84 of the 1024 positions, and the value
+         * on the wire would no longer be the deduped one side_zone.c produced.
+         *
+         * AND THE FADER IS TURNED OVER, which is `pitch_norm_for_fader()` and not
+         * `pitch_norm_from_v10()`: the operator's own correction, *"sliding up should
+         * bring the tempo down not up"* (2026-10-12). The top of the track is the slow
+         * end. menu_draw.c draws the handle through the matching `pitch_v10_for_fader()`,
+         * so the two cannot disagree about which way up the control is; the NORM itself
+         * is unchanged, and a nudge's '+' still means forward.
+         *
+         * It then PUBLISHES that position, which is what keeps the nudge pair honest: a
+         * nudge moves FROM where this fader left the tempo, so the two surfaces cannot
+         * come to disagree about the position they are both describing.
+         *
+         * THE CHANNEL FADER IS NOT TOUCHED IN PITCH MODE. fader_state_set() would move
+         * the operator's volume, which is the one thing a pitch control must never do --
+         * and the same reason the readout is suppressed on the glass. */
+        if (side_mode(side) == SZ_MODE_PITCH) {
+            float norm = pitch_norm_for_fader(value);
+
+            pointsrc_log("pointsrc: side %s pitch ch%d -> %d (norm %+.3f)",
+                         side ? "right" : "left", ch, value, (double)norm);
+            send_rx_key_fl(K_TEMPO_SLIDER, OP_VALUE, ch, value, norm,
+                           (long)pitch_pos_from_norm(norm));
+            pitch_state_set(side, norm);
+        } else {
+            /* The value is logged for every change -- a full-height drag is a few hundred
+             * lines and not a few thousand, because side_zone.c only reports a change --
+             * and it is the only line that says what the drawer actually sent. */
+            pointsrc_log("pointsrc: side %s fader ch%d -> %d", side ? "right" : "left",
+                         ch, value);
+            send_rx_key_f(K_FADER, OP_VALUE, ch, value, (float)value / 1023.0f);
+            fader_state_set(ch, value);
+        }
         break;
     default:
         break;

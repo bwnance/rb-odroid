@@ -201,6 +201,64 @@ static void test_state(void)
           "a publish to a nonexistent deck wrote somewhere");
 }
 
+/* ---- the drawer's fader is turned over ------------------------------------ */
+
+/* THE DRAWER'S PITCH FADER IS THE OTHER WAY UP, and it is the operator's own correction
+ * on the glass, 2026-10-12: *"for the pitch control sliding up should bring the tempo
+ * down not up"*. The TOP of the track is the SLOW end. Both the draw (menu_draw.c) and
+ * the send (pointsrc.c) go through these two functions, so pinning them pins the whole
+ * orientation -- the handle and the wire cannot end up disagreeing about which way the
+ * control runs. */
+static void test_fader_inversion(void)
+{
+    /* THE TWO ENDS, which is the whole of it. `pitch_norm_for_fader` is the SEND's
+     * mapping; `pitch_v10_for_fader` is the DRAW's. */
+    CHECK(NEAR(pitch_norm_for_fader(1023), -1.0f),
+          "the top of the pitch fader gives %.6f -- it must be -1, the SLOW end",
+          (double)pitch_norm_for_fader(1023));
+    CHECK(NEAR(pitch_norm_for_fader(0), +1.0f),
+          "the bottom of the pitch fader gives %.6f -- it must be +1, the FAST end",
+          (double)pitch_norm_for_fader(0));
+    CHECK(pitch_v10_for_fader(-1.0f) == 1023,
+          "the slow end is drawn at %d, not at the top of the track",
+          pitch_v10_for_fader(-1.0f));
+    CHECK(pitch_v10_for_fader(+1.0f) == 0,
+          "the fast end is drawn at %d, not at the bottom of the track",
+          pitch_v10_for_fader(+1.0f));
+
+    /* AND IT IS THE UPRIGHT MAPPING TURNED OVER, which is what makes this a deliberate
+     * inversion rather than a second copy of the same function. */
+    CHECK(NEAR(pitch_norm_for_fader(1023), -pitch_norm_from_v10(1023)),
+          "the send's mapping is not the upright one negated");
+    CHECK(pitch_v10_for_fader(0.0f) == 1023 - pitch_v10_from_norm(0.0f),
+          "the draw's mapping is not the upright one turned over");
+
+    /* THE CENTRE STAYS THE CENTRE -- rbp's own cold-start tempo position, which is where
+     * an untouched drawer has to sit. One step of slack: 1023 is odd, so the detent falls
+     * between two positions. */
+    CHECK(pitch_v10_for_fader(0.0f) == 511 || pitch_v10_for_fader(0.0f) == 512,
+          "the norm's centre is drawn at %d, not at the middle of the travel",
+          pitch_v10_for_fader(0.0f));
+
+    /* THE ROUND TRIP COSTS AT MOST ONE STEP, AND NEVER MOVES DOWNWARD. That is worth
+     * stating rather than hidden, because it is the price of deriving the norm from the
+     * position at all: the upright forward map truncates, and its inverse's float division
+     * can land a hair under the integer it came from, so a handle drawn from a position
+     * can put back the position one step ABOVE. One step is 1/1024 of a travel 360 px
+     * long -- under half a pixel -- and it is the reason pointsrc.c keeps the fader's own
+     * value as its 10-bit argument rather than round-tripping it back through the norm. */
+    {
+        int v;
+
+        for (v = 0; v <= 1023; v += 37) {
+            int w = pitch_v10_for_fader(pitch_norm_for_fader(v));
+
+            CHECK(w >= v && w <= v + 1,
+                  "the pitch fader's round trip moved %d to %d", v, w);
+        }
+    }
+}
+
 int main(void)
 {
     test_step();
@@ -208,6 +266,7 @@ int main(void)
     test_restore();
     test_message();
     test_state();
+    test_fader_inversion();
 
     printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);
     return failures ? 1 : 0;

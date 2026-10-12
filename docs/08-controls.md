@@ -1303,15 +1303,20 @@ mount — is unchanged and still the reason the column exists
 ## The edge drawers' transports, sync, nudge and fader — keycodes rbp already has
 
 The side drawers (`07-touch.md`) send five keycodes, and none of them needs a map, a
-controller or a byte of MIDI:
+controller or a byte of MIDI. The **fader is two rows**, because the header's toggle
+(`07-touch.md` § *The header is the FADER/PITCH toggle*) changes which absolute control it
+drives — and the **header tap itself sends nothing at all**: the mode is that panel's own,
+and rbp is told a value by whichever message the next drag produces.
 
 | Drawer control | Sends | Notes |
 |---|---|---|
+| **header tap** | **nothing** | toggles that panel's fader between VOLUME and PITCH; the label reads `CH n FADER` / `CH n PITCH` |
 | **SYNC** | `K_SYNC 0x4112`, press + release | on the side's channel: 1 = left/deck 1, 2 = right/deck 2 |
 | **−/+ nudge** | `K_TEMPO_SLIDER 0x4109` with **`OP_VALUE`** — a *position*, moved **±5% of the fader's travel** | see below — a move on the press and the lift puts it back |
 | **CUE** | `K_CUE 0x4102`, press + release | same channel argument |
 | **PLAY** | `K_PLAY 0x4101`, press + release | same channel argument |
-| **fader** | `K_FADER 0x501e` via `send_rx_key_f(..., OP_VALUE, ch, v, v/1023.0f)` | **absolute**, `v` 0..1023, top = full |
+| **fader — VOLUME** | `K_FADER 0x501e` via `send_rx_key_f(..., OP_VALUE, ch, v, v/1023.0f)` | **absolute**, `v` 0..1023, top = full |
+| **fader — PITCH** | `K_TEMPO_SLIDER 0x4109` with `OP_VALUE` — the identical call the nudge pair makes | the fader's own `v` **is** the 10-bit argument, and the norm is derived from it (`pitch_norm_for_fader()`), never the reverse; the position is then published with `pitch_state_set()`. **Top is SLOW** — the drawer's pitch fader is turned over, and `menu_draw.c` draws the handle through the matching `pitch_v10_for_fader()`. The channel fader is not touched. |
 
 SYNC, CUE and PLAY are plain press/release with **no `usleep`** — unlike the band's own
 buttons, they never enter the synthesized-hold path, because rbp wants an edge and not
@@ -1401,6 +1406,15 @@ the FLX4's 128 steps.
 `g_fader[ch]` / `g_fader_seen[ch]` (defined once in `fader_state.c`, shared by both
 shims — see `07-touch.md` for why that matters) are written on every send, so the
 absolute-control query below stops seeding a channel the moment a drawer touches it.
+
+**The PITCH fader is a second writer of `g_pitch_norm[]`**, which until 2026-10-12 only
+the controller maps wrote. It publishes through `pitch_state_set()` for the same reason
+the maps do — so the nudge pair, whose whole model is "move the tempo *from* where the
+fader is", reads the position the pitch fader actually left it at rather than the one the
+hardware last reported. A nudge and a pitch-fader drag on the same deck at the same time
+therefore resolve to whichever spoke last, which is the honest answer for two hands on one
+control. No FLX4 is needed for either: with nothing attached `g_pitch_norm` sits at 0, the
+centre, which is rbp's own cold-start tempo position.
 
 ## Keycode → rbp, and the absolute-control query
 

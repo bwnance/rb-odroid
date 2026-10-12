@@ -55,6 +55,16 @@
  * rings are lit from -- the operator asked for exactly that: "if its not playing don't display
  * green". Same source, two questions, so neither consumer has to guess at the other's. */
 #define RBP_TRANSPORT_PLAY_SOLID 8
+/* ...AND MASTER TEMPO (key lock), which is its own row on rbp's LED table and was already
+ * being read for the CONTROLLER's key-lock LED (rbp_led.c's LEDSTAT_MT). The edge drawers
+ * grew a MASTER TEMPO button on 2026-10-12 and it lights from this -- the same reading the
+ * hardware's own key-lock LED is sent, so the two cannot disagree about a deck. */
+#define RBP_TRANSPORT_MT 16
+/* ...AND THE MASTER DESIGNATION, one deck at a time. rbp answers this itself by lighting
+ * LedStat id 5 on whichever channel is master and MOVING it when the master changes decks, so
+ * this bit is read straight off the table and nothing here has to know that only one deck can
+ * hold it. The drawer's MASTER button lights from it -- per deck, for free. */
+#define RBP_TRANSPORT_MASTER 32
 
 /*
  * This deck's three, as rbp has them right now, ORed from the RBP_TRANSPORT_* bits
