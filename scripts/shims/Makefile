@@ -417,10 +417,10 @@ FBSHIM_OBJS := fb_shim.o tscfake.o pointsrc.o point_xform.o touch_zone.o \
                wave_zone.o prompt_zone.o prompt_paint.o fx_zone.o fx_paint.o \
                hc_zone.o usb_label.o fxpad_zone.o fxpad_paint.o padmode_zone.o \
                deckbadge_zone.o deckbadge_paint.o deckbadge_plane.o bpmbox_zone.o \
-               vidmask.o browse_zone.o
+               vidmask.o
 FBSHIM_HDRS := tscfake.h pointsrc.h point_xform.h touch_zone.h syscalls.h \
                padmode_zone.h hc_zone.h deckbadge_zone.h bpmbox_zone.h deckbadge_paint.h \
-               deckbadge_plane.h vidmask.h browse_zone.h \
+               deckbadge_plane.h vidmask.h \
                envutil.h fb_cursor.h cursor_paint.h fbdev.h menu_zone.h \
                menu_paint.h menu_font.h menu_draw.h drmband.h side_zone.h \
                side_paint.h rbp_vu.h util_zone.h wave_zone.h prompt_zone.h \
