@@ -217,6 +217,10 @@
  * 4 the waveform shows a handful of beats spread wide, at scale 2 a dense run of
  * them. So a selector STEP OF +1 ZOOMS IN and -1 ZOOMS OUT, which is what makes a
  * swipe UP a positive step. */
+/* The browse list -- the two-pane folder/playlist screen, and ALSO the track list its
+ * right pane opens into: measured 2026-10-13, both read 3. One number for two screens is
+ * why browse_zone.c cannot gate on the mode alone. */
+#define BROWSE_MODE_BROWSE   3
 #define BROWSE_MODE_PLAY     1
 #define UIBROWSE_OFF_PLAY_SUBGATE 0x18  /* int, the mode-1 branch's first test: 1
                                          * means rbp returns cursor mode 0 and a

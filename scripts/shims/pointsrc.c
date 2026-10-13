@@ -43,6 +43,7 @@
  * rbp's meter hook -- see rbp_key.h. Every send is a no-op unless the process
  * is rbp and its KeyManager exists yet, so this needs no guard of its own. */
 #include "rbp_abi.h"
+#include "browse_zone.h" /* a tap on the browse list's right pane */
 #include "rbp_key.h"
 
 /* The channel faders the drawers drive. The *send* is rbp_key's, but a fader is
@@ -2334,6 +2335,13 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
             menu_fire(button, held_ms);
         return;
     }
+    /* THE BROWSE LIST'S RIGHT PANE, and it is LAST and it never claims anything. It writes
+     * rbp's own cursor for that pane and falls straight through, so the report reaches rbp
+     * unchanged -- which is the whole mechanism: rbp descends into the row the finger hit
+     * rather than into the row its stuck cursor was on. See browse_zone.h. */
+    if (verdict == MZ_FEED_NONE)
+        browse_zone_note(down, x, y);
+
     quantize_tap(down, x, y);
     tscfake_emit(down, x, y);
     /* ...and this is the only line that publishes a finger of rbp's own. A TAKEN report
