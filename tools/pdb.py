@@ -25,9 +25,26 @@ A row is only real if the page's presence bitmask says so: deleted rows leave
 gaps, and the spec is explicit that their contents are not merely stale but
 possibly not well-formed.  Unset bits are skipped, never parsed.
 
-    work/pdb.py <export.pdb>                 # summary + every track
-    work/pdb.py <export.pdb> --find RUNNIN  # tracks whose title matches
-    work/pdb.py <export.pdb> --id 24        # the track with that id
+    tools/pdb.py --search DEETRON           # title OR artist
+    tools/pdb.py --artist "Fpi project"     # just the artist
+    tools/pdb.py --find RUNNIN              # title only
+    tools/pdb.py --id 24                    # the track with that id
+    tools/pdb.py --search anotr --first     # just the first match
+    tools/pdb.py --search deetron --play 1  # first match, armed onto deck 1
+    tools/pdb.py /path/to/export.pdb ...    # an explicit library still wins
+
+MULTIPLE MATCHES TAKE THE FIRST. `--first` prints only the first and `--play` both
+takes the first and writes the loader's command file, so an ambiguous query is a
+one-liner rather than a menu -- and the line it printed is the one it acted on.
+
+The library path defaults to the one rbp mounts, so on the unit it is one word.
+Copied to /root/pdb.py that is:
+
+    ssh root@192.168.1.239 'python3 /root/pdb.py --search deetron'
+
+and the id it prints is the one `rbp_load.c` takes:
+
+    ssh root@192.168.1.239 'echo "1 24" > /tmp/rb_load'
 """
 import struct
 import sys
@@ -50,6 +67,14 @@ R_ID, R_DISC, R_PLAY_COUNT = 0x48, 0x4c, 0x4e
 R_YEAR, R_DURATION = 0x50, 0x54
 R_COLOR, R_RATING = 0x58, 0x59
 R_OFS_STRINGS = 0x5e         # 21 x u2, then the variable-length strings
+
+# Where the library is on the unit -- the export rbp itself mounts. This is what
+# makes the script one word over ssh, which is how it is actually used; pass a path
+# as the first argument and that wins instead.
+DEFAULT_PDB = "/opt/rblive4/rbx3-run/media/usb1/sda1/PIONEER/rekordbox/export.pdb"
+
+# What rbp_load.c watches. `--play` writes this, so a search and a load are one word.
+LOAD_CMD = "/tmp/rb_load"
 
 
 def ds_string(d, pos, end):
@@ -170,41 +195,106 @@ def name_table(pdb):
 
 
 def main(argv):
-    if len(argv) < 2:
-        print(__doc__)
+    args = argv[1:]
+    path = DEFAULT_PDB
+    if args and not args[0].startswith('-'):
+        path = args.pop(0)               # an explicit library still wins
+
+    want_id = None
+    find = artist = search = None
+    first_only = False
+    play_deck = None
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in ('-h', '--help'):
+            print(__doc__)
+            return 0
+        if a == '--first':
+            first_only = True
+            i += 1
+            continue
+        if a == '--play':
+            play_deck = int(args[i + 1]) if i + 1 < len(args) else 0
+            first_only = True               # a load wants ONE track, not a menu
+            i += 2
+            continue
+        if a not in ('--id', '--find', '--artist', '--search') or i + 1 >= len(args):
+            print("usage: pdb.py [export.pdb] [--search T | --find T | --artist T"
+                  " | --id N] [--first | --play DECK]")
+            return 2
+        v = args[i + 1]
+        if a == '--id':
+            want_id = int(v, 0)
+        elif a == '--find':
+            find = v.upper()
+        elif a == '--artist':
+            artist = v.upper()
+        else:
+            search = v.upper()
+        i += 2
+
+    query = any((want_id is not None, find, artist, search))
+    if play_deck is not None and play_deck not in (1, 2):
+        print("--play takes a deck, 1 or 2")
         return 2
-    pdb = PDB(argv[1])
-    print("# %s: page=%d tables=%d next_unused=%d" %
-          (argv[1], pdb.len_page, pdb.num_tables, pdb.next_unused))
-    for t, empty, first, last in pdb.tables:
-        print("#   type %2d  pages %d..%d  empty_candidate %d" % (t, first, last, empty))
+
+    try:
+        pdb = PDB(path)
+    except (IOError, OSError) as e:
+        print("cannot read %s: %s" % (path, e))
+        print("(give the path to an export.pdb as the first argument)")
+        return 1
+
+    if not query:
+        print("# %s: page=%d tables=%d" % (path, pdb.len_page, pdb.num_tables))
 
     names = name_table(pdb)
-    print("# artists=%d albums=%d" % (len(names[2]), len(names[3])))
+    if not query:
+        for t, empty, first, last in pdb.tables:
+            print("#   type %2d  pages %d..%d  empty_candidate %d" % (t, first, last, empty))
+        print("# artists=%d albums=%d" % (len(names[2]), len(names[3])))
 
-    find = None
-    want_id = None
-    for i, a in enumerate(argv):
-        if a == '--find':
-            find = argv[i + 1].upper()
-        if a == '--id':
-            want_id = int(argv[i + 1])
-
-    n = 0
+    hits = total = 0
+    picked = None
     for pg, ordinal, off in pdb.rows(TYPE_TRACKS):
         t = pdb.track(off)
         if t is None:
             continue
-        n += 1
+        total += 1
+        title = t['title'] or ''
+        art = names[2].get(t['artist_id'], '')
         if want_id is not None and t['id'] != want_id:
             continue
-        if find and find not in t['title'].upper():
+        if find and find not in title.upper():
             continue
-        print("row %-5d page %-4d id %-6d %-34s | %-24s | %6.1f bpm | %s" %
-              (ordinal, pg, t['id'], t['title'][:34],
-               names[2].get(t['artist_id'], '?')[:24], t['tempo'], t['added']))
-    print("# %d tracks" % n)
-    return 0
+        if artist and artist not in art.upper():
+            continue
+        if search and search not in title.upper() and search not in art.upper():
+            continue
+        hits += 1
+        if picked is None:
+            picked = t['id']
+        if first_only and hits > 1:
+            continue        # counted, not printed: the total is worth knowing
+        print("id %-6d %-44s | %-22s | %6.1f bpm | %d:%02d | %s" %
+              (t['id'], title[:44], art[:22], t['tempo'],
+               t['duration'] // 60, t['duration'] % 60, t.get('added', '')))
+
+    if first_only and hits:
+        print("# %d of %d tracks matched -- took the first" % (hits, total))
+    else:
+        print("# %d of %d tracks" % (hits, total))
+
+    if play_deck is not None:
+        if picked is None:
+            print("# nothing matched -- nothing armed")
+            return 1
+        with open(LOAD_CMD, 'w') as f:
+            f.write("%d %d" % (play_deck, picked))
+        print("# armed %s: deck %d <- id %d" % (LOAD_CMD, play_deck, picked))
+
+    return 0 if (hits or not query) else 1
 
 
 if __name__ == "__main__":
