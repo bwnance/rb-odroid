@@ -510,30 +510,38 @@ int drm_band_setup(struct drm_band *b, int w, int h, int bpp)
     return 0;
 }
 
-int drm_band_show(struct drm_band *b, int x, int y)
+/* THE GENERAL COMMIT, and the only one that sets the two rectangles independently.
+ *
+ * src_* is the rectangle taken OUT of our buffer; crtc_* is where and how big it
+ * lands on the glass. The kernel takes them separately -- that IS the plane scaling
+ * mechanism -- so a buffer of one size can be shown at another, scaled by the HVS,
+ * with no software scaler and no second buffer. Both are 16.16 fixed point in the
+ * source rect; the crtc rect is whole pixels.
+ *
+ * drm_band_show() is this with the whole buffer and its own size, i.e. 1:1, which is
+ * what every other surface in this shim wants. */
+int drm_band_show_rect(struct drm_band *b, int sx, int sy, int sw, int sh,
+                       int x, int y, int w, int h)
 {
     struct drm_mode_set_plane sp;
 
     if (b->fd < 0 || !b->pix)
         return -1;
-    if (b->on && b->on_x == x && b->on_y == y)
-        return 0;
-
     memset(&sp, 0, sizeof sp);
     sp.plane_id = b->plane;
     sp.crtc_id  = b->crtc;
     sp.fb_id    = b->fb;
     sp.crtc_x   = (__s32)x;
     sp.crtc_y   = (__s32)y;
-    sp.crtc_w   = (__u32)b->w;
-    sp.crtc_h   = (__u32)b->h;
-    sp.src_x    = 0;
-    sp.src_y    = 0;
-    sp.src_w    = (__u32)b->w << 16;      /* 16.16 fixed point */
-    sp.src_h    = (__u32)b->h << 16;
+    sp.crtc_w   = (__u32)w;
+    sp.crtc_h   = (__u32)h;
+    sp.src_x    = (__u32)sx << 16;
+    sp.src_y    = (__u32)sy << 16;
+    sp.src_w    = (__u32)sw << 16;
+    sp.src_h    = (__u32)sh << 16;
     if (real_ioctl(b->fd, DRM_IOCTL_MODE_SETPLANE, &sp) < 0) {
-        pointsrc_log("menu plane: SETPLANE %u at %d,%d: %s",
-                     b->plane, x, y, strerror(errno));
+        pointsrc_log("menu plane: SETPLANE %u %dx%d at %d,%d from %d,%d %dx%d: %s",
+                     b->plane, w, h, x, y, sx, sy, sw, sh, strerror(errno));
         b->on = 0;
         return -1;
     }
@@ -541,6 +549,15 @@ int drm_band_show(struct drm_band *b, int x, int y)
     b->on_x = x;
     b->on_y = y;
     return 0;
+}
+
+int drm_band_show(struct drm_band *b, int x, int y)
+{
+    if (b->fd < 0 || !b->pix)
+        return -1;
+    if (b->on && b->on_x == x && b->on_y == y)
+        return 0;
+    return drm_band_show_rect(b, 0, 0, b->w, b->h, x, y, b->w, b->h);
 }
 
 void drm_band_hide(struct drm_band *b)

@@ -308,6 +308,10 @@ int  drm_band_setup_fmt(struct drm_band *b, int w, int h, int bpp, unsigned int 
 #define DRM_RANK_FXLIST    4
 #define DRM_RANK_FXPAD     5
 #define DRM_RANK_BAND      6     /* the operator's ask: above both deck rings */
+#define DRM_RANK_MASK      7     /* vidmask.c, and it is the browser window's freed rank put back
+                                  * to use. ABOVE THE BAND, which is the point: every other surface
+                                  * here wants to be covered by something, and this one has to cover
+                                  * them all -- a mask a panel could slide over is not a mask. */
 
 /* The ranking the NEXT drm_band_setup() in this process will ask for: it takes the (n+1)-th free
  * overlay rather than the first. Consumed by that call, so it cannot leak onto a later band.
@@ -326,6 +330,12 @@ void drm_band_want_rank(unsigned int n);
  * The buffer must already hold the image. Idempotent while it is already on at
  * the same place, so a tick may call it every frame. Returns 0 on success. */
 int  drm_band_show(struct drm_band *b, int x, int y);
+
+/* The same commit with BOTH rectangles named: `sw`x`sh` taken out of the buffer, shown
+ * at `w`x`h` at (x,y). The HVS does the scaling, so a buffer of one size can be shown
+ * at another -- drm_band_show() is this with the whole buffer at its own size. */
+int  drm_band_show_rect(struct drm_band *b, int sx, int sy, int sw, int sh,
+                        int x, int y, int w, int h);
 
 /* Take it off. The band is opaque -- RGB565 has no alpha -- so this is what
  * happens the moment the menu closes, and it is not optional: a plane left on

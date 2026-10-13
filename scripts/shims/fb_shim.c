@@ -51,6 +51,7 @@
 #include "tscfake.h"
 #include "fbdev.h"
 #include "menu_draw.h"
+#include "vidmask.h"        /* the video mask, on the plane above them all */
 
 #include "syscalls.h"
 #include "envutil.h"
@@ -342,6 +343,16 @@ int ioctl(int fd, unsigned long request, ...)
          * frames arrive at, not a rate inferred from CPU. */
         vsync_rate_tick();
         menu_frame_tick();
+        /* THE VIDEO MASK, AND IT BELONGS HERE RATHER THAN IN menu_frame_tick(), which is the
+         * mistake this line fixes. That function runs from TWO threads, and the second is a
+         * builder loop whose period is POINT_MENU_MS -- shipped at 0.1 ms, i.e. ~8,900 calls a
+         * second -- so a mask tick hung inside it put a clock_gettime on the thread the
+         * operator's whole UI responsiveness lives on, and made the mask's state a race between
+         * two writers. Here it runs ONCE PER rbp FRAME on rbp's own render thread, which is both
+         * the correct rate for video and the only writer there is.
+         *
+         * It is inert unless RB_VIDEO was set: one load and a compare when nobody asked. */
+        vidmask_tick();
         return real_ioctl(fd, request, arg);
     case FBIOPAN_DISPLAY: {
         long pace_ns = pan_pacer_ns();
