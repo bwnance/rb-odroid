@@ -271,12 +271,19 @@ rbpi4b/
 Full instructions live in **[TUTORIAL.md](TUTORIAL.md)**. The short version:
 
 ```bash
-# 0. prerequisites (host): arm-linux-gnueabi-gcc, python3, tar, docker
-#    extracted XDJ-RX3 assets (see docs/04-firmware-assets.md)
-#    a Pi 4 running Pi OS Lite 32-bit, with root
+# 0. prerequisites
+#    host   : arm-linux-gnueabi-gcc, libc6-dev-armel-cross, python3, tar, and the
+#             DirectFB build tools -- flux included (TUTORIAL.md step 0). Docker
+#             only for the shim build image, tools/build-toolchain/Dockerfile
+#    assets : the extracted XDJ-RX3 tree (see docs/04-firmware-assets.md)
+#    Pi     : Pi OS Lite 32-bit, booted, on the network, with root, AND gcc +
+#             make + python3 -- install.sh compiles vncserve on the unit, and
+#             the boot screen and config page are python3; without either it
+#             warns and carries on, so the viewer or the page is simply absent.
+#             Apply docs/13's cmdline.txt recipe and reboot before deploying.
 
 # 1. build the patched DirectFB stack (tools/build-directfb/README.md)
-#    -> work/dfb/lib/...
+#    -> work/dfb/lib/...   (build-chroot.sh looks there by default; DFB= overrides)
 
 # 2. build the soft-float chroot (rootfs + rbp-audio + shims + DirectFB
 #    + directfbrc + touch calibration)
@@ -287,7 +294,8 @@ scp work/rbpi4b-pi4.tgz pi@<host>:/tmp/
 scp -r scripts/device    pi@<host>:/tmp/
 ssh pi@<host> 'sudo sh /tmp/device/install.sh /tmp/rbpi4b-pi4.tgz'
 
-# 4. launch
+# 4. launch -- usually already up: install.sh enables rblive4.service
+#    (RB_AUTOSTART=1), so this is a RESTART, or the manual path at RB_AUTOSTART=0
 ssh pi@<host> 'sudo sh /opt/rblive4/start-rb.sh'
 ```
 
