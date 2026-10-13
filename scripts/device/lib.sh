@@ -21,7 +21,7 @@
 # guard that expects a version the shipped conf does not declare fails closed —
 # every one of these scripts exits before doing anything, which is correct but
 # looks like "the launcher is broken".
-RB_CONF_SCHEMA=2
+RB_CONF_SCHEMA=3
 
 # Locate rb.conf, source it, and refuse to continue if it is missing or is a
 # different schema. Dying here is deliberate: every path in these scripts comes

@@ -458,7 +458,7 @@ was wrong; the code was fine.
 
 **Now enabled by default**, because the card is the card the port is aimed at:
 `RB_STARTUP_MUTE_MS=1500` and `RB_STARTUP_FADE_MS=300`
-([rb.conf:201-202](../scripts/device/rb.conf)) — the values
+([rb.conf:569-570](../scripts/device/rb.conf)) — the values
 [09 — Audio](09-audio.md) already gave, with the false comment replaced by one
 that records the thump. The cost when a card does not need it is 1.5 s of
 silence at startup; a card that is *late* rather than noisy wants them back at 0

@@ -239,10 +239,11 @@ def test_create_and_lock(tmp, m):
 
 def test_password_wiring(m):
     """ONE credential, under ONE name -- pinned by sourcing the shipped rb.conf, not by
-    reading it. `RB_PASSWORD` is the knob (the page writes it); `RB_VNC_PASSWORD` is the
-    name vnc-run.sh and doctor.sh already read, and it must COME OUT equal unless someone
-    sets it apart deliberately. The operator asked for this by name on 2026-10-09."""
-    print("\n== one password, two surfaces ==")
+    reading it. RB_VNC_PASSWORD is that name: vncserve.c reads it and nothing else. The
+    second name went away in schema v3 -- RB_PASSWORD was the configuration page's sign-in,
+    the operator retired the sign-in, and nothing read the variable after that -- so a stale
+    RB_PASSWORD in the environment must no longer reach the viewer at all."""
+    print("\n== one password, one name ==")
     conf = os.path.join(HERE, "rb.conf")
     tmp = tempfile.mkdtemp(prefix="confedit-pass.")
 
@@ -250,25 +251,25 @@ def test_password_wiring(m):
         env = dict(os.environ, RB_DEPLOY_ROOT=tmp)
         env.update(extra or {})
         r = subprocess.run(["/bin/sh", "-c",
-                            '. "$1"; printf "%s|%s" "$RB_PASSWORD" "$RB_VNC_PASSWORD"',
+                            '. "$1"; printf "%s" "$RB_VNC_PASSWORD"',
                             "sh", conf], env=env, capture_output=True, text=True)
         return r.stdout
 
     try:
-        check(resolve() == "password|password",
-              "by default both names resolve to the shipped placeholder, so it works at once")
-        check(resolve({"RB_PASSWORD": "s3cret"}) == "s3cret|s3cret",
-              "setting RB_PASSWORD alone changes BOTH surfaces")
-        check(resolve({"RB_VNC_PASSWORD": "viewer-only"}) == "password|viewer-only",
-              "setting RB_VNC_PASSWORD alone still overrides the viewer, as before")
+        check(resolve() == "password",
+              "by default it resolves to the shipped placeholder, so it works at once")
+        check(resolve({"RB_VNC_PASSWORD": "s3cret"}) == "s3cret",
+              "setting RB_VNC_PASSWORD changes the viewer's credential")
+        check(resolve({"RB_PASSWORD": "stale"}) == "password",
+              "and a stale RB_PASSWORD no longer reaches the viewer -- the schema v3 "
+              "removal, which doctor.sh reports instead of letting the swap happen silently")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
-    e = m.BY_KEY.get("RB_PASSWORD")
-    check(e is not None, "RB_PASSWORD is a key the page may write")
+    e = m.BY_KEY.get("RB_VNC_PASSWORD")
+    check(e is not None, "RB_VNC_PASSWORD is a key the page may write")
     check(e and e.get("secret"), "and it is marked secret, so the page never prints it")
-    check("RB_VNC_PASSWORD" not in m.BY_KEY,
-          "while RB_VNC_PASSWORD is not writable from the page -- it is the alias, not the knob")
+    check("RB_PASSWORD" not in m.BY_KEY, "while the removed name is not in the schema at all")
 
 
 def test_topics(m):
@@ -277,9 +278,9 @@ def test_topics(m):
     print("\n== the two settings groups ==")
     vnc = m.writable_keys("vnc")
     rbp = m.writable_keys("rbp")
-    check("RB_VNC_FPS" in vnc and "RB_PASSWORD" in vnc,
-          "vnc settings holds the viewer's knobs and the shared credential")
-    check(not [k for k in vnc if not (k == "RB_PASSWORD" or k.startswith("RB_VNC"))],
+    check("RB_VNC_FPS" in vnc and "RB_VNC_PASSWORD" in vnc,
+          "vnc settings holds the viewer's knobs and its credential")
+    check(not [k for k in vnc if not k.startswith("RB_VNC")],
           "and nothing else (%s)" % ", ".join(vnc))
     check("RB_PREWARM" in rbp and "RB_POINT_KIND" in rbp, "rbp settings holds the player's")
     check(not set(vnc) & set(rbp), "and the two never overlap")

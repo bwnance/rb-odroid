@@ -578,8 +578,8 @@ change-gated, only the copy is per-tick. The drawer's image pair and the reason 
 sits off the lock are in [07](07-touch.md) § *The fader's flicker*.
 
 **The present path is not a candidate on the measured panel.** `RB_DFB_PRESENT`
-defaults to `off` (`rb.conf:94`), and the upgrade to `scale` only fires when the
-real fb disagrees with 1280×800 (`:107`) — and [`PRESENT:` records that it does
+defaults to `off` (`rb.conf:110`), and the upgrade to `scale` only fires when the
+real fb disagrees with 1280×800 (`:172`) — and [`PRESENT:` records that it does
 not](06-display.md). Under `off` the layer surface *is* the fb page, so rbp's
 pixels reach the glass with nothing in between: no resample, no bars, no crop.
 A symptom that looks like a scaling artifact cannot be one here.

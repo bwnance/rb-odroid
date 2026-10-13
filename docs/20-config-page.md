@@ -42,9 +42,10 @@ there, and this document is the long version. The footer took the same treatment
 had a second copy of the sentence, and a second copy is how it went on promising *"writes need the
 password"* for a while after there was no password to need.
 
-**The VNC client password is a different thing**, and still real: `RB_PASSWORD`, from which
-`RB_VNC_PASSWORD` derives, and macOS's Screen Sharing will not connect without one. It has nothing to do
-with this page now — an empty one does not stop a setting being changed.
+**The VNC client password is a different thing**, and still real: `RB_VNC_PASSWORD`, and macOS's Screen
+Sharing will not connect without one. It has nothing to do with this page now — an empty one does not
+stop a setting being changed. (This credential was `RB_PASSWORD` until schema v3: the retired sign-in
+left that name with no reader, so it was removed and the viewer's own name became the only one.)
 
 It shows one section at a time, navigated from the left:
 
@@ -226,15 +227,19 @@ data — and the page is complete without
 the script: the first load has every figure in the HTML, so a browser that blocks it shows a correct page
 that simply does not update itself. Still no CDN, no framework, no build step.
 
-**`RB_PASSWORD` is the viewer's credential and nothing else now** — what a VNC client is asked
-for, and what `RB_VNC_PASSWORD` derives from. It does not gate this page: that is the sign-in the
-operator retired, and a unit whose `RB_PASSWORD` is still the shipped `password` is a unit whose
-*VNC clients* are using a guessable password, which is a viewer problem with a viewer fix. It
-defaults to `password` so the feature works out of the box — a deliberate temporary choice —
-and `RB_VNC_PASSWORD` remains the same credential under its old name, deriving from
-`RB_PASSWORD` unless set explicitly, so existing `rb.local.conf` files keep working. `doctor.sh`
-warns while the value is still the placeholder, and warns separately if the two names have been
-set apart.
+**`RB_VNC_PASSWORD` is the viewer's credential and nothing else** — what a VNC client is
+asked for. It does not gate this page: that is the sign-in the operator retired, and a unit
+whose value is still the shipped `password` is a unit whose *VNC clients* are using a
+guessable password, which is a viewer problem with a viewer fix. It defaults to `password`
+so the feature works out of the box — a deliberate temporary choice — and `doctor.sh` warns
+while the value is still the placeholder.
+
+The credential used to be written twice: `RB_PASSWORD`, which this page's sign-in read, and
+`RB_VNC_PASSWORD`, which the viewer read, the second deriving from the first. Retiring the
+sign-in left `RB_PASSWORD` with no reader at all, so it was **removed in schema v3** and
+`RB_VNC_PASSWORD` is the only name. A `rb.local.conf` from the field that still sets
+`RB_PASSWORD` is now inert — the viewer falls back to the shipped placeholder — and
+`doctor.sh` reports one rather than letting that swap happen quietly.
 
 `RB_CONF` and the port are the only two an install consults; the rest the service reads
 itself at startup, and **every path and command it uses can be overridden by an environment

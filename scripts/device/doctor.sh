@@ -204,7 +204,7 @@ fi
 
 hdr 2 "shims: the deployed file and the copy rbp loads"
 
-# The list comes from RB_LD_PRELOAD itself (rb.conf:636), so a shim added to the
+# The list comes from RB_LD_PRELOAD itself (rb.conf:1125), so a shim added to the
 # preload list is checked here without touching this script. basename of each
 # entry is also the deploy-root filename, which is exactly what start-rb.sh's
 # install_override() list mirrors (start-rb.sh:148-161).
@@ -634,13 +634,15 @@ if [ "${RB_VNC:-0}" = "1" ] || [ -f /etc/systemd/system/rblive4-vnc.service ]; t
 		fi
 	fi
 
-	if [ -z "${RB_PASSWORD:-}" ]; then
-		bad "RB_PASSWORD is empty"
+	# RB_VNC_PASSWORD is the viewer's credential and, since schema v3, the only name for
+	# it: RB_PASSWORD was the configuration page's sign-in, and the page has none any
+	# more. A stale RB_PASSWORD line is reported at the end of this section, not here.
+	if [ -z "${RB_VNC_PASSWORD:-}" ]; then
+		bad "RB_VNC_PASSWORD is empty"
 		note "the viewer needs a password or macOS's Screen Sharing will not connect at"
-		note "all (and its error message does not mention passwords); the configuration"
-		note "page refuses writes when it is empty, which is the safer of the two."
-		fix "printf 'RB_PASSWORD=<something>\\n' >> $RB_DEPLOY_ROOT/rb.local.conf"
-	elif [ "${RB_PASSWORD}" = "password" ]; then
+		note "all, and the error it shows does not mention passwords."
+		fix "printf 'RB_VNC_PASSWORD=<something>\\n' >> $RB_DEPLOY_ROOT/rb.local.conf"
+	elif [ "${RB_VNC_PASSWORD}" = "password" ]; then
 		# rb.conf ships this placeholder on purpose, so the feature works on first
 		# use. That makes this line the only thing that ever says it is still there,
 		# which is exactly why it must exist: a warning that cannot fire is worse
@@ -660,22 +662,17 @@ if [ "${RB_VNC:-0}" = "1" ] || [ -f /etc/systemd/system/rblive4-vnc.service ]; t
 			esac
 		fi
 		if [ "$_vi" = "on" ]; then
-			bad "RB_PASSWORD is the shipped placeholder ('password') AND the pointer is ON"
+			bad "RB_VNC_PASSWORD is the shipped placeholder ('password') AND the pointer is ON"
 			note "anyone on this LAN who guesses it can press the buttons of a live"
 			note "player: $_vi_file says 'on', so a click in the picture is a real"
-			note "press on the glass. This is the state to leave only on a bench. It is"
-			note "also the CONFIGURATION PAGE's password -- and once that page's write"
-			note "path lands, this same placeholder is what a browser would need to edit"
-			note "settings and restart the player."
-			fix "printf 'RB_PASSWORD=<something>\\n' >> $RB_DEPLOY_ROOT/rb.local.conf"
+			note "press on the glass. This is the state to leave only on a bench."
+			fix "printf 'RB_VNC_PASSWORD=<something>\\n' >> $RB_DEPLOY_ROOT/rb.local.conf"
 		else
-			warn "RB_PASSWORD is still the shipped placeholder ('password')"
+			warn "RB_VNC_PASSWORD is still the shipped placeholder ('password')"
 			note "it is the first thing anyone would guess. The pointer is off, so today"
-			note "it buys a look at the screen -- but it is ALSO the configuration page's"
-			note "password, and that is the one that will protect editing settings and"
-			note "restarting the player once the page's write path lands, so set a real"
-			note "one before the unit is left unattended."
-			fix "printf 'RB_PASSWORD=<something>\\n' >> $RB_DEPLOY_ROOT/rb.local.conf"
+			note "it buys a look at the screen -- but set a real one before the unit is"
+			note "left unattended."
+			fix "printf 'RB_VNC_PASSWORD=<something>\\n' >> $RB_DEPLOY_ROOT/rb.local.conf"
 		fi
 	fi
 
@@ -702,6 +699,22 @@ if [ "${RB_VNC:-0}" = "1" ] || [ -f /etc/systemd/system/rblive4-vnc.service ]; t
 	# two things worth saying are whether the packages are there and whether the bridge is
 	# up -- and that with sharing OFF it can never connect, which is the gate, not a fault.
 	if [ "${RB_VNC_WEB:-1}" = "1" ] && [ "${RB_VNC:-0}" = "1" ]; then
+		# The pages the unit edits. The patcher is run from the deploy root by
+		# webvnc-run.sh:83, whose guard is a plain file test, and it reaches there by
+		# install.sh:174's copy list -- the healthwatch.sh shape, and the second time it
+		# happened: novnc_patch.py was missing from that list until 2026-10-13, so the
+		# three operator asks it carries were skipped in silence on every deployed unit.
+		# Without it the page keeps the stock dot-less cursor, the Ctrl-Alt-Del button
+		# and the "Running without HTTPS" warning (webvnc-run.sh:77), and nothing on the
+		# glass says why. warn rather than bad: an unpatched page is a worse page, not a
+		# dead one, so it is not worth failing the run over.
+		if [ ! -f "$RB_DEPLOY_ROOT/novnc_patch.py" ]; then
+			warn "novnc_patch.py is missing from $RB_DEPLOY_ROOT"
+			note "webvnc-run.sh applies it on every start; without it the page keeps the"
+			note "stock cursor, the Ctrl-Alt-Del button and the HTTPS warning, and nothing"
+			note "on the glass says why."
+			fix "sh $RB_DEPLOY_ROOT/install.sh"
+		fi
 		if [ ! -x /usr/bin/websockify ] || [ ! -f "${RB_VNC_WEB_ROOT:-/usr/share/novnc}/vnc.html" ]; then
 			warn "RB_VNC_WEB=1 but the web client's packages are missing"
 			note "the noVNC page and websockify come from the distribution:"
@@ -718,15 +731,21 @@ if [ "${RB_VNC:-0}" = "1" ] || [ -f /etc/systemd/system/rblive4-vnc.service ]; t
 		fi
 	fi
 
-	# The two names can be set apart -- RB_VNC_PASSWORD derives from RB_PASSWORD unless it
-	# is set explicitly -- and if they have been, the viewer and the page stop sharing a
-	# credential without anything saying so. Worth a line, because the whole point of the
-	# pair is that one password covers both.
-	if [ "${RB_VNC_PASSWORD:-$RB_PASSWORD}" != "${RB_PASSWORD:-}" ]; then
-		warn "RB_VNC_PASSWORD is set to a DIFFERENT value from RB_PASSWORD"
-		note "the viewer uses RB_VNC_PASSWORD and the configuration page uses"
-		note "RB_PASSWORD, so the two surfaces no longer share a credential. Set only"
-		note "RB_PASSWORD and delete the other line to get them back together."
+	# THE MIGRATION, and the reason it is worth a line: RB_PASSWORD was this credential's
+	# old name, and rb.conf no longer defines it (schema v3 -- see its version block). A
+	# line left in rb.local.conf by an earlier deploy is now INERT: it is not exported to
+	# the viewer, so the shipped placeholder quietly stands in its place and a real
+	# password stops being asked for without anything failing or saying so. This is the
+	# one place that reports it, and the only reference to the old name left in the tree.
+	# The value is never printed -- it is a credential, and doctor may be run over a
+	# shoulder or pasted into a thread.
+	if [ -n "${RB_PASSWORD:-}" ]; then
+		warn "RB_PASSWORD is set but no longer used (the name was removed in schema v3)"
+		note "something still exports it -- most likely a line in"
+		note "$RB_DEPLOY_ROOT/rb.local.conf from an earlier deploy. The viewer reads"
+		note "RB_VNC_PASSWORD and nothing else, so that line no longer reaches it and"
+		note "the placeholder is what a VNC client is being asked for. Rename it:"
+		fix "sed -i 's/^RB_PASSWORD=/RB_VNC_PASSWORD=/' $RB_DEPLOY_ROOT/rb.local.conf"
 	fi
 
 	# Read exactly as the server reads it (vnc_mode_parse): blanks and case are

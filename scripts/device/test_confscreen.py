@@ -114,11 +114,11 @@ def make_fake(root, frames=40, pid=4242, depth=(0x03, 0x40), live="on"):
                 ": \"${RB_PREWARM:=1}\"\n: \"${RB_POINT_KIND:=auto}\"\n"
                 ": \"${RB_MIDI_MAP:=}\"\n: \"${RB_AUDIO_DEV:=}\"\n"
                 ": \"${RB_FB_LIE_BPP:=32}\"\n: \"${RB_VERBOSE:=0}\"\n"
-                ": \"${RB_PASSWORD:=password}\"\n"
-                "# The fixture OPTS IN to the page's password, so the auth suites have a lock\n"
-                "# to test against. The SHIPPED default is 0 (open) -- pinned by\n"
-                "# test_default_open, and by test_unreadable_conf for the case where the conf\n"
-                "# cannot be read at all.\n"
+                ": \"${RB_VNC_PASSWORD:=password}\"\n"
+                "# The fixture KEEPS the retired RB_CONF_AUTH in the conf, deliberately: a conf\n"
+                "# that still carries it from an earlier deploy is the case that matters, and\n"
+                "# the page must ignore it whether it says 0 or 1. The suites below assert it\n"
+                "# never reaches the page's output.\n"
                 ": \"${RB_CONF_AUTH:=1}\"\n"
                 "if [ -f \"$RB_DEPLOY_ROOT/rb.local.conf\" ]; then\n"
                 "  . \"$RB_DEPLOY_ROOT/rb.local.conf\"\nfi\n")
@@ -451,7 +451,7 @@ def test_page(env, port):
     print("\n== settings, split in two ==")
     vnc = body.split("section id=vncsettings")[1].split("</section>")[0]
     rbp = body.split("section id=rbpsettings")[1].split("</section>")[0]
-    check("RB_VNC_FPS" in vnc and "RB_PASSWORD" in vnc,
+    check("RB_VNC_FPS" in vnc and "RB_VNC_PASSWORD" in vnc,
           "vnc settings holds the viewer's own knobs")
     check("RB_VNC_FPS" not in rbp, "and the viewer's knobs are not in rbp settings")
     check("RB_PREWARM" in rbp and "RB_POINT_KIND" in rbp,
@@ -798,17 +798,17 @@ def test_write_path(env, port):
 
 
 def test_no_password(root, port):
-    """A unit with no RB_PASSWORD at all.
+    """A unit with no RB_VNC_PASSWORD at all.
 
     This used to be the fail-closed suite: an empty password must not mean "no authentication",
     so every write was refused. There is no authentication to fail closed on any more -- the
-    page has none at all -- and RB_PASSWORD is now only the VNC client's password, so an empty
-    one is a fact about the VIEWER and nothing to do with this page. Which is exactly what is
+    page has none at all -- and RB_VNC_PASSWORD is the VNC client's password, so an empty one
+    is a fact about the VIEWER and nothing to do with this page. Which is exactly what is
     checked: the page keeps working, and the settings row says the password is not set."""
-    print("\n== a unit with no RB_PASSWORD at all ==")
+    print("\n== a unit with no RB_VNC_PASSWORD at all ==")
     env = make_fake(root)
     conffile = env["RB_CONF_FILE"]
-    text = open(conffile).read().replace(': "${RB_PASSWORD:=password}"\n', "")
+    text = open(conffile).read().replace(': "${RB_VNC_PASSWORD:=password}"\n', "")
     with open(conffile, "w") as f:
         f.write(text)
     # The fixture writes the switch files; this unit must not CREATE any, so start from none.
@@ -1073,7 +1073,7 @@ def test_set(env, port):
         post(port, "/set", {"key": "RB_VNC_FPS", "value": bad})
     check(open(conf).read() == before,
           "an out-of-range value and three injections leave the file BYTE-IDENTICAL")
-    s, _b, _h = post(port, "/set", {"key": "RB_PASSWORD", "value": ""})
+    s, _b, _h = post(port, "/set", {"key": "RB_VNC_PASSWORD", "value": ""})
     check(s == 303, "a blank password field is accepted as 'leave it alone'")
     check(open(conf).read() == before, "and changes nothing")
 

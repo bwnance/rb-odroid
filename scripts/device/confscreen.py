@@ -159,7 +159,7 @@ NEVER_DISABLE = {
 # ABOUT -- the viewer's own knobs against everything the player and the unit use -- because
 # that is how they get looked for. CONF_KEYS is the union, and it is what the page fetches.
 VNC_KEYS = ("RB_VNC", "RB_VNC_PORT", "RB_VNC_HTTP_PORT", "RB_VNC_FPS", "RB_VNC_MODE",
-            "RB_VNC_LIVE", "RB_VNC_INPUT", "RB_PASSWORD")
+            "RB_VNC_LIVE", "RB_VNC_INPUT", "RB_VNC_PASSWORD")
 RBP_KEYS = ("RB_PREWARM", "RB_POINT_KIND", "RB_MIDI_MAP", "RB_AUDIO_DEV", "RB_BOOTSCREEN",
             "RB_FB_LIE_BPP", "RB_VERBOSE", "RB_CONF_HTTP_PORT")
 CONF_KEYS = VNC_KEYS + RBP_KEYS

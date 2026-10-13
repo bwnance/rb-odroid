@@ -152,9 +152,7 @@ and the client returns `DES-ECB(challenge)` under a key made from the password w
 **each byte's bits reversed** — DES key bytes carry a parity bit in the top position;
 VNC passwords use all eight, so every byte is bit-reversed before use.
 
-*An empty `RB_PASSWORD` is therefore not "open", it is "does not work"* — and for the
-configuration page, which **shares this one credential**, an empty password is the opposite
-failure: it refuses writes rather than permitting them.
+*An empty `RB_VNC_PASSWORD` is therefore not "open", it is "does not work"*.
 `vnc-run.sh` says so loudly at startup and `doctor.sh` fails on it.
 
 **`rb.conf` ships the placeholder `password`, so that flipping `RB_VNC=1` gives a
@@ -505,7 +503,7 @@ All in `rb.conf` (the shipped defaults) or, for this unit, `rb.local.conf`
 | `RB_VNC` | `0` | `1` installs the unit **and enables it**; `0` installs it disabled |
 | `RB_VNC_PORT` | `5900` | the RFB port |
 | `RB_VNC_HTTP_PORT` | `RB_VNC_PORT + 1` | the control page — the only page; it carries the mode switch and the live preview, and it **opens in the full-screen view** (tap the picture for the words). `0` turns the page off entirely |
-| `RB_PASSWORD` | `password` (**placeholder**) | one credential for the viewer **and** the configuration page; **worth changing**; empty means macOS will not connect at all. `RB_VNC_PASSWORD` is the same credential under its old name and derives from this unless set explicitly |
+| `RB_VNC_PASSWORD` | `password` (**placeholder**) | the VNC client's credential; **worth changing**; empty means macOS will not connect at all. It went by `RB_PASSWORD` until schema v3 — the configuration page's old sign-in, retired, which left that name with no reader |
 | `RB_VNC_FPS` | `4` | frames a second; the cost table is in its comment |
 | `RB_VNC_MODE` | `raw` | the mode to start in, if the mode file is absent |
 | `RB_VNC_MODE_FILE` | `/run/rblive4/vnc.mode` | the switch's control file |

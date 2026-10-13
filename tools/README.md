@@ -8,6 +8,7 @@ Two kinds of tool live here:
 | [`build-directfb/`](build-directfb/) | workstation | C / patch | patched DirectFB 1.4.16 (core + fbdev + modules) |
 | [`build-toolchain/`](build-toolchain/) | workstation | Docker | the soft-float armel cross build environment the shims are built in |
 | [`fit-crosscheck.sh`](fit-crosscheck.sh) | workstation | shell + C | prove the driver's copy and the shim's copy of the fit rule still agree |
+| [`conf-crosscheck.sh`](conf-crosscheck.sh) | workstation | shell | prove the three pairs that must be changed together — `SHIM_VARS` ↔ `rb.conf`, `RB_CONF_VERSION` ↔ `lib.sh`'s `RB_CONF_SCHEMA`, and each unit's `ExecStart` ↔ install.sh's copy list — still agree |
 | [`fbimg.py`](fbimg.py) | workstation | Python | decode a raw RGB565 frame to BMP and PNG — one encoder, so the pixel format is written down once |
 | [`fbwatch.py`](fbwatch.py) | workstation | Python | catch a display artifact: a burst of frames from the unit around an operator action, reporting only the frames that changed |
 | [`pdb.py`](pdb.py) | workstation | Python | read a rekordbox DeviceSQL export (`export.pdb`): its own track id for a title or artist, or the track for an id. The id is what `rbp_load.c` loads by, so this is the lookup half of "play that track" |
@@ -111,6 +112,45 @@ the rectangle it returns. Those are pinned by each side's own log line: the
 driver prints the rectangle in its one-shot `PRESENT:` line
 (`/tmp/dfbdig9.log`) and `fb_cursor.c` logs its own, so the two numbers can be
 compared on a mismatched panel.
+
+## `conf-crosscheck.sh` — the pairs that have to be changed together
+
+Three settings live in two files each, so nothing but a habit holds them in step:
+
+* **`SHIM_VARS`** (`scripts/device/start-rb.sh`) exports names into rbp's
+  environment, and each one needs an `RB_<name>` line in `scripts/device/rb.conf`.
+  This is the pair with teeth, because the loop under the list exports **every**
+  name unconditionally: a listed name with no `rb.conf` line is exported as the
+  empty string, over the top of an ad-hoc value, so the setting becomes
+  unreachable and nothing says so. `RB_KEY_DUMP`, `RB_KEY_REPLAY`,
+  `RB_KEY_REPLAY_SPEED` and `RB_SIDE_NUDGE_PCT` were all in that state while
+  [docs/08](../docs/08-controls.md) and [docs/07](../docs/07-touch.md) published
+  them as knobs the operator could set.
+* **`RB_CONF_VERSION`** (`rb.conf`) must equal `RB_CONF_SCHEMA`
+  (`scripts/device/lib.sh`). `lib.sh:19-24` asks for the two to be bumped
+  together; a half-bump fails closed on the unit, which is correct and looks like
+  *the launcher is broken*.
+* **each unit's `ExecStart`** names a program under the deploy root that
+  `install.sh` has to copy there. This is the bug its own comment records:
+  `healthwatch.sh` was missing from the copy list, the unit still started, and its
+  `ExecStart` pointed at a file that was never there — and a missing file and a
+  running service look the same from `systemctl status`. `novnc_patch.py` was the
+  second of these.
+
+```bash
+sh tools/conf-crosscheck.sh      # a fraction of a second, no target needed
+```
+
+It fails loudly when a pattern it reads changes shape rather than skipping, and
+it reports every pair that is out of step in one run rather than the first.
+
+What it does **not** check: that an `rb.conf` key is *read* by anything (that is a
+question about the C sources, and `grep` is a poor witness), or that a runtime
+script's `$HERE/<file>` reference is copied to the deploy root. That last
+direction is real — `novnc_patch.py` was one — but the deploy root also receives
+the unit files and the two conf drop-ins by a second path in `install.sh`, so a
+naive scan there is a false-positive machine. The `ExecStart` check covers the
+same hazard from the one side that is unambiguous.
 
 ## `fbdump` — the first thing to run on a new target
 
