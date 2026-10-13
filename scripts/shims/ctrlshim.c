@@ -32,6 +32,7 @@
 #include "rbp_bridge.h"
 #include "rbp_led.h"
 #include "rbp_vu.h"
+#include "rbp_load.h"      /* load a track onto a deck by its database id */
 #include "midi_io.h"
 #include "mididump.h"
 #include "keylog.h"        /* the key dump's format; keylog_state.c writes it */
@@ -756,5 +757,9 @@ static void knobshim2_init(void)
      if (led_sweep && pthread_create(&tid, NULL, led_sweep_thread, NULL) == 0)
           pthread_detach(tid);
      if (pthread_create(&tid, NULL, usb_auto_thread, NULL) == 0)
+          pthread_detach(tid);
+     /* The load-by-id watcher. It is inert until /tmp/rb_load exists, so it costs
+      * an unopened file every 200 ms and nothing else until it is asked. */
+     if (pthread_create(&tid, NULL, rbp_load_thread, NULL) == 0)
           pthread_detach(tid);
 }

@@ -10,6 +10,7 @@ Two kinds of tool live here:
 | [`fit-crosscheck.sh`](fit-crosscheck.sh) | workstation | shell + C | prove the driver's copy and the shim's copy of the fit rule still agree |
 | [`fbimg.py`](fbimg.py) | workstation | Python | decode a raw RGB565 frame to BMP and PNG — one encoder, so the pixel format is written down once |
 | [`fbwatch.py`](fbwatch.py) | workstation | Python | catch a display artifact: a burst of frames from the unit around an operator action, reporting only the frames that changed |
+| [`pdb.py`](pdb.py) | workstation | Python | read a rekordbox DeviceSQL export (`export.pdb`): its own track id for a title or artist, or the track for an id. The id is what `rbp_load.c` loads by, so this is the lookup half of "play that track" |
 | [`fbdump.c`](fbdump.c) | **the Pi** | C | dump `/dev/fb0` geometry/format + say what it means for the present path |
 | [`fbscreen.py`](fbscreen.py) | **the Pi** | Python | draw a known picture on `/dev/fb0` — a ticking clock or cycling solid colours — as a loop, so the panel can be read off the glass |
 | [`evdevdump.c`](evdevdump.c) | **the Pi** | C | enumerate input devices; find the pointer and its axis algebra |
