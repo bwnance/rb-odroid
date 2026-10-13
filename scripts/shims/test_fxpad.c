@@ -246,9 +246,10 @@ static void test_restore_exact(void)
     CHECK(s.on_sends == 1, "the ON toggle must be sent exactly once, not once a tick");
     CHECK(s.depth_sends == 1, "the press point's level must be sent on the press tick");
 
-    /* Hold the finger still and let the ladder settle. `beat_of_y(260, 0, 9)` is 6. */
+    /* Hold the finger still and let the ladder settle. The rung comes from X now, so this
+     * is `beat_of_x(1180, 0, 9)`. */
     tick_n(&s, 8);
-    CHECK(s.beat == 6, "the rung under the finger at y 260 of a 0..9 ladder is 6, got %d",
+    CHECK(s.beat == 5, "the rung under the finger at x 1180 of a 0..9 ladder is 5, got %d",
           s.beat);
     CHECK(s.on_sends == 1, "a held-still finger must not re-send the ON toggle");
     CHECK(s.depth_sends == 1, "a held-still finger must not re-send the level");
@@ -270,16 +271,26 @@ static void test_restore_exact(void)
     CHECK(fxpad_mark(&mx, &my) == 0, "an idle pad draws no dot");
 }
 
+/* The two mapping probes, defined with the rest of section 3 far below. Declared here
+ * because the no-op gesture below READS ITS SETUP OFF THE PRESS POINT rather than
+ * hard-coding it -- the axes were swapped on 2026-10-12 and a written-down pair stops
+ * being the point the finger is on. */
+static int depth_under(int x, int y);
+static int beat_under(int x, int y, int bmin, int bmax);
+
 static void test_restore_of_a_no_op_gesture(void)
 {
     struct sim s;
 
     /* A press that is released without the finger ever moving, at a point where all
-     * three values already are what the press asks for (x 1179 is level 508, y 284 is
-     * rung 5 of 0..9). Nothing was ever sent, so the tick that finds itself restoring
-     * must go idle without sending anything. */
+     * three values already are what the press asks for. The two are READ OFF the point
+     * rather than written down, because the axes were swapped on 2026-10-12 and a
+     * hard-coded pair silently stops being the point the finger is on. Nothing is ever
+     * sent, so the tick that finds itself restoring must go idle silently. */
     s.type = SIM_TYPE_REAL;
-    s.on = 1; s.depth = 508; s.beat = 5; s.bmin = 0; s.bmax = 9;
+    s.on = 1; s.bmin = 0; s.bmax = 9;
+    s.depth = depth_under(1179, 284);
+    s.beat  = beat_under(1179, 284, 0, 9);
     s.lag = 0; s.ignore_beat = 0; s.ignore_on = 0; s.queued = 0;
     s.on_sends = s.depth_sends = s.beat_sends = 0; s.depth_last = -1;
 
@@ -460,7 +471,10 @@ static void test_flag_lies_on_a_switched_off_effect(void)
 
     /* The effect is ON; the operator switches type while it is off, and rbp answers with
      * the Off object and a flag that says on. */
-    sim_init(&s, 1, 400, 5);
+    /* The rung STARTS one below the one the press lands on: the rung comes from X since
+     * 2026-10-12, and x 1180 is rung 5 -- so 4 here is exactly one step of movement, which
+     * is what the send count below is counting. */
+    sim_init(&s, 1, 400, 4);
     s.type = SIM_TYPE_OFF;
 
     sim_live(&s, &l);
@@ -481,7 +495,7 @@ static void test_flag_lies_on_a_switched_off_effect(void)
     CHECK(s.depth_sends == 1 && s.beat_sends == 1,
           "with a real effect under the finger the level and the rung move (%d, %d)",
           s.depth_sends, s.beat_sends);
-    CHECK(s.beat == 6, "the rung under y 260 of a 0..9 ladder is 6, got %d", s.beat);
+    CHECK(s.beat == 5, "the rung under x 1180 of a 0..9 ladder is 5, got %d", s.beat);
 
     /* And letting go puts the effect back OFF, which is where the operator had it -- the
      * snapshot was taken on the press tick, when it was genuinely off. */
@@ -490,7 +504,7 @@ static void test_flag_lies_on_a_switched_off_effect(void)
     CHECK(s.on_sends == 2, "one ask in and one back out, got %d sends", s.on_sends);
     CHECK(s.on == 0, "THE RELEASE PUTS IT BACK OFF, where the operator had it");
     CHECK(s.depth == 400, "and the level back to 400, got %d", s.depth);
-    CHECK(s.beat == 5, "and the rung back to 5, got %d", s.beat);
+    CHECK(s.beat == 4, "and the rung back to the 4 it was on, got %d", s.beat);
 }
 
 /* THE RESTORE WAITS FOR THE ANSWER, NOT FOR THE ASK. The level is absolute and the
@@ -598,28 +612,38 @@ static int depth_after_drag(int dx, int dy)
 
 static void test_level_mapping(void)
 {
-    int x, prev;
+    int y, prev;
 
-    CHECK(depth_under(FXPAD_X0, 284) == 0,          "the cell's left edge must be level 0, got %d", depth_under(FXPAD_X0, 284));
-    CHECK(depth_under(FXPAD_X1, 284) == FXPAD_DEPTH_MAX,
-          "the cell's right edge must be full scale (%d), got %d",
-          FXPAD_DEPTH_MAX, depth_under(FXPAD_X1, 284));
+    CHECK(depth_under(1179, FXPAD_Y0) == FXPAD_DEPTH_MAX,
+          "the cell's TOP edge must be full scale (%d), got %d",
+          FXPAD_DEPTH_MAX, depth_under(1179, FXPAD_Y0));
+    CHECK(depth_under(1179, FXPAD_Y1) == 0,
+          "the cell's BOTTOM edge must be level 0, got %d",
+          depth_under(1179, FXPAD_Y1));
 
-    /* Monotone across the whole span, and never out of range: this is what catches a
-     * rounding rule that drops the last column or steps backwards. */
-    prev = -1;
-    for (x = FXPAD_X0; x <= FXPAD_X1; x++) {
-        int d = depth_under(x, 284);
+    /* Monotone down the whole span, and never out of range: this is what catches a
+     * rounding rule that drops the last row or steps backwards.
+     *
+     * THE SWEEP IS VERTICAL AND IT RUNS THE OTHER WAY, and that is the point of this
+     * test rather than a detail of it. The level comes from Y -- the cell's top edge is
+     * full scale -- so x is held fixed and y walks the span, and the level FALLS as y
+     * rises, the mirror of the beat's rule. Sweeping x here, as this did while the axes
+     * were still the other way round, holds the level CONSTANT: every assertion below
+     * then passes whatever the mapping does, including a mapping that is broken
+     * outright. A test that cannot fail is worse than no test, because it is counted. */
+    prev = FXPAD_DEPTH_MAX + 1;
+    for (y = FXPAD_Y0; y <= FXPAD_Y1; y++) {
+        int d = depth_under(1179, y);
 
-        CHECK(d >= 0 && d <= FXPAD_DEPTH_MAX, "level %d out of range at x %d", d, x);
-        CHECK(d >= prev, "the level must not fall as x rises: %d after %d at x %d",
-              d, prev, x);
+        CHECK(d >= 0 && d <= FXPAD_DEPTH_MAX, "level %d out of range at y %d", d, y);
+        CHECK(d <= prev, "the level must not rise as y rises: %d after %d at y %d",
+              d, prev, y);
         prev = d;
     }
 
-    /* The middle is the middle. */
-    CHECK(depth_under((FXPAD_X0 + FXPAD_X1) / 2, 284) > 480
-          && depth_under((FXPAD_X0 + FXPAD_X1) / 2, 284) < 545,
+    /* The middle is the middle -- and it is the middle in Y. */
+    CHECK(depth_under((FXPAD_X0 + FXPAD_X1) / 2, (FXPAD_Y0 + FXPAD_Y1) / 2) > 480
+          && depth_under((FXPAD_X0 + FXPAD_X1) / 2, (FXPAD_Y0 + FXPAD_Y1) / 2) < 545,
           "the cell's centre must be near half scale");
 }
 
@@ -662,36 +686,37 @@ static int beat_after_drag(int dx, int dy, int bmin, int bmax)
 
 static void test_beat_mapping(void)
 {
-    CHECK(beat_under(1179, FXPAD_Y0, 0, 9) == 9,
-          "the TOP of the cell must be the MOST beats (9), got %d",
-          beat_under(1179, FXPAD_Y0, 0, 9));
-    CHECK(beat_under(1179, FXPAD_Y1, 0, 9) == 0,
-          "the BOTTOM of the cell must be the fewest beats (0), got %d",
-          beat_under(1179, FXPAD_Y1, 0, 9));
-    CHECK(beat_under(1179, 284, 0, 9) == 5,
-          "the exact centre of a 0..9 ladder is rung 5 (nine gaps, so the half-way "
-          "rounds up), got %d", beat_under(1179, 284, 0, 9));
+    CHECK(beat_under(FXPAD_X1, 284, 0, 9) == 9,
+          "the RIGHT of the cell must be the MOST beats (9), got %d",
+          beat_under(FXPAD_X1, 284, 0, 9));
+    CHECK(beat_under(FXPAD_X0, 284, 0, 9) == 0,
+          "the LEFT of the cell must be the fewest beats (0), got %d",
+          beat_under(FXPAD_X0, 284, 0, 9));
+    CHECK(beat_under((FXPAD_X0 + FXPAD_X1) / 2, 284, 0, 9) == 4,
+          "the exact centre of a 0..9 ladder is rung 4 (the cell is an even number of "
+          "pixels, so the half-way rounds down here), got %d",
+          beat_under((FXPAD_X0 + FXPAD_X1) / 2, 284, 0, 9));
 
     /* A ladder that does not start at zero, which is what a per-type range means. */
-    CHECK(beat_under(1179, FXPAD_Y0, 2, 12) == 12,
-          "the top of a 2..12 ladder must be 12, got %d", beat_under(1179, FXPAD_Y0, 2, 12));
-    CHECK(beat_under(1179, FXPAD_Y1, 2, 12) == 2,
+    CHECK(beat_under(FXPAD_X1, 284, 2, 12) == 12,
+          "the top of a 2..12 ladder must be 12, got %d", beat_under(FXPAD_X1, 284, 2, 12));
+    CHECK(beat_under(FXPAD_X0, 284, 2, 12) == 2,
           "the bottom of a 2..12 ladder must be 2, got %d",
-          beat_under(1179, FXPAD_Y1, 2, 12));
+          beat_under(FXPAD_X0, 284, 2, 12));
 
     /* A drag past the edges pins at the ends rather than running off the mapping. */
-    CHECK(beat_after_drag(1179, FXPAD_Y0 - 500, 0, 9) == 9,
-          "a drag above the cell pins at the top, got %d",
-          beat_after_drag(1179, FXPAD_Y0 - 500, 0, 9));
-    CHECK(beat_after_drag(1179, FXPAD_Y1 + 500, 0, 9) == 0,
-          "a drag below the cell pins at the floor, got %d",
-          beat_after_drag(1179, FXPAD_Y1 + 500, 0, 9));
+    CHECK(beat_after_drag(FXPAD_X1 + 500, 284, 0, 9) == 9,
+          "a drag right of the cell pins at the top of the ladder, got %d",
+          beat_after_drag(FXPAD_X1 + 500, 284, 0, 9));
+    CHECK(beat_after_drag(FXPAD_X0 - 500, 284, 0, 9) == 0,
+          "a drag left of the cell pins at the floor, got %d",
+          beat_after_drag(FXPAD_X0 - 500, 284, 0, 9));
 
-    /* And the same for the level, on the axis that is absolute. */
-    CHECK(depth_after_drag(FXPAD_X0 - 500, 284) == 0,
-          "a drag left of the cell pins at level 0");
-    CHECK(depth_after_drag(FXPAD_X1 + 500, 284) == FXPAD_DEPTH_MAX,
-          "a drag right of the cell pins at full scale");
+    /* And the same for the level, on the axis that is absolute and now vertical. */
+    CHECK(depth_after_drag(1179, FXPAD_Y1 + 500) == 0,
+          "a drag below the cell pins at level 0");
+    CHECK(depth_after_drag(1179, FXPAD_Y0 - 500) == FXPAD_DEPTH_MAX,
+          "a drag above the cell pins at full scale");
 }
 
 /* ---------------------------------------------------------------------------
@@ -708,17 +733,17 @@ static void test_climb_both_directions(void)
     s.lag = 0; s.ignore_beat = 0; s.ignore_on = 0; s.queued = 0;
     s.on_sends = s.depth_sends = s.beat_sends = 0; s.depth_last = -1;
     fxpad_reset();
-    fxpad_feed(1, 1179, FXPAD_Y1);
+    fxpad_feed(1, FXPAD_X0, 284);
     tick_n(&s, 40);
-    CHECK(s.beat == 0, "a drag to the floor must land on rung 0, got %d", s.beat);
+    CHECK(s.beat == 0, "a drag to the left edge must land on rung 0, got %d", s.beat);
     CHECK(s.beat_sends == 9, "9 rungs down must be 9 key sends, got %d", s.beat_sends);
 
     /* Up the ladder, the same arithmetic with the sign flipped. */
     s.beat = 0; s.beat_sends = 0; s.queued = 0;
     fxpad_reset();
-    fxpad_feed(1, 1179, FXPAD_Y0);
+    fxpad_feed(1, FXPAD_X1, 284);
     tick_n(&s, 40);
-    CHECK(s.beat == 9, "a drag to the top must land on rung 9, got %d", s.beat);
+    CHECK(s.beat == 9, "a drag to the right edge must land on rung 9, got %d", s.beat);
     CHECK(s.beat_sends == 9, "9 rungs up must be 9 key sends, got %d", s.beat_sends);
 }
 
@@ -736,7 +761,7 @@ static void test_climb_survives_a_late_answer(void)
     s.lag = 1; s.ignore_beat = 0; s.ignore_on = 0; s.queued = 0;
     s.on_sends = s.depth_sends = s.beat_sends = 0; s.depth_last = -1;
     fxpad_reset();
-    fxpad_feed(1, 1179, FXPAD_Y0);
+    fxpad_feed(1, FXPAD_X1, 284);
     tick_n(&s, 40);
     CHECK(s.beat == 9, "a late-answering rbp must still reach rung 9, got %d", s.beat);
     CHECK(s.beat_sends == 4, "5->9 is FOUR rungs, so four sends -- got %d", s.beat_sends);

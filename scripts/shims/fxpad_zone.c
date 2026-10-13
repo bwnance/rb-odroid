@@ -108,38 +108,59 @@ static int clampi(int v, int lo, int hi)
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
-/* X -> the level. Integer rounding of a positive quotient: (a + b/2) / b. */
-static int depth_of_x(int x)
+/* THE AXES, AND THEY WERE SWAPPED ON 2026-10-12. Left/right carries the BEAT and
+ * up/down carries the LEVEL -- the operator's ask: *"flip the x/y axis for the beatfx,
+ * left/right should control the beat and up/down the level"*. It was the other way round,
+ * and the argument for it is kept only because it explains what the two ARE: the level is
+ * an ABSOLUTE 0..1023, so a target is a value to write and the write is exact; the rung is
+ * a small ladder rbp has to be walked along one step at a time. Which axis carries which is
+ * pure convention, so it is the operator's to move.
+ *
+ * X -> the rung. THE RIGHT OF THE CELL IS THE MOST BEATS, which reads as a quantity
+ * growing the way the eye does, and a span of zero or less -- a type rbp will not give
+ * limits for -- answers the floor rather than dividing by it. */
+static int beat_of_x(int x, int bmin, int bmax)
 {
     int w = FXPAD_X1 - FXPAD_X0;
-
-    x = clampi(x, FXPAD_X0, FXPAD_X1);
-    return (int)(((long)(x - FXPAD_X0) * FXPAD_DEPTH_MAX + w / 2) / w);
-}
-
-/* The level -> X, which is the dot's position in the restore and nothing else. It is
- * NOT depth_of_x's inverse in the strict sense -- 160 px carry 1024 values, so several
- * levels share a column -- and it does not need to be: the level that travels on the
- * wire is the one depth_of_x produced, and this only decides where to put a dot. */
-static int x_of_depth(int d)
-{
-    d = clampi(d, 0, FXPAD_DEPTH_MAX);
-    return FXPAD_X0
-         + (int)(((long)d * (FXPAD_X1 - FXPAD_X0) + FXPAD_DEPTH_MAX / 2) / FXPAD_DEPTH_MAX);
-}
-
-/* Y -> the rung. THE TOP OF THE CELL IS THE MOST BEATS, which is the way up the ladder
- * reads on the glass ("BEAT >" doubles), and a span of zero or less -- a type rbp will
- * not give limits for -- answers the floor rather than dividing by it. */
-static int beat_of_y(int y, int bmin, int bmax)
-{
-    int h = FXPAD_Y1 - FXPAD_Y0;
     int span = bmax - bmin;
 
     if (span <= 0)
         return bmin;
+    x = clampi(x, FXPAD_X0, FXPAD_X1);
+    return bmin + (int)(((long)(x - FXPAD_X0) * span + w / 2) / w);
+}
+
+/* Y -> the level. THE TOP OF THE CELL IS FULL, which is rbp_vu.h's convention and the
+ * fader's -- the same way up as every other level on this unit. Integer rounding of a
+ * positive quotient: (a + b/2) / b. */
+static int depth_of_y(int y)
+{
+    int h = FXPAD_Y1 - FXPAD_Y0;
+
     y = clampi(y, FXPAD_Y0, FXPAD_Y1);
-    return bmin + (int)(((long)(FXPAD_Y1 - y) * span + h / 2) / h);
+    return (int)(((long)(FXPAD_Y1 - y) * FXPAD_DEPTH_MAX + h / 2) / h);
+}
+
+/* The level -> Y, and the rung -> X, which are the dot's position in the restore and
+ * nothing else. Neither is its forward map's strict inverse -- a few hundred pixels carry
+ * 1024 levels and a handful of rungs -- and neither needs to be: the value that travels on
+ * the wire is the one the forward map produced, and these only decide where to put a dot. */
+static int y_of_depth(int d)
+{
+    d = clampi(d, 0, FXPAD_DEPTH_MAX);
+    return FXPAD_Y0
+         + (int)(((long)d * (FXPAD_Y1 - FXPAD_Y0) + FXPAD_DEPTH_MAX / 2) / FXPAD_DEPTH_MAX);
+}
+
+static int x_of_beat(int b, int bmin, int bmax)
+{
+    int span = bmax - bmin;
+
+    if (span <= 0)
+        return FXPAD_X0;
+    b = clampi(b, bmin, bmax);
+    return FXPAD_X0
+         + (int)(((long)(b - bmin) * (FXPAD_X1 - FXPAD_X0) + span / 2) / span);
 }
 
 /* ------------------------------------------------------------------- the rect */
@@ -225,8 +246,8 @@ void fxpad_tick(const struct fxpad_live *live, struct fxpad_out *out)
         on0 = live_on(live) ? 1 : 0;
         depth0 = clampi(live->depth, 0, FXPAD_DEPTH_MAX);
         beat0 = live->beat;
-        mark_x0 = x_of_depth(depth0);
-        mark_y0 = beat_of_y(beat0, live->beat_min, live->beat_max);
+        mark_x0 = x_of_beat(beat0, live->beat_min, live->beat_max);
+        mark_y0 = y_of_depth(depth0);
         sent_depth = depth0;
         on_want = on0;             /* the axis starts settled; the block below moves it */
         on_asking = 0;
@@ -239,11 +260,11 @@ void fxpad_tick(const struct fxpad_live *live, struct fxpad_out *out)
         snapped = 1;
     }
 
-    want_depth = engaged ? depth_of_x(finger_x) : depth0;
+    want_depth = engaged ? depth_of_y(finger_y) : depth0;
     want_on = engaged ? 1 : on0;
     on_now = live_on(live);
     span = live->beat_max - live->beat_min;
-    want_beat = engaged ? beat_of_y(finger_y, live->beat_min, live->beat_max)
+    want_beat = engaged ? beat_of_x(finger_x, live->beat_min, live->beat_max)
                         : clampi(beat0, live->beat_min, live->beat_max);
     if (span <= 0)
         want_beat = live->beat;      /* no limits read: nothing to climb towards */
