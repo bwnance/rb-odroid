@@ -163,4 +163,7 @@ again by the line above.
 * Booth output is dropped: the FLX4 has two output pairs ([docs/09](docs/09-audio.md)).
 * DJ FX parameter/layer encoders, TrackSkip, BeatJump and some SHIFT-actions are
   not mapped ([docs/08](docs/08-controls.md)).
-* No autostart unit; launch `start-rb.sh` manually ([docs/11](docs/11-runtime-launcher.md)).
+* Autostart ships enabled — `install.sh` installs and enables `rblive4.service`
+  (`RB_AUTOSTART=1`), so the player is already up after a reboot. `RB_AUTOSTART=0`
+  installs the unit but leaves it disabled, and `start-rb.sh` is then run by hand
+  ([docs/11](docs/11-runtime-launcher.md)).

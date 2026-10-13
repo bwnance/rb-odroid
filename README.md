@@ -28,7 +28,7 @@ tractable, and they are set out in [docs/13](docs/13-raspberrypi4.md).
 | Pointing | No touchscreen on a monitor: an evdev pointer (touch panel or mouse) is discovered by capability and transformed into the tsc2007 protocol `rbp` reads — including `rbp`'s own `1279 - x` reflection of that protocol's x, undone in the shim so a tap lands under the finger | [docs/07](docs/07-touch.md) |
 | Controls | transport, decks, mixer, jog and pads mapped from the DDJ-FLX4 MIDI surface — the tables are written from Pioneer's published MIDI message list and are unverified until a dump from the hardware, see [docs/15](docs/15-flx4-midi.md) | [docs/08](docs/08-controls.md), [docs/15](docs/15-flx4-midi.md) |
 | Panel LEDs | PLAY / CUE / SYNC / FX LEDs mirror rbp's own LED state (blink included) | [docs/08](docs/08-controls.md) |
-| VU meters | No meters on the FLX4, so `RB_LED_VU=0` by default — and the `rbp` machine-code patch behind them is then not installed at all | [docs/15](docs/15-flx4-midi.md) |
+| VU meters | The FLX4's two channel level meters, driven from rbp's own meter as a CC value ramp (not the SC Live 4's segment bitmask); `RB_LED_VU` (default `1`) is a manual OFF switch | [docs/15](docs/15-flx4-midi.md) |
 | Audio | master (RCA out) and headphones/cue on the FLX4's 4-channel USB audio, **plus the same master audio out of the Pi's HDMI**; card, channel count and pair map are all configurable | [docs/09](docs/09-audio.md) |
 | USB | rekordbox-exported stick detection and `export.pdb` import into DeviceSQL | [docs/10](docs/10-usb.md) |
 | Launcher | `start-rb.sh` stops the desktop services that would fight for the display or the stick, then brings the player up | [docs/11](docs/11-runtime-launcher.md) |
@@ -159,7 +159,10 @@ it says so; [docs/README](docs/README.md) explains the convention.
   velocity→colour encoding with it, land with those numbers.
 * DJ FX parameter / layer encoders, StopTime and some shift actions are not
   mapped.
-* Autostart is not provided; the launcher is run manually.
+* Autostart **is** provided: `install.sh` installs and enables `rblive4.service`
+  (`RB_AUTOSTART=1`, the shipped default), so the player comes up on boot.
+  `RB_AUTOSTART=0` installs the unit but leaves it disabled
+  ([docs/11](docs/11-runtime-launcher.md)).
 
 ---
 
@@ -206,7 +209,7 @@ Three things carry over nearly intact, and they are the expensive parts:
   constraints on the chroot's own 32-bit binaries — there is no 64-bit `rbp` — so
   the kernel only has to execute 32-bit ARM ELF, which current Pi OS kernels do
   even though their kernel is 64-bit.
-* **The `rbp` patch table.** All 68 words plus the 2-word `getPcController()`
+* **The `rbp` patch table.** All 66 words plus the 12-word `getPcController()`
   fix. Every patch's justification is a property of the *binary and the absent
   Pioneer hardware*, not of the machine underneath: there is no Pioneer panel
   MCU, no power-manager MCU and no i.MX6 board here either.
