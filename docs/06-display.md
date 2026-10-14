@@ -520,7 +520,7 @@ and there are only three candidates on this port:
 | the **overlay plane** (`drmband.c`) | nothing in `/dev/fb0` at all — it is a separate plane composited *above* rbp's page, so a screenshot cannot see it |
 
 **The overlay plane is a fourth writer and it is not in the page.** When the band, a
-side drawer or the USB STOP chooser is up, the shim owns a `vc4`
+side drawer or one of the boxes (the BEAT FX picker, the SETTINGS panel) is up, the shim owns a `vc4`
 overlay plane on `card1` and composites it over rbp's primary.
 
 **The UTILITY gesture is the one shim surface with no pixels at all.** It is input-side
@@ -549,8 +549,8 @@ it is stated where the operator will meet it (`07-touch.md`).
 
 Which surface owns which plane is legible from the log without any pixels at all,
 because `drm_band_setup()` prints the geometry it was asked for: `1280x56` is the band,
-`180x800` is a drawer, and `560x127` is the USB STOP chooser's box (it was `560x271`
-until the box went to two buttons on 2026-10-07). A handover prints the old surface's teardown, the new one's setup, and
+`180x800` is a drawer, and `640x429` is the SETTINGS panel's box (the USB STOP chooser's
+`560x127` went with the chooser, 2026-10-14). A handover prints the old surface's teardown, the new one's setup, and
 a line naming the direction (`side: a drawer is out -- the plane is handed over from the
 band`). Measured on the unit with both drawers out: **two distinct plane ids on the same
 crtc**, `plane 127` and `plane 138`, both `180x800`, neither reusing the other's. The

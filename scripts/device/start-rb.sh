@@ -292,6 +292,13 @@ rm -f /tmp/displaywatch.geom
 # unconditionally, so being listed means an ad-hoc `LED_DUMP=1 sh start-rb.sh`
 # would be overwritten with the empty string. Set those by exporting the shim
 # name directly, which reaches rbp because nothing here uses `env -i`.
+#
+# THE THREE VNC_*_FILE NAMES ARE HERE BECAUSE THE GLASS WRITES THEM. The settings
+# panel has three rows that move the viewer's live switches (share, encode, pointer
+# injection) and it needs the same paths vnc-run.sh uses. They arrive by this loop's
+# own rule -- `RB_VNC_LIVE_FILE` in rb.conf becomes `VNC_LIVE_FILE` in the shim's
+# environment -- and an empty or unset one is not a problem: env_str() falls back to
+# the /run/rblive4 default, so the panel writes where the viewer reads either way.
 SHIM_VARS="
 DFB_PRESENT DFB_ROTATE PAN_PACER_MS FB_DEV FB_LIE_BPP
 DFB_PRESENT_AUTO DFB_PRESENT_FIT DFB_PRESENT_SKIP DFB_PRESENT_PX_BUDGET
@@ -300,6 +307,7 @@ POINT_SWAP_XY POINT_INVERT_X POINT_INVERT_Y POINT_CURSOR POINT_CURSOR_MS
 POINT_QUANTIZE_TAP POINT_MENU POINT_MENU_MOUSE POINT_FX_TOUCH POINT_HOTCUE_TOUCH
 POINT_PADMODE_TAP POINT_DECK_PLAY POINT_BPM_SYNC
 AUDIO_DEV AUDIO_CHANNELS AUDIO_MAP AUDIO_FMT AUDIO_MONITOR_PAIR MIXER_MODE MIXER_MODE_FILE
+VNC_LIVE_FILE VNC_MODE_FILE VNC_INPUT_FILE
 AUDIO_MIRROR_DEV AUDIO_MIRROR_FMT AUDIO_MIRROR_REOPEN_MS AUDIO_MIRROR_BOOST_DB
 STARTUP_MUTE_MS STARTUP_FADE_MS SCHED_RT
 MIDI_MAP EVDEV_MAP MIDI_IN_MATCH MIDI_OUT_MATCH MIDI_DUMP MIDI_REPLAY

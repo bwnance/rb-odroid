@@ -1080,7 +1080,31 @@ audioshim: MIXER_MODE=external -- the deck taps go out on 2,3 and 4,5 and rbp's 
 ```
 
 `RB_MIXER_MODE` is read **once**, in the constructor, like every other value in
-this file: it is not a live switch, and changing it takes a player restart.
-`start-rb.sh` passes it through as `MIXER_MODE` (`SHIM_VARS`), so a value that is
+this file: the *environment variable* is not a live switch, and changing it takes a player
+restart. `start-rb.sh` passes it through as `MIXER_MODE` (`SHIM_VARS`), so a value that is
 missing there reaches the shim as empty — which is internal mode, the shipped
 behaviour, and also what a hand-run shim with no environment at all gets.
+
+### The route IS live, through a switch file
+
+`RB_MIXER_MODE` is the **start-up** value; what the unit does *now* is
+`RB_MIXER_MODE_FILE` — `/run/rblive4/mixer.mode`, one word and a newline, the same shape as
+the viewer's switch files. `audioshim.c`'s `mixer_route_tick()` re-reads it on the audio
+callback every ~512 blocks (**~0.7 s** at 64 frames) and re-walks the USB bus every eighth
+of those (**~6 s**, because that walk is a dozen sysfs reads); a **missing file means "keep
+what we were started with"**, so a unit nobody has switched behaves exactly as its conf
+says. Unplugging the mixer takes the route back to internal on its own, and the transition
+is logged rather than inferred:
+
+```
+audioshim: mixer route -> EXTERNAL (decks raw on their own pairs, rbp's mix not sent)
+```
+
+**Two writers, one file.** `confscreen.py`'s mixer routing buttons write it
+([20](20-config-page.md)), and since 2026-10-14 so does the **SETTINGS panel's
+`MIXER ROUTE` row** on the glass ([07](07-touch.md)) — no laptop needed. Both write the
+same word and both are read by the same tick, so the page and the panel cannot disagree
+about the route; the panel's readout deliberately shows the route *in effect* rather than
+the file's word, so a file left saying `external` with the mixer unplugged reads
+`INTERNAL` and is dim, which is what the unit is actually doing.
+

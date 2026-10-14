@@ -2,7 +2,7 @@
  * test_hc.c -- the HOT CUE pad row, with no Pi, no panel and no rbp anywhere in this
  * file.
  *
- * It links the PRODUCTION hc_zone.c, for the reason test_fx.c, test_prompt.c,
+ * It links the PRODUCTION hc_zone.c, for the reason test_fx.c,
  * test_wave.c, test_util.c, test_side.c and test_menu.c link theirs: a rectangle
  * boundary, an anchored press and a comparison against a threshold are exactly the
  * kind of thing that gets quietly rewritten in a copy.

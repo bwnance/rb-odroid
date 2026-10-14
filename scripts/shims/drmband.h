@@ -294,7 +294,7 @@ int  drm_band_setup_fmt(struct drm_band *b, int w, int h, int bpp, unsigned int 
  * whole point: the kernel's default zpos is the plane's INDEX, so without this the order is
  * whichever order the planes happened to be picked in -- which put the top menu band UNDER the
  * deck badges' play rings, and would move again the first time a surface was created in a
- * different sequence. Set with drm_band_want_z() immediately before the band's drm_band_setup().
+ * different sequence. Set with drm_band_want_rank() immediately before the band's drm_band_setup().
  *
  * The order, and why: the rings are over rbp's picture and under everything the shim draws, so a
  * panel sliding out covers them; the panels are under the boxes that sit on top of them; and the
@@ -303,6 +303,10 @@ int  drm_band_setup_fmt(struct drm_band *b, int w, int h, int bpp, unsigned int 
  * panels would otherwise cover its ends. The browser window sat above the lot on its own rank
  * (7); it was removed 2026-10-12 and the rank went with it. */
 #define DRM_RANK_RING      0     /* the first free overlay -- the LOWEST, so panels cover it */
+#define DRM_RANK_SETTINGS  1     /* the SETTINGS panel (settings_paint.c). Rank 1 was the one
+                                  * value left unassigned; it sits BELOW the band like PROMPT and
+                                  * FXLIST do, so correctness rests on the tick hiding the band
+                                  * while a box is up rather than on z-order. */
 #define DRM_RANK_DRAWER    2
 #define DRM_RANK_PROMPT    3
 #define DRM_RANK_FXLIST    4

@@ -121,12 +121,12 @@
 #include "rbp_transport.h"   /* ...and the deck state its SYNC/CUE/PLAY report. NOT rbp_led.h:
                               * that is compiled into knobshim.so, which is loaded AFTER
                               * fbshim.so, so this file must not name its symbols at all. */
-#include "prompt_zone.h"       /* the USB STOP chooser: its box, and whether it is up */
-#include "prompt_paint.h"      /* ...and the image it is drawn with */
 #include "fx_zone.h"           /* the Beat FX picker: its box, and whether it is up */
 #include "fx_paint.h"          /* ...and the image it is drawn with */
 #include "fxpad_zone.h"        /* the momentary X/Y pad: whether it is holding a finger */
 #include "fxpad_paint.h"       /* ...and the HUD it draws over rbp's BPM cell */
+#include "settings_zone.h"     /* the SETTINGS panel: its box, and whether it is up */
+#include "settings_paint.h"    /* ...and the image it is drawn with */
 #include "rbp_vu.h"            /* g_fader[]: the value the drawer's handle follows */
 #include "pitch_state.h"       /* ...and g_pitch_norm[], when the fader is a PITCH one */
 #include "drmband.h"           /* the overlay plane, when this machine has one */
@@ -292,73 +292,40 @@ struct menu_map {
     int    side_buf_bpp;
     int    side_pending[2];      /* the destination still needs the front copied in */
 
-    /* THE USB STOP CHOOSER'S PLANE -- a FOURTH drm_band, at the BOX'S OWN SIZE rather
-     * than the panel's, which is what prompt_paint.h means by "the view's picture rect
-     * IS the box": the plane is set up at PR_W x PR_H logical px scaled to the page,
-     * and the box's own coordinates are the buffer's.
-     *
-     * It is its own slot and not a handover, for the reason drmband.c now refcounts the
-     * fd and master: a fourth drm_band_setup() is a buffer and a plane (the two drawers
-     * already coexist, measured at planes 127 and 138). It overlaps nothing either --
-     * the box is raised from the band's own seventh column, so by the time it is up the
-     * band is shut, and the funnel's first refusal (pointsrc.c) keeps a drawer or the
-     * window from being opened under it.
-     *
-     * `prompt_fail` is the same one-shot refusal flag the other planes carry, and with
-     * the same lifetime (cleared when the box closes, so a later open tries again); on that
-     * route the box goes onto the page and keeps working, at the band's fallback cost.
-     *
-     * `prompt_painted_cell`, `prompt_painted_flash` and `prompt_painted_live` are the
-     * state the PUBLISHED image holds -- the cell under the finger, the cell whose
-     * hold is blinking on its lit half, and rbp's two device-liveness bits packed one
-     * per bit. Three real values and not a counter: the plane is single-buffered, so a
-     * gate fed anything that alternates by itself would repaint every tick and blink
-     * (the paint-when-it-changed rule). The liveness belongs in the gate because a device
-     * appearing or going away is a change to the picture and nothing else would notice
-     * it. AND THE FLASH BELONGS IN IT for the newest reason of the three: a running
-     * hold lights its button for half of every PR_HOLD_FLASH_MS, and with the phase out
-     * of the key the box would keep republishing the image it built when the finger
-     * went down -- the button would light once and then sit there for three seconds
-     * looking exactly like a tap that had been swallowed.
-     *
-     * SO DO THE TWO DEVICE NAMES, for the identical reason one step further out: a
-     * button reads the name on the stick (prompt_zone.h), and a stick pulled while its
-     * box is up removes the name file a moment before rbp stops reporting the media. The
-     * window between those two is short and both events would repaint -- but the gate
-     * has to see the thing that changed rather than rely on a second thing changing too
-     * ([[a-dead-driver-flashes-the-chrome]] is the same trap). The key is the state's own
-     * label array, so it is the string the button reads and not a second opinion about
-     * it, and it is 72 bytes to compare.
-     *
-     * `prompt_valid` is "there is a real box in prompt_img[0]". It is what the show
-     * waits on: a fresh dumb buffer holds nothing anyone can read, so the box must be
-     * COPIED in before it goes on the glass, exactly as the drawer's must. */
-    struct drm_band prompt;
-    int  prompt_ok;              /* the box's plane is set up and mapped */
-    int  prompt_on;              /* ...and it is on the glass right now */
-    int  prompt_fail;            /* this machine refused a box-sized plane */
-    int  prompt_valid;           /* a built box exists in prompt_img[0] */
-    void  *prompt_img[2];        /* [front, back]; NULL when none could be had */
-    size_t prompt_img_bytes;     /* one image, bytes */
-    int    prompt_buf_w;         /* the image's geometry, cached at allocation ... */
-    int    prompt_buf_h;
-    int    prompt_buf_bpp;
-    int    prompt_pending;       /* the destination still needs the front copied in */
-    int    prompt_painted_cell;  /* the cell the published image is highlighted for */
-    int    prompt_painted_flash; /* ...the cell it is lit on for the hold's blink... */
-    int    prompt_painted_live;  /* ...and the liveness bits it was drawn with */
-    char   prompt_painted_name[PROMPT_DEVICES][PR_LABEL_MAX + 1];
-                                 /* ...and the two device names it was drawn with */
+    /* THE SETTINGS PANEL'S PLANE -- the chooser's arrangement at the panel's own size,
+     * and the same publish-a-finished-image rule. What its key holds is every value
+     * settings_paint() reads, which is the whole of what can change a row: the value row
+     * under the finger, the two media-liveness bits, the two mixer-route bits (present and
+     * external), and the three viewer bits. See menu_settings_build() for why each one has
+     * to be there. */
+    struct drm_band settings;
+    int  settings_ok;            /* the panel's plane is set up and mapped */
+    int  settings_on;            /* ...and it is on the glass right now */
+    int  settings_fail;          /* this machine refused a panel-sized plane */
+    int  settings_valid;         /* a built panel exists in settings_img[0] */
+    void  *settings_img[2];      /* [front, back]; NULL when none could be had */
+    size_t settings_img_bytes;   /* one image, bytes */
+    int    settings_buf_w;       /* the image's geometry, cached at allocation ... */
+    int    settings_buf_h;
+    int    settings_buf_bpp;
+    int    settings_pending;     /* the destination still needs the front copied in */
+    int    settings_painted_row;     /* the value row the published image highlights */
+    int    settings_painted_flash;   /* ...and the half of a running hold's blink it is lit on */
+    int    settings_painted_usb;     /* ...and the liveness bits it was drawn with ... */
+    int    settings_painted_mixer;   /* ...the bus and route bits ... */
+    int    settings_painted_share;   /* ...and the three viewer switches */
+    int    settings_painted_encode;
+    int    settings_painted_pointer;
 
-    /* THE BEAT FX PICKER'S PLANE -- a FIFTH drm_band, the prompt's arrangement at the
-     * picker's own size, and for the same reason: fx_paint.h's contract is that the
+    /* THE BEAT FX PICKER'S PLANE -- a drm_band of its own at the picker's size, the
+     * drawers' arrangement and for their reason: fx_paint.h's contract is that the
      * view's picture rect IS the box, so the plane is FX_W x FX_H logical px scaled to
      * the page and the box's own coordinates are the buffer's.
      *
      * IT IS ITS OWN SLOT AND NOT THE PROMPT'S, reversed on evidence 2026-10-06 (the plan
      * of record records the reversal). The fear was that a fifth plane would be refused,
      * and the unit's own /sys/kernel/debug/dri/1/state lists plane[0] through plane[29]+
-     * with five already held by this shim. Sharing the prompt's slot instead would make
+     * with several already held by this shim. Sharing another box's slot instead would make
      * the two boxes mutually exclusive by construction, and getting THAT wrong shows one
      * box's pixels in the other's buffer -- a far worse failure than a refused plane,
      * which costs nothing because the page route below carries it.
@@ -966,311 +933,309 @@ static void menu_side_plane_sync(void)
     g.side_prev = any;
 }
 
-/* ---------------- THE USB STOP CHOOSER'S PLANE ---------------------------
+/* ---------------- THE SETTINGS PANEL'S PLANE -----------------------------
  *
- * The fourth holder of a drm_band, and the one that is not a handover at all. Its
- * argument is prompt_zone.h's, and it is not repeated: the box is the answer to the
- * operator's *"when you have USB stop, put up a prompt for USB1, USB2 or Cancel"*, and
- * everything below is the same publish-a-finished-image rule the band and the drawers
- * already keep, at the box's own size. */
-
-/* The box's size in fb px -- PR_W/PR_H logical px at the page's own scale, the same
- * rule menu_side_pw() applies to the drawer's width. */
-static int menu_prompt_pw(void)
+ * A drm_band at the panel's own size and DRM_RANK_SETTINGS, and the chooser's code with a
+ * different key. The panel has no hold and no flash (settings_zone.h), so what its
+ * published image is keyed on is the SIX VALUES it was drawn from: the value row under the
+ * finger, the two media-liveness bits, the two mixer-route bits and the three viewer bits.
+ *
+ * THE KEY IS THE WHOLE OF WHAT MAKES A ROW CHANGE ON THE GLASS. A tap writes a word into a
+ * file and nothing announces it; the files are re-read here on every build
+ * (pointsrc_settings_state()), so the value a row was drawn with is what the gate compares
+ * and the row repaints by itself on the next tick. A gate that could not see one of these
+ * would leave the operator looking at the value they had just changed away from -- which is
+ * the trap every one of these gates in this file exists to avoid.
+ *
+ * IT IS ITS OWN SLOT, like the picker's, and the argument is the picker's: sharing a plane
+ * with the chooser would make the two mutually exclusive by construction, and getting THAT
+ * wrong shows one box's pixels in the other's buffer. Rank 1 was the one value left
+ * unassigned (drmband.h).
+ */
+static int menu_settings_pw(void)
 {
-    return prompt_paint_w(g.view.dw);
+    return settings_paint_w(g.view.dw);
 }
 
-static int menu_prompt_ph(void)
+static int menu_settings_ph(void)
 {
-    return prompt_paint_h(g.view.dh);
+    return settings_paint_h(g.view.dh);
 }
 
-/* Where the box lands on the page. Centred, because that is what the logical geometry
- * already says it is (PR_X0/PR_Y0 are the screen's centre less half the box) -- so this
- * is the same statement in framebuffer pixels and not a second opinion. */
-static int menu_prompt_bx(void)
+static int menu_settings_bx(void)
 {
-    return g.fb_bx + (g.view.dw - menu_prompt_pw()) / 2;
+    return g.fb_bx + (g.view.dw - menu_settings_pw()) / 2;
 }
 
-static int menu_prompt_by(void)
+static int menu_settings_by(void)
 {
-    return g.fb_by + (g.view.dh - menu_prompt_ph()) / 2;
+    return g.fb_by + (g.view.dh - menu_settings_ph()) / 2;
 }
 
-/* A view over the box, whichever route it is being drawn on. ON A PLANE the buffer IS
- * the box: origin 0,0 and dw/dh its own size, because that is the contract
- * prompt_paint.h states. ON THE PAGE the origin moves to the box's screen rectangle and
- * the pitch stays the page's, so the same prompt_paint() call works on both -- exactly
- * menu_side_view()'s split. */
-static void menu_prompt_view(struct menu_view *pv)
+static void menu_settings_buf_view(struct menu_view *sv, void *buf)
 {
-    memset(pv, 0, sizeof *pv);
-    if (g.prompt_ok) {
-        pv->pix   = g.prompt.pix;
-        pv->pitch = g.prompt.pitch;
-        pv->fb_w  = g.prompt.w;
-        pv->fb_h  = g.prompt.h;
-        pv->bpp   = g.prompt.bpp;
-        pv->dw    = g.prompt.w;
-        pv->dh    = g.prompt.h;
+    memset(sv, 0, sizeof *sv);
+    sv->pix   = buf;
+    sv->pitch = g.settings_buf_w;
+    sv->fb_w  = g.settings_buf_w;
+    sv->fb_h  = g.settings_buf_h;
+    sv->bpp   = g.settings_buf_bpp;
+    sv->dw    = g.settings_buf_w;
+    sv->dh    = g.settings_buf_h;
+}
+
+static void menu_settings_view(struct menu_view *sv)
+{
+    memset(sv, 0, sizeof *sv);
+    if (g.settings_ok) {
+        sv->pix   = g.settings.pix;
+        sv->pitch = g.settings.pitch;
+        sv->fb_w  = g.settings.w;
+        sv->fb_h  = g.settings.h;
+        sv->bpp   = g.settings.bpp;
+        sv->dw    = g.settings.w;
+        sv->dh    = g.settings.h;
         return;
     }
-    pv->dw  = (unsigned)menu_prompt_pw();
-    pv->dh  = menu_prompt_ph();
-    pv->pix = (unsigned char *)g.fb_pix
-              + ((size_t)menu_prompt_by() * (size_t)g.fb_pitch
-                 + (size_t)menu_prompt_bx()) * (size_t)(g.view.bpp / 8);
-    pv->pitch = g.fb_pitch;
-    pv->fb_w  = pv->dw;
-    pv->fb_h  = pv->dh;
-    pv->bpp   = g.view.bpp;
+    sv->dw  = (unsigned)menu_settings_pw();
+    sv->dh  = menu_settings_ph();
+    sv->pix = (unsigned char *)g.fb_pix
+              + ((size_t)menu_settings_by() * (size_t)g.fb_pitch
+                 + (size_t)menu_settings_bx()) * (size_t)(g.view.bpp / 8);
+    sv->pitch = g.fb_pitch;
+    sv->fb_w  = sv->dw;
+    sv->fb_h  = sv->dh;
+    sv->bpp   = g.view.bpp;
 }
 
-/* A view over the box's SCRATCH image, for the off-lock build. Deliberately not
- * menu_prompt_view() above: that one reads g.prompt.pix/pitch and g.view, and
- * menu_frame_tick mutates both under g_lock, so reading them from the builder would be
- * the same race menu_side_buf_view() exists to avoid. Every scalar here was cached at
- * allocation, and fb_w/fb_h are load-bearing -- prompt_paint_ok() rejects a view whose
- * rectangle does not fit inside its framebuffer, and it rejects it SILENTLY. */
-static void menu_prompt_buf_view(struct menu_view *pv, void *buf)
+/* The two packed pairs the key compares, gathered in one place so the build and the
+ * no-cache repaint cannot come to key on different things. */
+static void menu_settings_key(const struct settings_state *S, unsigned *usb,
+                              unsigned *mixer)
 {
-    memset(pv, 0, sizeof *pv);
-    pv->pix   = buf;
-    pv->pitch = g.prompt_buf_w;
-    pv->fb_w  = g.prompt_buf_w;
-    pv->fb_h  = g.prompt_buf_h;
-    pv->bpp   = g.prompt_buf_bpp;
-    pv->dw    = g.prompt_buf_w;
-    pv->dh    = g.prompt_buf_h;
+    *usb   = (unsigned)((S->usb_live[0] ? 1 : 0) | (S->usb_live[1] ? 2 : 0));
+    *mixer = (unsigned)((S->mixer_present ? 1 : 0) | (S->mixer_external ? 2 : 0));
 }
 
-/* Build the box OFF THE LOCK and publish it by swapping the two pointers under it --
- * menu_build()'s and menu_side_build()'s rule, and here for the same reason.
- *
- * The liveness is what makes this more than a highlight: rbp's answer about the two
- * devices is part of the picture (prompt_paint.c draws a row whose device is absent in
- * the OFF palette), so pointsrc_usb_state() is re-read on every build and the answer it
- * was read at is what the published tuple records. A device the operator stops
- * elsewhere therefore changes the box on the next tick, with nothing to invalidate. */
-static void menu_prompt_build(void)
+/* Is the published image already the picture this state would draw? */
+static int menu_settings_changed(int row, unsigned usb, unsigned mixer, int flash,
+                                 const struct settings_state *S)
 {
-    struct menu_view pv;
-    struct prompt_state S;
-    int cell, flash, live;
+    return !g.settings_valid ||
+           g.settings_painted_row != row ||
+           g.settings_painted_flash != flash ||
+           g.settings_painted_usb != (int)usb ||
+           g.settings_painted_mixer != (int)mixer ||
+           g.settings_painted_share != S->share_on ||
+           g.settings_painted_encode != S->encode_hw ||
+           g.settings_painted_pointer != S->pointer_on;
+}
+
+/* Build the panel OFF THE LOCK and publish it by swapping the two pointers under it --
+ * menu_settings_build()'s rule, and here for the same reason. */
+static void menu_settings_build(void)
+{
+    struct menu_view sv;
+    struct settings_state S;
+    unsigned usb, mixer;
+    int row, flash;
     void *t;
     long t0;
 
-    if (!g.prompt_img[0])
+    if (!g.settings_img[0])
         return;                      /* no cache: the tick paints direct, as it shipped */
-    if (!prompt_is_open())
+    if (!settings_is_open())
         return;
 
-    pointsrc_usb_state(&S);
-    cell  = prompt_pressed();
-    flash = prompt_hold_flash() ? prompt_hold_cell() : 0;
-    live = (S.live[0] ? 1 : 0) | (S.live[1] ? 2 : 0);
-    /* FOUR THINGS MAKE THE PICTURE, so four things are in the key. The flash is one
-     * of them and it is the one that is easy to forget: a hold moves the box nowhere and
-     * changes no other value, so if the phase were not here the box would go on
-     * publishing the image it built when the finger went down and the button would
-     * simply light once ([[a-dead-driver-flashes-the-chrome]] is the same trap: a gate
-     * that cannot see the thing that changed). The names are the fourth and they are in
-     * the key for exactly that reason (the field's own note above). */
-    if (g.prompt_valid && g.prompt_painted_cell == cell &&
-        g.prompt_painted_flash == flash && g.prompt_painted_live == live &&
-        !memcmp(g.prompt_painted_name, S.label, sizeof g.prompt_painted_name))
+    pointsrc_settings_state(&S);
+    menu_settings_key(&S, &usb, &mixer);
+    /* THE FLASH IS PART OF THE KEY, and it is the one that is easy to forget: a hold moves the
+     * panel nowhere and changes no other value, so a gate that could not see the phase would
+     * publish the image built when the finger went down and the row would light once and stay
+     * lit -- the trap the settings panel's own build records (settings_zone.c). */
+    flash = settings_hold_flash() ? settings_hold_row() : 0;
+    row = settings_pressed();
+    if (!menu_settings_changed(row, usb, mixer, flash, &S))
         return;                      /* the published image is already this one */
 
-    menu_prompt_buf_view(&pv, g.prompt_img[1]);
-    if (!prompt_paint_ok(&pv))
+    menu_settings_buf_view(&sv, g.settings_img[1]);
+    if (!settings_paint_ok(&sv))
         return;
 
     t0 = menu_now_us();
-    prompt_paint(&pv, &S, cell, flash);
+    settings_paint(&sv, &S, row, flash);
     if (g.verbose)
-        pointsrc_log("prompt: build %ld us: cell %d, flash %d, usb 1 %s '%s',"
-                     " usb 2 %s '%s'",
-                     menu_now_us() - t0, cell, flash,
-                     S.live[0] ? "ready" : "absent",
-                     prompt_cell_text(&S, PR_CELL_USB1),
-                     S.live[1] ? "ready" : "absent",
-                     prompt_cell_text(&S, PR_CELL_USB2));
+        pointsrc_log("settings: build %ld us: row %d, usb %u, mixer %u (present %d,"
+                     " external %d), share %d, encode %d, pointer %d",
+                     menu_now_us() - t0, row, usb, mixer, S.mixer_present,
+                     S.mixer_external, S.share_on, S.encode_hw, S.pointer_on);
 
     pthread_mutex_lock(&g_lock);
-    t = g.prompt_img[0];
-    g.prompt_img[0] = g.prompt_img[1];
-    g.prompt_img[1] = t;
-    g.prompt_painted_cell  = cell;
-    g.prompt_painted_flash = flash;
-    g.prompt_painted_live  = live;
-    memcpy(g.prompt_painted_name, S.label, sizeof g.prompt_painted_name);
-    g.prompt_valid = 1;
-    g.prompt_pending = 1;
+    t = g.settings_img[0];
+    g.settings_img[0] = g.settings_img[1];
+    g.settings_img[1] = t;
+    g.settings_painted_row     = row;
+    g.settings_painted_flash   = flash;
+    g.settings_painted_usb     = (int)usb;
+    g.settings_painted_mixer   = (int)mixer;
+    g.settings_painted_share   = S.share_on;
+    g.settings_painted_encode  = S.encode_hw;
+    g.settings_painted_pointer = S.pointer_on;
+    g.settings_valid = 1;
+    g.settings_pending = 1;
     pthread_mutex_unlock(&g_lock);
 }
 
-/* Put the published box on whatever is carrying it. The caller holds g_lock.
- *
- * ON A PLANE it copies only when there is something new, one memcpy when the plane's
- * stride is the box's width and a row at a time otherwise -- the split menu_side_publish()
- * and menu_blit() both make.
- *
- * ON THE PAGE it copies EVERY tick, because rbp repaints the middle of the performance
- * screen 57 times a second and there is no witness for a region this size. The same rule
- * as the drawer's, and it is why prompt_pending cannot simply be honoured on both. */
-static void menu_prompt_publish(void)
+/* Put the published panel on whatever is carrying it. The caller holds g_lock. The two
+ * routes are the chooser's exactly: one memcpy on a plane when the strides agree and a row
+ * at a time otherwise, and every tick on the page, because rbp repaints the middle of the
+ * performance screen 57 times a second and there is no witness for a region this size. */
+static void menu_settings_publish(void)
 {
     const unsigned char *src;
-    int bpp = g.prompt_buf_bpp / 8;
+    int bpp = g.settings_buf_bpp / 8;
 
-    if (!g.prompt_valid)
-        return;                      /* no finished box exists yet */
-    src = g.prompt_img[0];
+    if (!g.settings_valid)
+        return;
+    src = g.settings_img[0];
     if (!src)
         return;
 
-    if (g.prompt_ok) {
+    if (g.settings_ok) {
         int y;
         long t0;
 
-        if (!g.prompt_pending)
+        if (!g.settings_pending)
             return;
         t0 = menu_now_us();
-        if (g.prompt.pitch == g.prompt_buf_w) {
-            memcpy(g.prompt.pix, src, g.prompt_img_bytes);
+        if (g.settings.pitch == g.settings_buf_w) {
+            memcpy(g.settings.pix, src, g.settings_img_bytes);
         } else {
-            for (y = 0; y < g.prompt_buf_h; y++)
-                memcpy((unsigned char *)g.prompt.pix
-                           + (size_t)y * (size_t)g.prompt.pitch * (size_t)bpp,
-                       src + (size_t)y * (size_t)g.prompt_buf_w * (size_t)bpp,
-                       (size_t)g.prompt_buf_w * (size_t)bpp);
+            for (y = 0; y < g.settings_buf_h; y++)
+                memcpy((unsigned char *)g.settings.pix
+                           + (size_t)y * (size_t)g.settings.pitch * (size_t)bpp,
+                       src + (size_t)y * (size_t)g.settings_buf_w * (size_t)bpp,
+                       (size_t)g.settings_buf_w * (size_t)bpp);
         }
-        g.prompt_pending = 0;
+        g.settings_pending = 0;
         if (g.verbose)
-            pointsrc_log("prompt: blit %ld us", menu_now_us() - t0);
+            pointsrc_log("settings: blit %ld us", menu_now_us() - t0);
         return;
     }
 
-    /* Page route. Always, and per row: the page's stride is not the box's. */
     {
         int y;
         unsigned char *dst = (unsigned char *)g.fb_pix
-            + ((size_t)menu_prompt_by() * (size_t)g.fb_pitch
-               + (size_t)menu_prompt_bx()) * (size_t)(g.view.bpp / 8);
+            + ((size_t)menu_settings_by() * (size_t)g.fb_pitch
+               + (size_t)menu_settings_bx()) * (size_t)(g.view.bpp / 8);
 
-        for (y = 0; y < g.prompt_buf_h; y++)
+        for (y = 0; y < g.settings_buf_h; y++)
             memcpy(dst + (size_t)y * (size_t)g.fb_pitch * (size_t)bpp,
-                   src + (size_t)y * (size_t)g.prompt_buf_w * (size_t)bpp,
-                   (size_t)g.prompt_buf_w * (size_t)bpp);
+                   src + (size_t)y * (size_t)g.settings_buf_w * (size_t)bpp,
+                   (size_t)g.settings_buf_w * (size_t)bpp);
     }
 }
 
-/* The no-cache fallback: paint the box straight into its destination, as the drawers
- * did before they were given an image pair. Reached only on a unit with no room for
- * another 607 KB. */
-static void menu_prompt_repaint(void)
+/* The no-cache fallback: paint the panel straight into its destination. Reached only on a
+ * unit with no room for another image pair. */
+static void menu_settings_repaint(void)
 {
-    struct menu_view pv;
-    struct prompt_state S;
-    int cell, flash, live;
+    struct menu_view sv;
+    struct settings_state S;
+    unsigned usb, mixer;
+    int row, flash;
 
-    pointsrc_usb_state(&S);
-    cell  = prompt_pressed();
-    flash = prompt_hold_flash() ? prompt_hold_cell() : 0;
-    live = (S.live[0] ? 1 : 0) | (S.live[1] ? 2 : 0);
-    if (g.prompt_valid && g.prompt_painted_cell == cell &&
-        g.prompt_painted_flash == flash && g.prompt_painted_live == live &&
-        !memcmp(g.prompt_painted_name, S.label, sizeof g.prompt_painted_name))
+    pointsrc_settings_state(&S);
+    menu_settings_key(&S, &usb, &mixer);
+    flash = settings_hold_flash() ? settings_hold_row() : 0;
+    row = settings_pressed();
+    if (!menu_settings_changed(row, usb, mixer, flash, &S))
         return;
-    menu_prompt_view(&pv);
-    if (prompt_paint_ok(&pv))
-        prompt_paint(&pv, &S, cell, flash);
-    g.prompt_valid = 1;
-    g.prompt_painted_cell  = cell;
-    g.prompt_painted_flash = flash;
-    g.prompt_painted_live  = live;
-    memcpy(g.prompt_painted_name, S.label, sizeof g.prompt_painted_name);
+    menu_settings_view(&sv);
+    if (settings_paint_ok(&sv))
+        settings_paint(&sv, &S, row, flash);
+    g.settings_valid = 1;
+    g.settings_painted_row     = row;
+    g.settings_painted_flash   = flash;
+    g.settings_painted_usb     = (int)usb;
+    g.settings_painted_mixer   = (int)mixer;
+    g.settings_painted_share   = S.share_on;
+    g.settings_painted_encode  = S.encode_hw;
+    g.settings_painted_pointer = S.pointer_on;
 }
 
-/* Everything the box does per tick. One entry point for both routes, so the tick
- * cannot take one and forget the other. */
-static void menu_prompt_live(void)
+/* Everything the panel does per tick. One entry point for both routes, so the tick cannot
+ * take one and forget the other. */
+static void menu_settings_live(void)
 {
-    if (!prompt_is_open())
+    if (!settings_is_open())
         return;
 
-    /* The buffered route, and the one this ships on: the image was built off the lock by
-     * menu_prompt_build() and this only COPIES it. The show waits for prompt_valid, so a
-     * fresh plane is never seen holding the uninitialised buffer it was created with --
-     * the cost is at most one tick of absence. */
-    if (g.prompt_img[0]) {
-        menu_prompt_publish();
-        if (g.prompt_valid && g.prompt_ok && !g.prompt_on &&
-            drm_band_show(&g.prompt, menu_prompt_bx(), menu_prompt_by()) == 0)
-            g.prompt_on = 1;
+    if (g.settings_img[0]) {
+        menu_settings_publish();
+        if (g.settings_valid && g.settings_ok && !g.settings_on &&
+            drm_band_show(&g.settings, menu_settings_bx(), menu_settings_by()) == 0)
+            g.settings_on = 1;
         return;
     }
 
-    if (!g.prompt_ok) {
-        struct menu_view pv;
-        struct prompt_state S;
+    if (!g.settings_ok) {
+        struct menu_view sv;
+        struct settings_state S;
 
-        pointsrc_usb_state(&S);
-        menu_prompt_view(&pv);
-        if (prompt_paint_ok(&pv))
-            prompt_paint(&pv, &S, prompt_pressed(),
-                         prompt_hold_flash() ? prompt_hold_cell() : 0);
-        g.prompt_valid = 1;
+        pointsrc_settings_state(&S);
+        menu_settings_view(&sv);
+        if (settings_paint_ok(&sv))
+            settings_paint(&sv, &S, settings_pressed(),
+                       settings_hold_flash() ? settings_hold_row() : 0);
+        g.settings_valid = 1;
         return;
     }
-    menu_prompt_repaint();
+    menu_settings_repaint();
 }
 
-/* Bring the box's plane into line with the box. Called under g_lock from the tick,
- * after the window's and the drawers' syncs so that anything they had has already been
- * given back -- and before the band's path, which the box's being up skips entirely.
+/* Bring the panel's plane into line with the panel. Called under g_lock from the tick,
+ * beside the chooser's and the picker's syncs and before the band's path, which the
+ * panel's being up skips entirely.
  *
- * A machine that refuses a box-sized plane gets the page route and keeps working at the
- * band's fallback cost; prompt_fail is the once-only latch that stops it retrying at the
- * tick period, on the thread rbp presents from. */
-static void menu_prompt_plane_sync(void)
+ * A machine that refuses a panel-sized plane gets the page route and keeps working;
+ * settings_fail is the once-only latch that stops it retrying at the tick period, on the
+ * thread rbp presents from. */
+static void menu_settings_plane_sync(void)
 {
-    if (!prompt_is_open()) {
-        if (g.prompt_ok) {
-            drm_band_teardown(&g.prompt);
-            g.prompt_ok = g.prompt_on = 0;
-            pointsrc_log("prompt: the box closed -- its plane is released");
+    if (!settings_is_open()) {
+        if (g.settings_ok) {
+            drm_band_teardown(&g.settings);
+            g.settings_ok = g.settings_on = 0;
+            pointsrc_log("settings: the panel closed -- its plane is released");
         }
-        /* Cleared unconditionally, inside and outside the branch above: a closed box's
+        /* Cleared unconditionally, inside and outside the branch above: a closed panel's
          * image is stale whether or not it ever had a plane, and leaving the tuple live
-         * across a close would show the previous box for a tick. */
-        g.prompt_valid   = 0;
-        g.prompt_pending = 0;
-        g.prompt_fail    = 0;
+         * across a close would show the previous panel for a tick. */
+        g.settings_valid   = 0;
+        g.settings_pending = 0;
+        g.settings_fail    = 0;
         return;
     }
 
-    if (!g.prompt_ok && !g.prompt_fail) {
-        drm_band_want_rank(DRM_RANK_PROMPT);
-        if (drm_band_setup(&g.prompt, menu_prompt_pw(), menu_prompt_ph(),
+    if (!g.settings_ok && !g.settings_fail) {
+        drm_band_want_rank(DRM_RANK_SETTINGS);
+        if (drm_band_setup(&g.settings, menu_settings_pw(), menu_settings_ph(),
                            g.view.bpp) != 0) {
-            g.prompt_fail = 1;
-            pointsrc_log("prompt: no plane for the box -- it goes on the page");
+            g.settings_fail = 1;
+            pointsrc_log("settings: no plane for the panel -- it goes on the page");
         } else {
-            g.prompt_ok = 1;
-            g.prompt_on = 0;
+            g.settings_ok = 1;
+            g.settings_on = 0;
             /* A fresh dumb buffer holds nothing anyone can read, so the image has to be
-             * COPIED in before the box is shown -- which is what prompt_pending says, and
-             * prompt_valid, which the show waits on, is what says there is a real box to
-             * copy. Arming a paint here instead would be the old bug back: a flag does
-             * not initialise a buffer. */
-            g.prompt_pending = 1;
+             * COPIED in before the panel is shown -- which is what settings_pending says,
+             * and settings_valid, which the show waits on, is what says there is a real
+             * picture to copy. */
+            g.settings_pending = 1;
         }
     }
 
-    menu_prompt_live();
+    menu_settings_live();
 }
 
 /* ---------------- THE BEAT FX PICKER'S PLANE -----------------------------
@@ -1287,7 +1252,7 @@ static void menu_prompt_plane_sync(void)
  * one keys on a single int. Written out rather than shared because the shared version
  * would be a function taking a pointer to a slot in `struct g` and a callback for
  * "what is the picture now", and that indirection would cost more than the ~120
- * duplicated lines here do -- the same judgement prompt_paint.c records about the
+ * duplicated lines here do -- the same judgement settings_paint.c records about the
  * pixel accessor. */
 
 static int menu_fxlist_pw(void)
@@ -1342,7 +1307,7 @@ static void menu_fxlist_view(struct menu_view *pv)
     pv->bpp   = g.view.bpp;
 }
 
-/* Over the picker's SCRATCH image, for the off-lock build -- menu_prompt_buf_view()'s
+/* Over the picker's SCRATCH image, for the off-lock build -- menu_settings_buf_view()'s
  * function verbatim and for its reason: menu_frame_tick mutates g.fxlist.pix and
  * g.view under g_lock, so reading either from the builder would be the race that
  * function exists to avoid. fb_w/fb_h are load-bearing: fxlist_paint_ok() rejects a
@@ -1399,7 +1364,7 @@ static void menu_fxlist_build(void)
 }
 
 /* Put the published picker on whatever is carrying it. The caller holds g_lock.
- * menu_prompt_publish()'s two routes and its two reasons: a plane copies only when
+ * menu_settings_publish()'s two routes and its two reasons: a plane copies only when
  * there is something new, and the page copies EVERY tick because rbp repaints the
  * middle of the performance screen 57 times a second and there is no witness for a
  * region this size. */
@@ -1859,48 +1824,7 @@ static int menu_build(int pressed)
         }
     }
 
-    /* THE CHOOSER'S IMAGE, on exactly the drawers' terms: its own pair, its own once-only
-     * log, and INDEPENDENT of this function's return value for the same reason (the -1
-     * below is the BAND's signal, and returning it because the box could not get 607 KB
-     * would drop the band to the page as well). With no pair the box takes
-     * menu_prompt_repaint()'s direct-paint route and still works.
-     *
-     * Sized from prompt_paint_w()/prompt_paint_h() -- the SAME functions the plane is set
-     * up from and the same ones menu_prompt_bx()/by() centre with -- so the three cannot
-     * disagree about how big the box is. */
-    if (!g.prompt_img[0]) {
-        static int prompt_alloc_logged;
-        size_t pn = (size_t)prompt_paint_w(g.view.dw)
-                    * (size_t)prompt_paint_h(g.view.dh)
-                    * (size_t)(g.view.bpp / 8);
-        void *a, *b;
-
-        g.prompt_buf_w     = prompt_paint_w(g.view.dw);
-        g.prompt_buf_h     = prompt_paint_h(g.view.dh);
-        g.prompt_buf_bpp   = g.view.bpp;
-        g.prompt_img_bytes = pn;
-
-        if (g.prompt_img[1]) {
-            free(g.prompt_img[1]);   /* half a pair from a failed attempt */
-            g.prompt_img[1] = NULL;
-        }
-        a = malloc(pn);
-        b = malloc(pn);
-        if (!a || !b) {
-            free(a);
-            free(b);
-            if (!prompt_alloc_logged) {
-                prompt_alloc_logged = 1;
-                pointsrc_log("prompt: no %zu-byte box image (%s); the box paints"
-                             " straight onto its plane", pn * 2, strerror(errno));
-            }
-        } else {
-            g.prompt_img[0] = a;
-            g.prompt_img[1] = b;
-        }
-    }
-
-    /* THE PICKER'S IMAGE, on exactly the chooser's terms: its own pair, its own
+    /* THE PICKER'S IMAGE, on the band's and the drawers' terms: its own pair, its own
      * once-only log, and independent of this function's return value for the same
      * reason. 340 x 535 at the page's own scale is ~364 KB an image, so the pair is
      * ~728 KB -- the largest of the four caches, and still the smallest thing here: a
@@ -1935,6 +1859,49 @@ static int menu_build(int pressed)
         } else {
             g.fxlist_img[0] = a;
             g.fxlist_img[1] = b;
+        }
+    }
+
+    /* THE SETTINGS PANEL'S IMAGE, on the same terms as the other three: its own pair, its
+     * own once-only log, and independent of this function's return value -- a machine that
+     * cannot spare it takes menu_settings_repaint()'s direct-paint route and the panel
+     * still works.
+     *
+     * IT IS THE BIGGEST CACHE HERE, and by a lot: 640 x 367 logical px is 469 760 bytes an
+     * image at 16 bpp, so the pair is ~940 KB against the picker's 728 KB. That is the
+     * price of a five-row list -- the chooser's single row is 142 KB -- and it is stated
+     * here rather than discovered later, because the pair is what keeps a tap from tearing
+     * a panel that rbp is repainting underneath at 57 Hz. A refusal costs the panel
+     * nothing but a copy: settings_paint() into the plane, gated on the same tuple. */
+    if (!g.settings_img[0]) {
+        static int settings_alloc_logged;
+        size_t sn = (size_t)settings_paint_w(g.view.dw)
+                    * (size_t)settings_paint_h(g.view.dh)
+                    * (size_t)(g.view.bpp / 8);
+        void *a, *b;
+
+        g.settings_buf_w     = settings_paint_w(g.view.dw);
+        g.settings_buf_h     = settings_paint_h(g.view.dh);
+        g.settings_buf_bpp   = g.view.bpp;
+        g.settings_img_bytes = sn;
+
+        if (g.settings_img[1]) {
+            free(g.settings_img[1]);   /* half a pair from a failed attempt */
+            g.settings_img[1] = NULL;
+        }
+        a = malloc(sn);
+        b = malloc(sn);
+        if (!a || !b) {
+            free(a);
+            free(b);
+            if (!settings_alloc_logged) {
+                settings_alloc_logged = 1;
+                pointsrc_log("settings: no %zu-byte panel image (%s); the panel paints"
+                             " straight onto its plane", sn * 2, strerror(errno));
+            }
+        } else {
+            g.settings_img[0] = a;
+            g.settings_img[1] = b;
         }
     }
 
@@ -2332,26 +2299,7 @@ void menu_frame_tick(void)
      * The box is the LAST of the three because it is the newest and the smallest: each
      * check above gives its predecessor the chance to release what it holds, and the
      * box holds nothing anyone else wants. */
-    menu_prompt_plane_sync();
-    if (prompt_is_open()) {
-        /* And the band's plane goes with it, because the check above returns before the
-         * `!open` branch below that would normally hide it. In practice the band is
-         * already shut by the time the box opens -- the tap that raises the box is the
-         * same release that closes the panel -- but "in practice" is not a reason to
-         * leave an opaque plane on the glass over a box the operator is being asked to
-         * read, and the two rects are far enough apart that a stale band would be visible
-         * rather than merely wrong. `painted_open` is deliberately NOT cleared: the band's
-         * own state is the band's business, and a band that is somehow still open resumes
-         * cleanly when the box goes. */
-        if (g.band_on) {
-            drm_band_hide(&g.band);
-            g.band_on = 0;
-        }
-        pthread_mutex_unlock(&g_lock);
-        return;
-    }
-
-    /* Then the picker, the fifth and last holder, and the same shape a fourth time. It
+    /* Then the picker, and the same shape a third time. It
      * is raised from rbp's own BEAT FX panel rather than from the band, so the band is
      * not necessarily shut when it opens -- hence the hide below, which the chooser's
      * block above also needs and for the same reason: the picker is centred and opaque
@@ -2364,6 +2312,25 @@ void menu_frame_tick(void)
      * picker. So this is reached only with the chooser shut. */
     menu_fxlist_plane_sync();
     if (fxlist_is_open()) {
+        if (g.band_on) {
+            drm_band_hide(&g.band);
+            g.band_on = 0;
+        }
+        pthread_mutex_unlock(&g_lock);
+        return;
+    }
+
+    /* Then the SETTINGS panel, a sixth holder of the same shape and the last of them. It
+     * is raised from the band's own eighth column (the gear), so the band is shut by the
+     * time it opens -- and the hide below is the picker's, for the picker's reason: the
+     * panel is centred and opaque and the band is at the top edge and opaque, so both on
+     * the glass at once would show one through the other.
+     *
+     * IT CANNOT BE UP WITH EITHER BOX ABOVE: pointsrc.c closes the chooser and the picker
+     * in the gear's own branch, and closes the panel itself whenever a row raises the
+     * chooser. So this is reached only with both shut. */
+    menu_settings_plane_sync();
+    if (settings_is_open()) {
         if (g.band_on) {
             drm_band_hide(&g.band);
             g.band_on = 0;
@@ -2529,20 +2496,18 @@ static void *menu_thread(void *arg)
         /* Then the deck badges' play rings, on the page like the drawers and in the same place in
          * the loop. See menu_badge_build(). */
         menu_badge_build();
-        /* Then the chooser's box, on the same terms and in the same place: built off
-         * the lock, before the tick, so the tick publishes what this iteration just
-         * made. A shut box returns immediately. It is built here and not in the touch
-         * thread because its picture depends on rbp's answer about the two devices
-         * (pointsrc_usb_state()), which is a read this thread already knows how to make
-         * safely, and because the touch thread must stay the one that OWNS the gesture
-         * -- the box is the only surface in this shim with two writers otherwise. */
-        menu_prompt_build();
         /* Then the picker, on the same terms and in the same place. It has no rbp read
          * behind it -- the ONE value that makes its picture is the row under the finger
          * -- but it is built here for the same reason the chooser is: the tick publishes
          * what this iteration just made, and a build left to the tick would be a build
          * on the lock the tick is holding. A shut picker returns immediately. */
         menu_fxlist_build();
+        /* Then the settings panel, on the same terms and in the same place. Its picture
+         * depends on rbp's answer about the two media slots AND on four switch files, all
+         * of which this thread already knows how to read safely (pointsrc_settings_state())
+         * -- and the touch thread must stay the one that OWNS the gesture. A shut panel
+         * returns immediately. */
+        menu_settings_build();
         menu_frame_tick();
         usleep((useconds_t)period_us);
     }

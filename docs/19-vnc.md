@@ -40,7 +40,7 @@ else. No package has to be added to the unit.
 |---|---|---|
 | `/dev/fb0` | `vc4drmfb`, 1280×800, 16 bpp **RGB565**, stride 2560 B | the only format vc4 offers (see [06](06-display.md)) |
 | fb0 full read | **9.5 ms/frame** | mmap, no `read()` |
-| **half the screen is not in fb0** | the two edge drawers, the top band and the USB-STOP chooser are **vc4 DRM overlay planes** on `/dev/dri/card1`, RGB565, **opaque** | [06](06-display.md) names this gap |
+| **half the screen is not in fb0** | the two edge drawers, the top band and the boxes (the BEAT FX picker, the SETTINGS panel) are **vc4 DRM overlay planes** on `/dev/dri/card1`, RGB565, **opaque** | [06](06-display.md) names this gap |
 | `/dev/video11` | `bcm2835-codec-encode`, a V4L2 **M2M** device; accepts `RGB565` (`'RGBP'`), emits `MJPG` | `--list-formats-out` / `--list-formats` |
 | the encoder's speed | **10.73 ms/frame, 93.2 fps** at 1280×800; 16–37 KB a frame | 30 consecutive frames, 322 ms total |
 | its quality knob | **there is none on this node** | `V4L2_CID_JPEG_COMPRESSION_QUALITY` is refused **here**; the device exposes the H.264 control set instead |

@@ -895,8 +895,8 @@ static inline int menu_font_cov(const struct menu_glyph *g, int col, int row)
  * FOUR OF THE FIVE WALKERS ARE PINNED BY A PIXEL ORACLE against stepping something else:
  * a painter and its classifier share their walk, so mutating it moves both together and
  * every pixel still agrees with itself. test_menu.c's test_label_pens, test_fx.c's
- * test_paint_image, test_side.c's test_paint_label_pens and test_prompt.c's
- * test_paint_label_pens each paint their surface and check that the ink the painter laid
+ * test_paint_image, test_side.c's test_paint_label_pens and test_settings.c's
+ * test_paint_image each paint their surface and check that the ink the painter laid
  * down is exactly the ink a walk of these advances over the same atlas puts there -- a
  * number the pen's origin cannot influence, so it needs no copy of the module's own
  * scaling. The fifth walker, in the browser window, went with the window on 2026-10-12:

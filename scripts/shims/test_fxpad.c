@@ -2,8 +2,8 @@
  * test_fxpad.c -- the BPM cell as a momentary X/Y pad, with no Pi, no panel and no rbp
  * anywhere in this file.
  *
- * It links the PRODUCTION fxpad_zone.c, for the reason test_fx.c, test_hc.c,
- * test_prompt.c and the rest link theirs: a rectangle boundary, a rounding rule and a
+ * It links the PRODUCTION fxpad_zone.c, for the reason test_fx.c, test_hc.c
+ * and the rest link theirs: a rectangle boundary, a rounding rule and a
  * "has rbp answered yet" latch are exactly the kind of thing that gets quietly rewritten
  * in a copy.
  *

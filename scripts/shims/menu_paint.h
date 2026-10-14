@@ -94,6 +94,14 @@
 #define MENU_BTN_BORDER_PX 1
 #define MENU_BTN_PAD_PX    4
 
+/* THE GEAR IS NOT DRAWN HERE ANY MORE. menu_paint.c's menu_gear_cov() blits a baked table
+ * (gear_icon.h, written by bake_gear.py from gear_white100.png at 30 px) into the band's
+ * last column, 1:1 and centred in the button. What used to be here was a size constant for a
+ * shape drawn per pixel with integer arithmetic, and the shape's five revisions are recorded
+ * in that function -- short version: it never read as a gear, and the operator's answer was
+ * to use an icon file instead. The size is now the icon's own (GEAR_ICON_W/H), and a band too
+ * short to host it whole is refused rather than scaled (menu_labels_fit()). */
+
 /* The panel, in the classes a pixel can be. The palette is a pure function of
  * (bpp, class) -- menu_pixel() -- exactly as cursor_pixel() is. */
 enum {
@@ -106,11 +114,13 @@ enum {
     MENU_LABEL,         /* a glyph on a button */
     MENU_LABEL_PRESSED, /* ...on the pressed button (dark on the accent) */
     /* THE TWO OFF CLASSES, and the band never draws them. They are here rather than
-     * in prompt_paint.c for the reason side_paint.c gives for its own colours: the
-     * palette is PUBLIC and in ONE place, so the band, the two drawers, the window and
-     * now the USB STOP chooser cannot drift apart about what "a button" looks like.
-     * prompt_paint.c is the only caller -- a row whose device rbp reports absent
-     * (prompt_zone.h) -- and menu_paint.c's own classifier can never return one. */
+     * in a painter for the reason side_paint.c gives for its own colours: the
+     * palette is PUBLIC and in ONE place, so the band, the two drawers and every box
+     * cannot drift apart about what "a button" looks like.
+     * settings_paint.c is the only caller now -- a row the panel reports not-live
+     * (settings_zone.h) -- and menu_paint.c's own classifier can never return one. (The
+     * USB STOP chooser was the first caller, until it was deleted 2026-10-14: a button
+     * whose device rbp reported absent.) */
     MENU_BTN_OFF,       /* a button that cannot be pressed */
     MENU_LABEL_OFF,     /* ...and its label */
     /* THE TWO COLOURS THE BEAT FX PICKER BORROWS FROM RBP HIMSELF. The picker is rbp's

@@ -11,7 +11,8 @@
  *
  * The fifth drawing module in the menu_* family and the FIRST ONE THAT IS NOT ALLOWED TO
  * OWN ITS RECTANGLE. Everything before it -- menu_paint.c, side_paint.c,
- * prompt_paint.c, fx_paint.c -- draws a surface that is ours, so each of
+ * prompt_paint.c (the USB STOP chooser's painter, deleted 2026-10-14), fx_paint.c --
+ * draws a surface that is ours, so each of
  * them fills every pixel of its view and the family rule "painting it twice paints it
  * once" is about the writer. This one is a HUD over rbp's live readout:
  *

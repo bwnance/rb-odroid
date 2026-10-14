@@ -454,228 +454,58 @@ by a swipe down from the top edge. On this unit the hands are on an absolute tou
 panel, and those six functions otherwise live only on the keyboard map ([08](08-controls.md))
 or, for SOURCE alone, behind a shift-push on the FLX4.
 
-**The seventh column, `USB STOP`, was the operator's second ask on the same panel**
-— *"yes add a USB STOP button to the menu"* — and it is a different kind of button
-from the other six in one way that matters: the six are conveniences for controls
-this rig can already reach another way, where USB STOP is rbp's **safe eject**
-(`K_USBSTOP 0x8002`, [08](08-controls.md)) and is reachable from **nowhere else at
-all** on this hardware. The operator's reason for wanting it is why it exists:
-*"rekordbox has a stop button just for that purpose to safe eject, but its not mapped
-currently, so i really don't want to pull the USB as it might continue to corrupt the
-USB stick"* — so the alternative to this button is yanking live media, and the media
-already carries pre-existing FAT damage. It is the FLX4's missing button, on the glass.
-Two things follow from that and are [08](08-controls.md)'s to state in full: this key
-needs **press *and* repeat** (the press mutes and notifies, the repeat is what asks the
-db to stop the device), and **a tap really does unmount the stick** — it is not a
-rehearsal.
+**The last column is a gear, and it raises the SETTINGS panel** ([its own section
+below](#the-settings-panel-settings_zonec-settings_paintc)) — the operator's ask of
+2026-10-14, *"i want to be able to switch from the internal mixer to the external mixer
+from the glass"* ... *"maybe a settings screen with stuff like USB stop and mixer mode"*
+... *"and then it is just a gear icon"*. It is drawn as geometry rather than set as a
+glyph, because neither the 19 px Decker atlas nor the face it is baked from carries a
+gear; **`menu_label()` still answers `SETTINGS`**, which is what the log line and the
+width test use. Nothing about the column arithmetic is count-specific: with seven columns 1280 divides into
+182 px each and 183 for the last, and the widest label the band draws is now "BROWSE" at
+70 px.
 
-### The seventh column raises a chooser (`prompt_zone.c`, `prompt_paint.c`)
+**`USB STOP`'s column was removed the same day it got a neighbour** — *"you can also remove
+the USB STOP item next to the settings icon"* (2026-10-14). It was rbp's safe eject
+(`0x8002`), here since 2026-10-05 because this rig could reach it from nowhere else; the
+settings panel's `USB1 STOP`/`USB2 STOP` rows do that job now, **one row per device**, each
+ejecting only its own stick. So the column was a second door onto the same two devices. The
+band is **seven columns** again: SOURCE, BROWSE, TAG LIST, PLAYLIST, SEARCH, MENU and the
+gear — and, as a side effect worth recording, the width floor came back down with it (a
+640×480 or 640×800 picture draws the band again; while the band had eight columns it did
+not). `menu_paint.c`'s `menu_labels_fit()` carries the arithmetic and `test_menu.c` pins 640
+usable and 480 refused.
 
-**The ask:** *"when you have USB stop, put up a prompt for USB1, USB2 or Cancel"*
-(2026-10-05). One tap on the far right of the band used to unmount the operator's stick
-outright, and the stick is production media whose FAT already carries pre-existing damage
-([10](10-usb.md)). The fix is not to make the button safer — it is to make it ask first.
-The seventh column now raises a **box**: title `USB STOP`, then **one line of two
-buttons**, `HOLD USB 1 | HOLD USB 2` — or, since 2026-10-07, `HOLD <the stick's own volume
-label>` on each, which is the same string rbp's SOURCE row shows in its DEVICE NAME column
-([10](10-usb.md)). The gesture the first layout carried — two taps,
-the first arming a device and `OK` sending it — was replaced the next day by the
-operator's own ask, quoted in full in `prompt_zone.h`: *"for the USB stop pop up just have
-two buttons USB1 (hold) or USB2 (hold), lit if it is active and when you press down have
-the button flash and if still held after 3 seconds have it ejected. if they release it
-before three seconds don't eject it."* So `OK` and `CANCEL` are gone, `PR_ACT_CANCEL` with
-them, and what reaches an eject is a **three-second hold** on a lit button. The box is one
-gesture rather than two steps, and what makes it safe is that nobody holds a button for
-three seconds by accident.
+**The USB STOP chooser is gone, and with it the band's old seventh column.** Until
+2026-10-14 the far-right column carried rbp's **safe eject** (`K_USBSTOP 0x8002`,
+[08](08-controls.md)) and *raised a chooser* rather than sending the stop on the tap,
+because the pre-2026-10-05 binding unmounted the operator's stick outright and that media
+already carries pre-existing FAT damage ([10](10-usb.md)). The box was a title `USB STOP`
+and one line of two buttons that each asked for a **three-second hold**, labelled
+`HOLD <stick>`. It is deleted: its four files (`prompt_zone.{c,h}`, `prompt_paint.{c,h}`),
+its own overlay plane and `test_prompt.c` all went with the column, and the settings
+panel's `USB1 STOP`/`USB2 STOP` rows now carry the whole gesture — one row per device, each
+ejecting only its own stick on the same three-second hold, which is why the box and the
+column that raised it were a second door onto two devices the panel already owns.
 
-**The rows are rbp's own two devices, not a list the shim made up.** rbp holds
-`ui::UsbStorageManager` — **one instance per channel** — and its `onKey` @`0x3259f4`
-drops any key whose channel byte is not its own (`[key+0xa] == [this+0x84]`). So a
-chooser that names a device is a chooser that can *stop* one device, which is what makes
-USB 1 and USB 2 real rows rather than two spellings of the same action: choosing USB 2
-sends `K_USBSTOP` on **channel 2**, where the old binding could only ever have sent
-`CH_GLOBAL` — which *is* USB 1's number. `pointsrc_usb_state()` in `pointsrc.h` is the
-walk: it reads `[mgr+0x84]` for the channel and `[mgr+0x88] == 2` for "media present and
-ready", and it returns both devices **absent** when rbp cannot be read at all — a
-refusal, not an assumption of absence.
+**What the column existed to reach is rbp's keycode, and it is unchanged.** A safe eject is
+**press + repeat + release**: the press mutes and notifies, the **repeat** is what asks the
+db to stop the device, and the release unwinds it — so a plain tap is a silent no-op, which
+is why the gesture needs a hold at all ([08](08-controls.md) carries the three edges and the
+measurement). The settings rows send the same three edges through `usb_stop_send()` in
+`pointsrc.c`, on the chosen device's own channel, and each refuses on a slot rbp reports
+empty.
 
-**A dead button is drawn dead, and says nothing.** A button whose device rbp reports absent
-is painted in `MENU_BTN_OFF`/`MENU_LABEL_OFF`, **cannot start a hold**, and — unlike
-the old dead row — does **not** close the box either: the operator who pressed the dim one
-probably wanted the other, and the box staying up is what lets them have it. The refusal is
-deliberate, and it is a refusal the operator can see rather than a button that silently does
-nothing. Since 2026-10-07 both buttons are live whenever both slots are filled:
-`usb-watch.sh` feeds `/media/usb1/sda1` **and** `/media/usb2/sda1`, so rbp answers for both
-and the log reads `pointsrc: menu 'USB STOP' -> the USB STOP chooser (usb 1 ready 'HOLD
-PHASIM_USB2', usb 2 ready 'HOLD RBOX USB')` — the labels in it are the ones the buttons
-will read, word for word, so a drill's log says which stick each button offered without a
-screenshot of the glass. Before that it fed one path only and USB 2 answered `usb 2 absent`
-(measured 2026-10-05) — which is what the button still does when that slot is empty, because the
-liveness is rbp's answer and not a guess. The liveness is re-read on **every report** and
-again at the fire, so a device that goes away under a running hold takes the hold with it;
-host coverage for that is `test_menu_dev.c`'s liveness leg (it flips the fake state, proves
-with a `memcmp` that the rebuilt picture actually differs, and flips it back) and
-`test_prompt.c`'s vanished-device leg.
-
-**THE GESTURE IS ONE THREE-SECOND HOLD, AND THE THREE SECONDS ARE THE CLOCK'S AND NOT THE
-CALLER'S.** A press on a **live** button stamps the instant and starts the hold; the button
-**flashes** — the pressed pair for `PR_HOLD_FLASH_MS` (250 ms, rbp's own house half-period,
-so six full blinks fit inside one hold) and its normal live face for the next — so the
-operator can see the three seconds running. At `PR_HOLD_MS` (3000) the eject goes out on
-**the device's own channel** and the box **stays up**. A release before that sends nothing
-at all and leaves the box standing, which is the operator's *"if they release it before
-three seconds don't eject it"*. Leaving the button cancels the hold and it does **not**
-resume on a return: a hold is one continuous press or it is nothing, because a hold that
-could be left and rejoined is one step from an eject the operator did not watch themselves
-make. The module has no clock of its own ([32-bit long wrap](13-raspberrypi4.md)), so
-`prompt_tick()` is handed `now_ms` on every slice of `pointsrc.c`'s read-loop wait and is
-the only thing that advances the flash or fires the hold — a hold by definition produces no
-further pointer reports, so nothing else would wake the loop. The three seconds are also
-pinned on the **release** path, so a release arriving at 3001 ms with no tick in between
-still ejects.
-
-**The box stays up under the finger that made the hold**, and the reason is the one rule
-this shim keeps everywhere: a press the box swallowed has been withheld from rbp for its
-whole life, and rbp is going to be given its release
-([declined press](15-flx4-midi.md)). So the fire **disowns** the press — anchor, highlight
-and hold all cleared, box still up — and the release then arrives with nothing anchored to
-it and takes the ordinary "began off every button" path, which closes the box and sends
-nothing.
-
-**The rest is rbp's rule, not a new one.** While the box is up it owns every report
-unconditionally — it is asked **first** in `pointsrc.c`'s ladder, before the waveform swipe
-and before the menu — so a finger that dismisses the box cannot also press whatever the
-performance screen has underneath it. A stray release with no press behind it is taken but
-does not close. The way out without stopping anything is a **tap anywhere that is not a
-button** — the title, the rule, the margin, the gap between the two buttons, the glass
-outside the box entirely — which is the "tap outside to dismiss" rule the box already had
-for a press that missed, so it needed no new mechanism when `CANCEL` went away. Behind it,
-the box still **times out on its own after `PR_TIMEOUT_MS` (10 s)**, and it refuses to
-expire while a finger is down, so it can never hand rbp a release with no press behind it.
-A hold that completes beats the timeout: three seconds of a finger is a decision, and
-starting it late in the box's ten does not unmake it. Measured:
-`pointsrc: usb stop chooser timed out after 10000 ms` and
-`pointsrc: usb stop chooser -> usb 1 held 3020 ms (hold is 3000 ms) -> eject (channel 1)`.
-
-**Where it is drawn.** The box is 560×127 logical px, centred, on its **own DRM overlay
-plane** — the fourth `drm_band_setup()` on this rig, which is legal because `drmband.c`
-holds the fd and DRM master once and refcounts them. It is built off-lock into a scratch
-image and published by swapping two pointers, the same publish-a-finished-image rule the
-band and the drawers follow; a fresh dumb buffer is uninitialised, so `drm_band_show()`
-waits until a real image exists. A machine that refuses a box-sized plane falls back to
-painting straight onto rbp's page (`prompt: no plane for the box -- it goes on the page`)
-and keeps working.
-
-**The box was restyled to match the bar the same day the bar was (2026-10-06)** — *"model
-it this way for the USB stop menu as well"*. Its outer `PR_BORDER`-thick frame is gone,
-so the box is the black `MENU_FILL` bed with a title, a rule and its buttons; each button
-already wore its own one-pixel outline in its own ink colour (`pp_cell()`), which is what
-remains. `PR_BORDER` itself did not move: it was always doing two jobs, and the one that
-stays is the margin that keeps the title and the buttons off the box's edge.
-
-**The second line went with the gesture, and every number in this section moved with it.**
-The 2×2 grid (`USB 1 | USB 2` over `OK | CANCEL`) became one row of two, so `PR_H` went
-199 → **127**, exactly `2*PR_BORDER + PR_TITLE_H + 1 + 2*PR_PAD + PR_ROW_H` — the row is the
-box's only line, and `PR_ROW_GAP` survives with nothing able to reach it because it is
-`PR_ROW_TOP()`'s stride and a third device would need it. The box is logical x 360..919 /
-y 336..462, the rule is `PR_RULE_Y` **379**, and the row sits at `PR_ROW_TOP(0)` = **388**,
-64 px tall. A button is still **265 px** wide: `PR_COL_GAP` (8) comes out of the inner span,
-so the two are 371..635 and 644..908 and the gap between them is a **hit test miss**, like
-the title and the margin. The cell's own geometry is derived in `prompt_zone.h` —
-`PR_CELL_ROW`/`PR_CELL_COL` out of the row-major cell number — so the two buttons tile the
-block rather than each carrying its own rectangle, and the leftover pixel a 538-wide block
-would leave over is dropped rather than handed to one column (the test asserts the leftover
-is 0, which is what makes the two interchangeable). `work/poke.py` re-derives all of it and
-is the check that the drill is aiming at the same pixels the module draws.
-
-**The labels say `HOLD USB 1`, not `USB 1 (HOLD)`,** and that is the font's doing: the 19 px
-Decker atlas has no parentheses, and re-baking the settled face for two punctuation glyphs
-would change every label in the shim ([the band](13-raspberrypi4.md)). The gesture has to be
-on the button — the operator has to know a hold is wanted before they make one — and at
-**99 px** of advance ("HOLD USB 1"; ink 94 px, and "HOLD USB 2" is 97) it has 164 px of the
-265 px button to spare. `test_prompt.c` walks every character of both against the atlas,
-because a character the font lacks ships as a **gap** rather than as a failure.
-
-**And a button names its own stick when the host gave us one.** `pointsrc_usb_state()`
-fills `S->label[i]` from `/tmp/udev_usbN.label` — the file `usb-watch.sh` writes with
-`blkid`'s answer, the same one the SOURCE row uses ([10](10-usb.md)) — and
-`prompt_zone.c` composes `"HOLD " + <label>` over it. An absent, empty or
-whitespace-only file leaves the cell empty and the shipped `HOLD USB n` stands, so a unit
-whose watcher writes no labels is unaffected. **The refusal and the clip are two
-different questions and are asked of two different strings:** `pp_labels_fit()` measures
-the cell's **default** label, because a name is the operator's to choose and a
-state-dependent refusal would take the whole box off the glass the moment someone
-formatted a stick with a long name; the name itself is cut to the cell at paint time
-(`prompt_text_clip()`, budget = the cell's inner width less `PR_LABEL_MARGIN` a side).
-Both use that one constant, which is 2 and not the frame's 1 because the thinned Decker
-bake inks up to a pixel past its own advances. `test_prompt.c` pins the composition, the
-per-device isolation, the `?` remap and the `PR_LABEL_MAX` cap, and then paints a
-maximum-length name and proves **no pixel of it lands on the button's frame** — the frame
-is drawn before the label, so an over-generous budget would ship as a name painted over
-its own border and nothing else here would call that a failure.
-
-**Two width refusals came with the grid, and the second one is why the labels' length
-matters.** A button is half the row wide, so a page scaled far enough down can reach a
-scale where the font's line box still fits but a label no longer does.
-`prompt_paint_ok()` refuses both (`pp_labels_fit()` beside the line-height refusal), and
-`test_prompt.c` pins them independently — a view at 560×81 is accepted and the same view at
-40 px wide is refused, which is what proves they are two gates and not one. The longer
-labels raised the per-button floor from `2 + 69` = 71 px to `2 * PR_LABEL_MARGIN + 99` =
-**103 px**, so a page narrow enough that a button falls under 103 px now draws **no box at
-all** where the old `CANCEL`-sized one still drew.
-
-**The picture, captured from the publisher's own plane buffer.** `work/boxshot2.py` reads
-the plane by framebuffer id from **outside** rbp — the obvious route, `/proc/pid/mem` at
-the address the shim logs, does **not** work and the failure is worth knowing: vc4's dumb
-buffers are `PFNMAP`-style mappings and `get_user_pages()` refuses them, so the read gives
-`EIO` at a perfectly live address, for the band's plane as much as the box's. **Measured
-on the unit 2026-10-07, on the hold build** (`fbshim.so` md5 `656fcc2f…`, which is the
-build *before* the buttons learned the sticks' names — it reads the shipped `HOLD USB n`):
-the box took
-`plane 138 fb 725 560x127 16 bpp pitch 560 px`, and the captured frame is a black bed
-with `USB STOP` at the top, the rule under it, and **both** buttons carrying their own
-one-pixel outline with `HOLD USB 1` and `HOLD USB 2` legible inside them — because both
-slots were filled, which is the same log's `usb 1 ready, usb 2 ready`. A button whose
-device rbp does not report draws in the dim pair instead, and that is the face the
-2026-10-05 capture showed when only slot 1 was fed. The **held** state is the second
-picture and the more interesting one: `work/poke.py <dev> usbstop chooser:usb1` holds USB 1
-and leaves the box up, and the capture then reads `HOLD USB 1` in the pressed pair —
-which is the visible form of the flash. **That hold has deliberately not been run on the
-unit**: `poke.py` refuses a dwell of `PR_HOLD_MS` or more, and anything shorter is still a
-press on a live eject control, so the flash and the dim face are pinned at the desk
-(`test_prompt.c`, `test_menu_dev.c`) and it is the operator's own press that will show
-them on the glass.
-
-**The name build is deployed but not yet captured.** `fbshim.so` md5 `06eadca1…` went to
-`/opt/rblive4/fbshim.so` and the chroot's `/usr/lib/fbshim.so` on 2026-10-07, with the
-`656fcc2f…` build kept beside each as `.prev`, and `rblive4.service` restarted onto it
-(rbp back up, both `ld-linux.so.3` processes, and the shim's own log reporting
-`device name … <- 'PHASIM_USB2'` and `<- 'RBOX USB'` into rbp's records). What is verified
-is that the box **composes and fits** the unit's real labels, read back through the
-production `prompt_zone.c`/`prompt_paint.c` at the unit's own
-`/proc/<rbp>/root/tmp/udev_usbN.label` bytes; what is **not** yet verified is the picture,
-because the box has to be raised to have one and raising it is a gesture on the glass.
-
-**And a picture is only ever reached through the gesture.** Both the held picture and the
-dim one are produced in `test_menu_dev.c` and `test_prompt.c` by feeding `prompt_feed()`
-the reports the operator's finger would have made, never by passing a highlight in as an
-argument: the highlight is `prompt_zone.c`'s, and a test that drew its own would be
-asserting against itself. The same is true of the flash — it belongs to a running hold, so
-the only way to a lit button in a test is to start one.
-
-**`POINT_USBSTOP_PROMPT=0` puts the immediate eject back** for bench work, and it is a
-keycode test rather than a column test (mirroring `menu_key_needs_repeat()`): whatever
-column carries `K_USBSTOP` is the one that raises the box, and a column that no longer
-carries it is unaffected. Both the tap and the hold are caught before either is sent, so
-the eject is reachable **only** from the box.
-
-It is the second thing the shim puts on the glass (the arrow is the first) and the
-second place it supplies a binding rbp does not have for itself (the deck QUANTIZE
-boxes above are the first), so it reuses both precedents rather than inventing a
-third: `menu_zone.c` is pure geometry and gesture (`touch_zone.c`'s shape), `menu_paint.c`
-is pure pixels, `menu_draw.c` is the driver, and the keycodes go out through the same
-`rbp_key.c` path the QUANTIZE tap uses. `RB_POINT_MENU=0` turns the whole feature off
-and is the honest baseline.
+**The reasoning the chooser carried is not gone with it, because two boxes still keep it.**
+`fx_zone.c`'s BEAT FX picker and `settings_zone.c`'s SETTINGS panel are the boxes that
+remain, and both are asked **first** in `pointsrc.c`'s ladder: while a box is up it owns
+**every** report wherever it lands, so a finger that dismisses it cannot also press whatever
+rbp has drawn underneath. And a press a box swallowed has been withheld from rbp for its
+whole life, so rbp is still owed its **release** ([declined press](15-flx4-midi.md)) — a box
+closes on a release it did not act on rather than leaking a dangling up, and it refuses to
+time out while a finger is down for the same reason. The settings panel is the chooser's
+closest living sibling: the same black bed, the same centred title and rule, and it is where
+the eject gesture moved to.
 
 ### The strip costs a touch its timing, over one third of its width
 
@@ -773,6 +603,44 @@ Two rules keep rbp's stream honest:
   cannot immediately dismiss it, and a tap that dismisses the panel does not also
   press the button under it.
 
+### A hold on a column is that column's second meaning
+
+The band has always had one: **a held MENU reaches UTILITY**, implemented by rbp itself on the
+same keycode — the shim only holds the key long enough for rbp's own timer (350 ms of finger,
+500 ms of key, `menu_zone.h`'s `MZ_HOLD_FINGER_MS`). The operator asked for a second on
+2026-10-14: *"if i press and hold browse it should jump to the performance view"*.
+
+| column | tap | hold |
+|---|---|---|
+| SOURCE, TAG LIST, PLAYLIST, SEARCH | its own key | — |
+| **BROWSE** | `0x0202` K_BROWSE (a **toggle**) | the same key, sent only when the decks are not already up |
+| MENU | `0x0206` K_MENU | the same key, held → UTILITY (rbp's own) |
+| the gear | nothing | nothing |
+
+**BROWSE is a toggle, and that shape is why the hold is gated on rbp's own answer.** Measured
+on the unit by screenshot with the pixels counted: tapped from the performance screen it shows
+the browse screen (**727 391 px** differ), tapped again from there it shows the performance
+screen (**72 464 px**, the residual being the live waveform). So a hold that simply sent the
+key would send an operator who is already on the decks *to the browse screen* — the opposite of
+what they asked for. `pointsrc.c` therefore reads `rbp_perf_screen()` (the same call the FX and
+pad gates use) and sends **nothing** when the decks are already up. That is the pad-mode tap
+band's shape as well: read the truth, send the transition, hold no state.
+
+**`K_BACK` IS NOT THIS RIG'S WAY OUT OF BROWSE, and that is a measurement rather than an
+assumption.** `0x420d` is what the FLX4's CALL/PREV (note 3) and the keyboard's Backspace send,
+so it was the obvious candidate for an earlier version of this hold. Pressed on the browse
+screen it changed **57 706 px** and the screen was still BROWSE; pressed a second time it
+changed **58 209 px** and was still BROWSE. It does something small and it does not leave the
+screen, so a hold that sent it would have been a gesture that did nothing. (The rule this
+tree keeps — the only honest test of a keycode is sending it and watching the screen — is what
+caught it: the log would have said the key went out, and it did.)
+
+**From the SOURCE or TAG LIST screens the hold lands on BROWSE**, because a toggle goes to its
+other side; a second hold then reaches the decks. There is no key on this unit that means
+"performance" unconditionally — rbp's browse family is BROWSE, SOURCE, USB1, TAG LIST,
+PLAYLIST, SEARCH, MENU, INFO, LINK, REKORDBOX and BACK, and only BROWSE touches the performance
+screen at all. That one case is two gestures, and it is stated rather than papered over.
+
 ### The gesture (all of it in `menu_zone.c`)
 
 * **Closed, press starts in the entry zone:** swallowed and *armed*. It opens when the
@@ -828,9 +696,9 @@ The hit test is in **logical** coordinates (where touches are, `touch_zone.h`) a
 the image is in **framebuffer** pixels, so glyphs are never resampled on a panel
 that is not 1280×800. The two boundaries can disagree by ≤1 px, which is invisible
 and is why the buttons tile x 0..1279 with no gap: seven columns of
-`(i*1280)/7 .. ((i+1)*1280)/7 - 1`, y 8..47 — 182×40 logical px each (they were
-213×40 while there were six, and 213×96 while the panel was 112 rows; see the note
-under *What is measured on the unit* for why, and for the measurements that are the
+`(i*1280)/7 .. ((i+1)*1280)/7 - 1`, y 8..47 — 182/184/…/183 × 40 logical px each
+(they were 213×40 while there were six, and 213×96 while the panel was 112 rows; see the
+note under *What is measured on the unit* for why, and for the measurements that are the
 record of the taller bar).
 
 **Since 2026-10-06 the drawn button is not the whole column.** Each column is inset
@@ -855,14 +723,17 @@ fifteen points are now the button outlines instead (`menu_paint.c`).
 
 The ink and the widths below are the ATLAS's and move whenever it does: at the shipped
 19 px (2026-10-06) each label's ink is 14 rows at rows 21..34, and the widths are
-`SOURCE` 69, `BROWSE` 70, `TAG LIST` 66, `PLAYLIST` 66, `SEARCH` 66, `MENU` 49,
-**`USB STOP` 76** — they were 11 rows at rows 23..33 and 56..65 px at the 16 px atlas
+`SOURCE` 69, `BROWSE` 70, `TAG LIST` 66, `PLAYLIST` 66, `SEARCH` 66, `MENU` 49
+— they were 11 rows at rows 23..33 and 56..65 px at the 16 px atlas
 that 2026-10-01 dump caught. The widest label therefore sits in a 182 px column whose
-button gives it a **172 px** inner width — 96 px of margin, against 106 px before the
-restyle spent 10 of them on padding and outline — and the seventh costs
+button gives it a **172 px** inner width — 102 px of margin — and the seventh costs
 the other six 31 px each — the reason the drawn band was never narrowed to the entry
 zone's third of the screen, which would have cut a column to 61 px and truncated
-words ([menu_zone.h]'s `MZ_COLS` note).
+words ([menu_zone.h]'s `MZ_COLS` note). **The gear column is the exception and is not
+measured by its label**: its ink is a 30 px baked icon (`GEAR_ICON_W`, from `gear_white100.png`)
+where `SETTINGS` is 73, so
+`menu_labels_fit()` measures the mark — otherwise the 73 px word would refuse a picture
+that draws the gear perfectly well.
 
 **The panel briefly had an eighth cell, and it is gone again (2026-10-04).** It was a
 globe in the band's last 48 logical px, and a tap on it opened the deck's browser
@@ -872,11 +743,18 @@ up a browser window"*, and then *"change the chevron to a web icon"*). The brows
 don't need a browser"*), which left the cell opening a window with nothing behind it: a
 live button that does nothing, in the band the operator looks at most. So the cell was
 **removed rather than re-marked** — restoring the `>` would only make a dead button look
-like the one that used to work — and the seven columns retiled over it. The 182×40 px
-each described above is what they have again: `MZ_BTN_W` is `MZ_LOGICAL_W`, and
-`MZ_EXPAND_W`, `MZ_BTN_EXPAND`, `menu_expand_x0/x1` and the globe's own drawing
-(`menu_paint.c`'s `menu_web_cov()`) are deleted, with `test_menu.c`'s tiling assertions
-and `test_menu_dev.c`'s slide putting the panel's right edge back on the last column.
+like the one that used to work — and the seven columns retiled over it
+(`MZ_BTN_W` is `MZ_LOGICAL_W`, and `MZ_EXPAND_W`, `MZ_BTN_EXPAND`, `menu_expand_x0/x1`
+and the globe's own drawing, `menu_paint.c`'s `menu_web_cov()`, were deleted, with
+`test_menu.c`'s tiling assertions and `test_menu_dev.c`'s slide putting the panel's right
+edge back on the last column).
+
+**A gear column arrived on 2026-10-14 and it is a different thing entirely from the web
+cell**: the gear that raises the settings panel (the section below). It is not a mark in a
+reserved strip but a full column with its own slot in the label table. It was briefly the
+**eighth**, beside the USB STOP column; when that column went the same day (above) the band
+came back to **seven** again, so the tiling arithmetic in this section is the seven-column
+one.
 The window module itself outlived it for a week — `menu_window.c`,
 `menu_window_paint.c`, `browser_link.c`, `tools/rbrowser/` — because what the operator
 abandoned was the browser, not the code; what was gone was the menu's door to it, and
@@ -891,30 +769,30 @@ below describes for the surfaces that remain.
 
 **Measured after the removal, on the unit by injection into the panel's own node**
 (`fbshim.so` md5 `78c2d7420bcef0e80a8ef8fbaa294c5a`, 2026-10-05, `work/poke.py`'s `drag:`
-to open the panel and `touch:` to press). A press at logical x **1079** — which the
-seventh column owned before the retile (`USB STOP`, 1056..1231) — now logs `menu 'MENU'
-held 361ms (hold is 350ms) -> key 0x206`, and the control at logical x **1004** (MENU in
-both geometries) answers identically, so the instrument and the discriminator agree. The
-globe's own pixels, logical 1232..1279, are the seventh column's now, and that is why this
-drill stops at 1079: a press there is a press on `USB STOP`, and `USB STOP` stops the
-operator's media — the exact reason the cell could not be left in place as a dead button
-and the exact reason it is not tapped to prove it. What pins those pixels is the tiling
-assertion in `test_menu.c` (every column, x 0..1279 with no gap), which the same run's
-two points agree with. Host suite green at the same binary: `test_menu` 6,572 checks,
-`test_menu_dev` 79 on both strides, `test_window` 258, `test_keyboard` 1,044.
+to open the panel and `touch:` to press). A press at logical x **1079** — which an earlier
+seven-column geometry gave to `USB STOP` (1056..1231), a column removed on 2026-10-14 —
+now logs `menu 'MENU' held 361ms (hold is 350ms) -> key 0x206`, and the control at logical x
+**1004** (MENU in both geometries) answers identically, so the instrument and the
+discriminator agree. The globe's own pixels, logical 1232..1279, are the last column's now —
+the gear, since 2026-10-14 — and the drill still stops at 1079 rather than injecting into a
+column it is not testing. What pins those pixels is the tiling assertion in `test_menu.c`
+(every column, x 0..1279 with no gap), which the same run's two points agree with. Host
+suite green at the same binary: `test_menu` 6,572 checks, `test_menu_dev` 79 on both
+strides, `test_window` 258, `test_keyboard` 1,044.
 
-**That run's warning is historical, and it is kept because it is why the chooser exists.**
-The build it was taken on (`78c2d742…`) ejected the operator's stick on one tap, so a drill
-had to stay 100 px clear of its own column. On the live build the same press **raises the
-USB STOP chooser** and ejects nothing — the eject takes a three-second hold *inside the box*
-— which is what makes the seventh column safe to inject at, and is why the note above is
-left standing rather than deleted: it is the measurement that made the case for the box.
-See *The seventh column raises a chooser* above.
+**That run's warning is historical, and it is kept because it is why the eject was ever
+gated behind a hold.** The build it was taken on (`78c2d742…`) ejected the operator's stick
+on one tap, so a drill had to stay 100 px clear of its own column. On the build that
+followed, a tap there raised the USB STOP chooser and ejected nothing — the eject took a
+three-second hold *inside the box* — so the column was safe to inject at. Both the column
+and the box are gone now (2026-10-14), and the hold they introduced lives on in the settings
+panel's `USB1 STOP`/`USB2 STOP` rows; the note is left standing rather than deleted because
+it is the measurement that made the case for a hold-to-eject at all.
 
 **And confirmed off the glass by the operator's own eye, 2026-10-05** — *"yep it looks
 good"*, swiping the bar down on the deployed `fbshim.so` `78c2d742…`. That is the one
 thing injection could not say: a drill can prove which column a point now answers with,
-but only the eye can say a mark is **absent**, and it is absent because the seven columns
+but only the eye can say a mark is **absent**, and it is absent because the labelled columns
 own those pixels rather than because the drawing is broken.
 
 `POINT_MENU_MOUSE=1` is the bench override that makes the menu answer a *relative*
@@ -1023,8 +901,9 @@ all seven labels in the lighter face.
 
 At the shipped **19 px** a capital's ink is 14 rows inside the font's 24-row line box,
 and the whole set's band — the dot of an `i` down to the underscore — is 18 rows, rows
-5..22. The labels come out **49..76 px wide in a 182 px column** at 1280×800 (the
-seven-column band: `MENU` the narrowest at 49, `USB STOP` the widest at 76) — measured
+5..22. The labels come out **49..70 px wide in a 182 px column** at 1280×800 (the
+seven-column band: `MENU` the narrowest at 49, `BROWSE` the widest at 70, and the
+gear column draws no label at all) — measured
 off a host render of the panel, not estimated. There is no scale parameter left
 anywhere in the interface: one baked size, centred on the column (`menu_text_width()`
 over the atlas's own advances) and clipped to it — which is why `menu_view_ok()` now
@@ -1265,12 +1144,13 @@ menu: panel closed
 ```
 
 360 ms of a 2000 ms hold, two log lines and nothing else for the remaining 1640 — no
-second fire, no re-open, no tap replayed. The same drill on the USB STOP column
-(`touch:1783,37,2000`) fires button 7 identically, which is the generic-hold rule
-above still holding — with one addition since the chooser landed: button 7's fire is
-caught **before** the hold branch, so a *held* USB STOP raises the box rather than
-sending rbp a 500 ms key-down. There is no second meaning for a held USB STOP that is
-worth the operator's media, and the box is then reached by a tap like any other.
+second fire, no re-open, no tap replayed. The same drill on the column that was `USB STOP`
+(button 7, `touch:1783,37,2000`) fired button 7 identically, which is the generic-hold rule
+above still holding — with one addition that came in with the chooser: button 7's fire was
+caught **before** the hold branch, so a *held* USB STOP raised the box rather than sending
+rbp a 500 ms key-down. The column is the gear now (2026-10-14, above), which sends no key at
+all, so that special case is gone with it; the generic hold is unchanged for the six
+keycodes that remain.
 
 #### UTILITY is not a touch screen
 
@@ -1908,7 +1788,8 @@ wanted.
 
 **The panel has no frame (2026-10-06).** The operator's *"you don't need a white border
 on the side swipe menus adjust the layout accordingly"*, which is the same restyle the
-band and the USB STOP chooser had the day before: the drawer is now the black
+band had the day before (and the USB STOP chooser had too, until it was deleted
+2026-10-14): the drawer is now the black
 `MENU_FILL` bed edge to edge, and the only white on it is what each control draws for
 itself — SYNC's and the transport's `sp_frame` (1 px dead and pressed, 2 px lit),
 the nudge cells', the fader cap's, the well's. **No layout number moved**, and that is deliberate rather than
@@ -1943,7 +1824,7 @@ SZ_FADER_GY1 (608) < SZ_CUE_Y0   (628)     a drag cannot end on the transport
 The value readout sits **inside the lane's own top slack** (rows 206..225), which is
 the whole of why touching the number moves the fader.
 
-### The entry column, and the USB STOP collision under it
+### The entry column, and the gear collision under it
 
 A swipe may only *start* in the outer **56** px while the drawer is shut — the same
 runway `MZ_SWIPE_PX` gives the band, so one swipe is exactly one swipe long.
@@ -1954,20 +1835,21 @@ right: logical x 1224..1279  and y >= 56
 ```
 
 **The `y >= 56` gate is load-bearing, not tidiness.** The right entry column, logical
-x 1224..1279, is *exactly the band's seventh column*, whose USB STOP cell sits at
-y 8..47: a drawer that armed there would swallow presses aimed at the safe eject. With
+x 1224..1279, is the band's last column, whose cell sits at
+y 8..47: a drawer that armed there would swallow presses aimed at that column. With
 the gate the band's entry zone (x 426..852 ∧ y ≤ 55) and the drawers' are disjoint in
 **both** axes. Any future change to `MZ_STRIP_Y1` reopens the collision and must reopen
 this gate.
 
-**What that collision cost, and what it costs now.** The gate was written while a press
-on the USB STOP cell still *ejected* — the note above said so in as many words ("a press
-there **stops the operator's media**"), because it did. Since the chooser landed
-(2026-10-05) the same press is harmless by itself: it raises the box and nothing is
-unmounted until a three-second hold completes on a lit button, which arrived 2026-10-07.
-The gate is **unchanged and still required** — the drawer must not take a press aimed at a
-band column, whether or not that column's first act is destructive — and the reason is
-simply better now than it was when it was written.
+**What that collision cost, and what it costs now.** The gate was written while the last
+column was `USB STOP` and a press on it *ejected* — the note above said so in as many words
+("a press there **stops the operator's media**"), because it did. A chooser that put a
+three-second hold in front of the eject (2026-10-05, the hold itself 2026-10-07) made the
+same press harmless by itself, and since 2026-10-14 the last column is the **gear**, which
+raises the settings panel and touches no media at all. The gate is **unchanged and still
+required** — the drawer must not take a press aimed at a band column, whether or not that
+column's first act is destructive — and the reason is simply better now than it was when it
+was written.
 
 ### The gesture: what opens a drawer, and what closes one
 
@@ -2360,7 +2242,7 @@ whichever hand moved last owned the channel.
 The repair is a **pointer dimension**. `side_zone.h` declares `SZ_PTRS 2`, with
 `SZ_PTR_MAIN 0` and `SZ_PTR_ALT 1`; `read_loop_abs` keeps `rx[]`, `ry[]` and `down[]`
 indexed by it. The primary contact is the only one **rbp, the band,
-the USB STOP chooser and the UTILITY gesture** ever see, because rbp has exactly one
+the SETTINGS panel and the UTILITY gesture** ever see, because rbp has exactly one
 pointer: `pointer_report_alt()` offers the second contact to the drawers **and to
 nothing else**, and a report it does not take is **dropped, never forwarded**. Feeding
 a second finger into rbp's single cursor would be a worse defect than the one being
@@ -2549,7 +2431,8 @@ it twice paint it once).
 **Both drawers have since been read back off their own planes** (2026-10-06), which is
 the stronger witness and the one the borderless picture needed: `/proc/pid/mem` cannot
 read a vc4 dumb buffer at all (`EIO` at a live address), so the pixels come from
-**outside** rbp through the same `work/boxshot2.py` the chooser uses — open the card,
+**outside** rbp through the same `work/boxshot2.py` the band and the boxes use (it was
+first written for the USB STOP chooser's plane, deleted 2026-10-14) — open the card,
 `GETFB` by the id in the shim's own log line, map, read. The drawer's line is
 `menu plane: crtc 102 plane 127 fb 723 180x800 16 bpp pitch 180 px`, and `fb 725` is the
 **second** drawer's own plane (`plane 138`), which is the two-master block solved in the
@@ -2903,7 +2786,8 @@ nothing to any of the three, and withholding them costs the operator nothing.
 
 ### The gesture
 
-`fx_feed()` is the zone's one door and it is `prompt_zone.c`'s shape, with **one control
+`fx_feed()` is the zone's one door and it is the family's shape — `settings_zone.c`'s
+SETTINGS panel keeps the same one — with **one control
 firing on the press instead of the release**:
 
 | the report | what happens |
@@ -3017,8 +2901,9 @@ operator's own FLX4 panel remains the honest witness for which effect is live.
 
 ### The picker's state machine
 
-`prompt_zone.c`'s, deliberately down to the field names, because that shape has already
-been through a drill on this unit:
+The family's, deliberately down to the field names, because that shape has already
+been through a drill on this unit (the USB STOP chooser that first set it is gone —
+2026-10-14 — but `settings_zone.c`'s SETTINGS panel and `menu_zone.c`'s band keep it):
 
 - **Asked first in `pointer_report()`'s ladder**, above the band, the drawers and rbp, so
   while it is up it owns **every** report wherever it lands and a press that dismisses it
@@ -3030,28 +2915,30 @@ been through a drill on this unit:
 - **A miss, a slide, or a tap outside closes it and sends nothing** — an honest no-op, not
   a silent action.
 - **It self-dismisses after 10 s** (`FX_TIMEOUT_MS`), asked from the read loop's slice the
-  way `prompt_expire()` is, and **never while a finger is down** — rbp always gets the
-  release for a press the box swallowed.
-- **It can never be up at the same time as the USB STOP chooser.** The chooser is asked
-  first in the ladder, so its own feed swallows a tap that would raise the picker; and the
-  keycode path that raises the chooser closes the picker, because a keycode is not a tap
-  and can arrive with the picker still on the glass. Both boxes are opaque.
+  way `settings_tick()` asks the SETTINGS panel's own timeout, and **never while a finger
+  is down** — rbp always gets the release for a press the box swallowed.
+- **It can never be up at the same time as the SETTINGS panel.** The panel is asked first
+  in the ladder, so its own feed swallows a tap that would raise the picker; and the gear
+  column's fire closes the picker (`pointsrc.c` logs it: *the settings panel displaces the
+  Beat FX picker*), because a fire is not a tap and can arrive with the picker still on the
+  glass. Both boxes are opaque.
 
 ### Drawing: its own plane
 
-The picker is presented on a **fifth `drm_band`**, mirroring the chooser's
+The picker is presented on a **fifth `drm_band`**, mirroring the SETTINGS panel's
 (`menu_draw.c`'s `menu_fxlist_*`), at the box's own size. It is its own slot rather than
-the chooser's: sharing one slot would make the two boxes mutually exclusive by
+the panel's: sharing one slot would make the two boxes mutually exclusive by
 construction, and getting *that* wrong shows one box's pixels in the other's buffer —
 while a refused plane costs nothing, because the picker falls back to the page route the
-chooser already uses. The fear that motivated sharing (a fifth plane refused by vc4) is
+panel already uses. The fear that motivated sharing (a fifth plane refused by vc4) is
 measured and dead: the unit's `/sys/kernel/debug/dri/1/state` lists plane[0] through
 plane[29]+, and this shim already holds five.
 
 **A COPY OF A SURFACE HAS ONE PIECE THAT CANNOT BE COPIED ALONG WITH THE REST, AND THIS
 ONE WAS MISSED: the call site.** `menu_fxlist_build()` was written, its image was
-host-tested, and **nothing ever called it** — the builder thread called
-`menu_prompt_build()` and not its sibling. The picker therefore drew **nothing at all**:
+host-tested, and **nothing ever called it** — the builder thread called the other boxes'
+builders (the band's and the USB STOP chooser's `menu_prompt_build()`, that chooser then
+still present) and not its sibling. The picker therefore drew **nothing at all**:
 with a plane available `g.fxlist_valid` never became 1, `menu_fxlist_live()` published an
 image that did not exist, and the plane sat set up and unwritten. Everything except the
 pixels agreed — the log printed its `menu plane: crtc 102 plane 127 fb 725 180x444` line,
@@ -3271,12 +3158,12 @@ on/off all at their starting values.
   is nothing to undo. That is not a special case: the whole module rests on the rule that
   the only thing worth undoing is something that was actually sent.
 
-The tick block is the fourth of its kind in `pointsrc.c` (after the drawers', the chooser's
-and the picker's) and has the same shape: while the pad is busy, read rbp, tick, send what
+The tick block is the fourth of its kind in `pointsrc.c` (after the drawers', the SETTINGS
+panel's and the picker's) and has the same shape: while the pad is busy, read rbp, tick, send what
 comes back, wait in 20 ms slices. That is what lets the ladder converge **with the finger
 held still** and what services the restore after the finger is gone. The sends go out back
-to back with **no sleep** — a wait in this loop starves the band, the window, the drawers and
-all three boxes.
+to back with **no sleep** — a wait in this loop starves the band, the drawers and every
+box.
 
 ### The HUD: the dot, and the frame that was taken off it
 
@@ -3449,6 +3336,190 @@ to `fxpad_feed`), and whether a dot is enough to fly the level by. The pad's log
 pad engaged at (x,y) -- type N, effect on/off`, one per axis sent, `beat fx pad refused at (x,y)`
 when a press is declined, and `beat fx pad unwound` with the final state — are the instrument for
 reading a drill back.
+
+## The settings panel (`settings_zone.c`, `settings_paint.c`)
+
+The operator's ask of 2026-10-14, arriving in three parts — *"i want to be able to switch
+from the internal mixer to the external mixer from the glass"*, then *"maybe a settings
+screen with stuff like USB stop and mixer mode"*, then *"and then it is just a gear
+icon"*. Until this shipped, the mixer route could only be changed from `confscreen.py` on
+a laptop, and the three viewer switches ([09](09-audio.md), [20](20-config-page.md)) were
+the page's business alone.
+
+**The switch is a file, and it was already live.** `/run/rblive4/mixer.mode` is one word
+and a newline; `audioshim.c`'s `mixer_route_tick()` re-reads it every ~512 audio blocks
+(~0.7 s) and re-walks the USB bus every ~6 s while the unit plays. So the panel needed
+**no new audio machinery and no restart** — a row does exactly what the config page does,
+and the route changes inside a second. Measured on the unit 2026-10-14: the file does not
+exist, so the unit is internal, and the absence means "keep what we booted with"
+(`rb.conf`'s `RB_MIXER_MODE`).
+
+**The gear is a baked icon, not a drawn shape.** `menu_paint.c`'s `menu_gear_cov()` blits
+`gear_icon.h` — a 30 px coverage table written by `bake_gear.py` from `gear_white100.png`, a
+white-on-transparent gear — into the column's button, centred and **1:1**. The alpha channel
+is the coverage, so it goes through the same blend a glyph does: the icon's edges are
+antialiased, and because the ink is the *row's* ink a refused row's gear is drawn in the OFF
+colour with everything else on that row.
+
+IT WAS DRAWN FIRST, per pixel with integer arithmetic, and it took five revisions to reach
+"this is not working": teeth 68% of their pitch merged into a flower; narrower teeth clipped
+by a rim circle tapered to **one-pixel spikes** and shed isolated pixels (*"it has some weird
+look at the top, bottom, left and right"*); a thick ring with teeth the same depth read as a
+cross; thin teeth on a thin ring read as a sun; and the first shape that read as a gear at all
+was, in two words, *"too thick"*. The operator's answer was the icon file. The shim still has
+no PNG decoder, no scaler and no file I/O — it gets a table, exactly as it does for the font
+atlas. A band too short to host the icon is **refused** rather than scaled, and `test_menu.c`
+pins that it draws ink, stays inside its button and **stays clear of the outline rows** —
+which is what keeps `menu_draw.c`'s damage witness (two points per column, on exactly those
+rows) reading an exact palette value.
+
+### The box, and the value-only target
+
+Six rows in a 640×429 box, on the structure and palette the USB STOP chooser established
+before it was deleted (2026-10-14) — the same black bed, centred title and rule; only the
+body differs, a list of framed rows instead of one row of two buttons. `SB_H` is its own
+arithmetic
+(`2*3 + 40 + 1 + 2*8 + 6*56 + 5*6`) rather than a number that happens to be right, and
+`test_settings.c` asserts the sum so a row's height cannot run off the bed.
+
+**Only the value acts.** The operator asked for the label half to be inert, and that comes
+with a second half that is easy to lose: **a press that lands on a row's LABEL does not
+dismiss the panel**, where every other box in this shim dismisses on any release that
+began off a button (the BEAT FX picker, `fx_zone.c`). So the dismissal is "began outside
+every ROW" — the title, the rule, the padding, the margin and the glass outside the box are
+all still ways out — and the label half neither fires nor dismisses. Both halves are
+pinned at both edges of the value rect, because an off-by-one here is a control that is
+dead on one side or live where the operator was only reading.
+
+**Four of the six rows have no hold and no flash** — the two USB rows are the exception,
+and the whole of their gesture is below. A row that moves a word the next tap moves back is
+complete at the release, so `settings_feed()` takes no clock for those; the timeout
+(`SB_TIMEOUT_MS`, the number the chooser used) and the two USB rows' hold are the only
+things time does to this panel, and `settings_tick()` is where both happen.
+
+**There are no marks in a row.** The first version drew a cycle arrow on the rows that
+change in place and a chevron on the one that raised the USB STOP box — both as geometry, as
+the atlas carries neither. The operator saw them on the glass and asked *"do we even need
+icons for the settings menu?"*, and the answer is no: the value already carries the state, one
+rule ("every row's value is tappable") is easier to learn than a legend of two marks, and they
+were crowding the value against the frame — *"there should be some padding next to the icons on
+the right side"*. What replaced them is padding: the value is right-aligned `SP_VALUE_RIGHT`
+(12 px) in from the row's own edge, the same inset the label has on its side, and
+`settings_paint_ok()` measures every row's widest value against the space that is left. No row
+opens a box any more — the two USB rows do their work in place, on the hold — and
+`test_settings.c` pins that the padding stays clear of ink.
+
+### The six rows
+
+| row | reads | live when | a tap | a **hold** (3 s) |
+|---|---|---|---|---|
+| `MIXER ROUTE` | `INTERNAL` / `EXTERNAL` | a recognised digital mixer is on the bus | writes the route file | — |
+| `USB1 STOP` | **that stick's own label**, or `--`, or `EMPTY` | rbp reports media in slot 1 | nothing | **ejects USB 1** |
+| `USB2 STOP` | ...the same for slot 2 | rbp reports media in slot 2 | nothing | **ejects USB 2** |
+| `SHARE` | `ON` / `OFF` | always | writes `vnc.live` | — |
+| `ENCODE` | `RAW` / `HWJPEG` | always | writes `vnc.mode` | — |
+| `POINTER INJECT` | `ON` / `OFF` | always | writes `vnc.input` | — |
+
+**The two USB rows replaced the one `USB STOP` row** on 2026-10-14 — the operator's ask:
+*"add a line for each usb stick the settings menu, it should be called USB1 and USB2 and the
+setting should be the USB label name, if you hold the USB1/USB2 button it should behave like
+the USB stop menu buttons"*. So each stick has its own row, reading **its own name** — the
+same string rbp's SOURCE screen shows, out of `/tmp/udev_usbN.label` through `usb_label.h`'s
+sanitiser, and cut to the column if the operator wrote a long one — and a three-second hold on
+either sends the eject **on that device's own channel**, which is the chooser's gesture, one
+row per device. A **tap** on either does nothing: the hold is the whole of the gesture, so
+an eject is never one stray finger away. The band's own `USB STOP` column and the chooser it
+raised went the same day (above) — two hold-to-eject doors onto the same two devices was the
+redundancy, not the feature — so the panel's two rows are the one door that stayed.
+
+The hold is the deleted chooser's to the millisecond (`ST_HOLD_MS` 3000, `ST_HOLD_FLASH_MS` 250 — a
+row lit for half a period and normal for the next, six full blinks inside one hold), it starts
+only on a row rbp reports **live**, it is cancelled by the finger leaving the value, and a
+stick pulled out from under a running hold takes the hold with it rather than ejecting
+something that is not there. Everything that can happen to it is logged, because the absence
+of an eject is otherwise the same evidence as "the hold never started":
+
+```
+pointsrc: settings 'USB 1' held 3020 ms (hold is 3000 ms) -> eject (channel 1)
+pointsrc: settings 'USB1 STOP' released after 1498 ms (hold is 3000 ms) -> nothing
+pointsrc: settings 'USB2 STOP' refused -- rbp reports no media in that slot
+```
+
+**`MIXER ROUTE` reads the route IN EFFECT and not the file's word**, which is the one
+readout here that is a decision rather than a copy of a bit: with no recognised mixer on
+the bus `audioshim` stays internal whatever the file says (its own fallback, and the reason
+it logs the refusal instead of doing nothing quietly), so a row reading `EXTERNAL` then
+would be claiming a route the unit is not taking. It reads `INTERNAL`, **dim**, and cannot
+be pressed — the operator's own choice when offered "say NO MIXER, dimmed" against
+"show EXTERNAL with a note" against "refuse the tap". `mixer_present()` is re-read on every
+report, so plugging the mixer in lights the row with no other change, and a refused tap is
+**logged** (`settings 'MIXER ROUTE' refused -- no recognised digital mixer is on the USB
+bus`), because a tap that quietly did nothing and a tap that never landed are the same
+pixels.
+
+### The plane, and the one-box-at-a-time rule
+
+Its own `drm_band` at `DRM_RANK_SETTINGS` (**1** — the one rank left unassigned), sized
+`settings_paint_w/h()` and published through an image pair like the other three boxes. The
+published picture is keyed on **every value it draws from** — the row under the finger, the
+two media-liveness bits, the two mixer bits and the three viewer bits — which is what makes
+a row repaint by itself when the file behind it changes; a gate that could not see one of
+them would leave the operator looking at the value they had just changed away from. The
+image pair is the biggest cache in the shim (~940 KB against the picker's 728 KB) and the
+refusal path is the usual one: no pair, and `menu_settings_repaint()` paints straight into
+the plane.
+
+The band is **hidden** while the panel is up (`menu_frame_tick()`), for the reason the
+picker hides it (and the chooser did, before it was removed): it is opaque and it is on the
+glass. The panel is
+asked **first** in `pointer_report()`'s ladder, so while it is up it owns every report and
+no lower rung can swallow one; the second-contact path
+(`pointer_report_alt()`, for the drawers) is gated on it too, because that path does not go
+through that ladder.
+
+### Writing a switch file from the glass
+
+This is the first thing in this tree that writes one — until now only `confscreen.py` did,
+from outside the chroot. The idiom is `pointsrc.c`'s raw syscalls (`syscalls.h`: `fb_shim`
+interposes `open()` for the whole process), and two details matter:
+
+* **No `O_TRUNC`.** `audioshim`'s reader treats an empty file as "no answer" and falls back
+  to the value it booted with, so a truncate-then-write would be a window in which the
+  route could blip back to internal and out again. Writing over the old bytes without
+  truncating removes the window, and is safe because every word ends with a newline and the
+  reader stops at the first one — a stale tail is unreachable.
+* **The file's case, not the display's.** The viewer's switches hold what `confscreen.py`
+  writes (`on`/`off`, `raw`/`hwjpeg`) and the mixer's holds `audioshim`'s
+  (`internal`/`external`); the upper case belongs to the readout. A file written as `ON`
+  because that is what the row *reads* would be one `vncserve` compares against `on` and
+  never matches. `test_settings.c` pins every word.
+
+**The three viewer rows carry a caveat.** Their files are read by `vncserve` on the host,
+whose *start* value comes from `rb.conf` (`RB_VNC_LIVE:=off`, `RB_VNC_MODE:=raw`,
+`RB_VNC_INPUT:=0`) and whose file wins once one exists. So the panel is authoritative the
+moment it writes one, but before that its readout is the documented default — right on the
+shipped configuration, and wrong on a unit that overrides them in `rb.conf`. The paths
+reach the shim as `VNC_LIVE_FILE`/`VNC_MODE_FILE`/`VNC_INPUT_FILE` through
+`start-rb.sh`'s `SHIM_VARS` loop, which is `RB_`-prefixed keys becoming bare names, the rule
+`MIDI_MAP` and `AUDIO_MAP` already follow.
+
+### What is measured, and what is not
+
+`test_settings` (406 checks) pins on the host, against the production modules: the geometry
+and the sum that makes the box, every row and value boundary one pixel either side, **both
+halves of the value-only target**, the dim rows' refusal and the panel staying up under a
+label tap, the ownership and the stray-release and double-down rules, the timeout including
+its refusal to fire under a finger, every readout in every state, the cycle words, the
+painter's idempotence and confinement, that the value's right-hand padding is clear of ink,
+and the band's gear drawing and staying clear of the witness rows — plus, for the hold, that a press on a live USB row starts it and lights the row, that it fires at three seconds naming ITS OWN device's channel, that an early release sends nothing and leaves the panel standing, that a late release with no tick in between still fires, that leaving the value cancels it, and that an empty slot can start no hold at all.
+`test_menu` pins the gear: that it draws, stays inside its button and clear of the witness
+rows, and the new width floor.
+
+**Not yet run on the glass.** The panel has not been deployed or tapped on the operator's
+unit as of 2026-10-14 — the plan's own on-glass drill (swipe down, tap the gear, watch a
+row read, `cat /run/rblive4/mixer.mode`, and `audioshim.log`'s `mixer route -> EXTERNAL`
+within a second) is what is owed, and a plane-drawn surface must be checked **on the
+screen** and not in a VNC client ([13](13-raspberrypi4.md)).
 
 ## The HOT CUE pad row (`hc_zone.c`)
 

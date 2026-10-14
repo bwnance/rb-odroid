@@ -53,7 +53,7 @@
  * rects out to fill the gutter would make a tap in the 10-row gap -- visibly neither
  * pad -- fire one of them. A touch that lands in the gutter does nothing at all.
  *
- * PURE, LIKE fx_zone.c AND prompt_zone.c. Nothing here reads rbp, the framebuffer or a
+ * PURE, LIKE fx_zone.c AND settings_zone.c. Nothing here reads rbp, the framebuffer or a
  * clock: the three gate values arrive as arguments and the answer leaves as a pad
  * number the caller sends. test_hc.c pins the geometry, the latch, the slide rule and
  * the gate on a host with no Pi, no panel and no player.

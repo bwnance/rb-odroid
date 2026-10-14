@@ -3,7 +3,9 @@
  * holding fourteen of his cells.
  *
  * The fourth drawing module after menu_paint.c, side_paint.c and
- * prompt_paint.c, and written to the same rule: pure, a function of its arguments and
+ * prompt_paint.c (the USB STOP chooser's painter -- that box went on 2026-10-14, so the
+ * family's surviving members are menu_paint.c, side_paint.c, settings_paint.c and this
+ * one), and written to the same rule: pure, a function of its arguments and
  * of nothing else, in the same palette (menu_pixel(), which is public for exactly this
  * reason -- and which carries the two of rbp's own colours this one borrows). "Painting
  * it twice paints it once" is load-bearing here as it is there --
@@ -11,7 +13,7 @@
  * not idempotent is a paint that tears. Every pixel of the box is written on every
  * call.
  *
- * THE VIEW'S PICTURE RECT IS THE BOX, the contract prompt_paint.h states and for the
+ * THE VIEW'S PICTURE RECT IS THE BOX, the contract menu_paint.h states and for the
  * same reason: the caller sets `dw`/`dh` to the box's own size in framebuffer pixels --
  * FX_W/FX_H logical px at the page's scale -- and `bx`/`by` to where that lands.
  * Logical box coordinates are then scaled by dw/FX_W and dh/FX_H, so the same code
@@ -31,7 +33,7 @@
  * independent refusal because the narrowest page this shim supports scales the box down
  * with it. A view that fails either is refused here rather than drawn as a smear --
  * menu_paint.h's menu_view_ok() asks the same two questions for the band
- * (menu_labels_fit()) and prompt_paint.h's prompt_paint_ok() for the USB chooser. */
+ * (menu_labels_fit()) and settings_paint.h's settings_paint_ok() for the SETTINGS panel. */
 int fxlist_paint_ok(const struct menu_view *v);
 
 /* The box's size in framebuffer pixels for a page of dw x dh -- the size the plane has
@@ -44,7 +46,8 @@ int fxlist_paint_h(int page_dh);
  *   pressed_row  the row under the finger, 1..FXLIST_ROWS, or 0 -- fxlist_pressed(),
  *                which is menu_pressed()'s question asked of this module.
  *
- * THERE IS NO OTHER STATE, and that is the whole difference from the USB chooser: a row
+ * THERE IS NO OTHER STATE, and that is the whole difference from the USB STOP chooser
+ * (whose rows held a gesture; it was deleted 2026-10-14): a row
  * is the answer, so there is nothing armed, nothing dead and nothing to light but the
  * finger. The header of fx_zone.h records why the current effect is not marked either
  * (rbp exposes no readable type word).

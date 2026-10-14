@@ -6,6 +6,13 @@
  * computed once from the view, and one pure classification of a pixel per class.
  */
 #include "menu_paint.h"
+#include "gear_icon.h"   /* the SETTINGS column's mark, baked: a table, not a decoder */
+
+/* The mark's two helpers, defined further down beside the rest of its code: the classifier
+ * is the caller on the per-pixel path, and this file has always kept the drawing helpers
+ * below the layout. */
+static const struct gear_icon *menu_gear_for(int band_h);
+static int menu_gear_cov(const struct gear_icon *g, int fx, int fy, int gcx, int gcy);
 #include "menu_zone.h"
 #include "menu_font.h"
 
@@ -200,10 +207,18 @@ static int menu_band_h(const struct menu_view *v)
  *
  * The bounds are menu_layout_make()'s own expressions for L->bx0/L->bx1, because a
  * second opinion about where a column is would be a check on arithmetic nobody ran.
- * This is what moves when the ATLAS grows: "USB STOP" is 65 px at 16 px and 76 at
- * 19, and a 480-px-wide picture gives 68-px columns, so the size-up costs that one
- * panel shape its band -- and keeps it on 640 wide (91 px columns, 81 px inner) and
- * up. */
+ * This is what moves when the ATLAS grows or a COLUMN arrives. With the seven columns the
+ * band has had since USB STOP's column went (2026-10-14), the widest label is "BROWSE" at
+ * 70 px -- "USB STOP" was 76 and is no longer drawn -- and a column needs 10 px of padding
+ * and border on top of that, so the picture must be about 560 px wide. That is where the
+ * ~535 px floor of the Decker era comes back to.
+ *
+ * THE EIGHTH COLUMN HAD COST THE NARROWEST SHAPE ITS BAND, briefly: eight columns divide 640
+ * into 80 px, whose 70 px inner could not hold the 76 px "USB STOP", so the floor went to 688
+ * and a 640x480 picture refused the band for the few hours that shape shipped. Removing the
+ * USB STOP column gave that back -- seven columns divide 640 into 91 px -- which is worth
+ * knowing if a column is ever added again: THE FLOOR IS A FUNCTION OF THE COLUMN COUNT AND THE
+ * WIDEST LABEL, and test_menu.c's bracket (640 usable, 480 refused) is what says so. */
 static int menu_labels_fit(const struct menu_view *v)
 {
     int i;
@@ -213,6 +228,32 @@ static int menu_labels_fit(const struct menu_view *v)
         int x1 = v->bx + ((menu_button_x1(i) + 1) * v->dw) / MZ_LOGICAL_W - 1;
         int inner = (x1 - x0 + 1) - 2 * (MENU_BTN_PAD_PX + MENU_BTN_BORDER_PX);
 
+        /* THE GEAR COLUMN IS MEASURED BY ITS MARK AND NOT BY ITS LABEL, because its label
+         * is never drawn: the column's ink is the baked gear, GEAR_ICON_W across, where
+         * "SETTINGS" is 73 px of text. Measuring the word would
+         * refuse a 640-px-wide picture (80-px columns, 70 px inner) that draws the gear
+         * perfectly well, and that refusal is not cosmetic: it would take the WHOLE BAND
+         * off a panel shape this port supports. The mark's size is asked of the same
+         * percentage and the same band rows the classifier draws it from, so the test and
+         * the drawing cannot drift apart. */
+        if (menu_column_is_gear(i + 1)) {
+            int by0, by1;
+            const struct gear_icon *g;
+
+            menu_band_rows(v, &by0, &by1);
+            g = menu_gear_for(by1 - by0 + 1);
+            /* The icon is drawn 1:1 and is never scaled (gear_icon.h), so the band has to
+             * host it WHOLE -- the same rule the atlas's line box gets, and the reason a
+             * picture that cannot is refused rather than drawn with a shrunken mark. TWO
+             * ROWS OF CLEARANCE, not none: the marks are drawn over the button's outline
+             * rows, and a witness point samples exactly those (menu_witness_point()), so an
+             * icon that touched them would read as damage on every tick. Two rows is also
+             * what the size is chosen for -- 22 px fits the 24-row band of an 800x480
+             * panel, which is the smallest shape this port draws the band on. */
+            if (!g || inner < g->w)
+                return 0;
+            continue;
+        }
         if (inner < menu_text_width(menu_label(i + 1)))
             return 0;
     }
@@ -323,6 +364,65 @@ void menu_layout_make(const struct menu_view *v, struct menu_layout *L)
 }
 
 
+/* THE GEAR COLUMN'S MARK, out of a baked table -- menu_paint.c does not draw it.
+ *
+ * IT WAS DRAWN FIRST, and the shape's history is why it is not any more. A body disc, eight
+ * teeth and a hub, all in integer arithmetic because this is a soft-float build, went
+ * through five revisions on the bench and the glass: teeth 68% of their pitch merged into a
+ * flower ("the gear doesn't really look like a gear"); narrower teeth clipped by a rim
+ * circle tapered to ONE-PIXEL SPIKES and left ISOLATED PIXELS off their tips ("it has some
+ * weird look at the top, bottom, left and right"); a thick ring with teeth the same depth
+ * read as a cross; thin teeth on a thin ring read as a sun; and the first shape that worked
+ * was, in two words, "too thick". The operator's answer was an icon file: *"how about just
+ * using gear_white100.png"*.
+ *
+ * So the mark is a white-on-transparent PNG's alpha channel, resized by LANCZOS and
+ * committed as a coverage table (gear_icon.h, written by bake_gear.py) at TWO sizes, because
+ * a baked mark is drawn 1:1 and the band's height depends on the panel: 30 px on the
+ * operator's 1280x800, 22 px on an 800x480, and menu_gear_for() picks the largest that fits. The shim gets a
+ * table and not a decoder -- no libpng, no scaler, no file I/O -- which is exactly the trade
+ * menu_font.h makes, and for the same reason: a table is drawn 1:1 and cannot be resampled
+ * into mush by a panel the code was not tested on.
+ *
+ * THE COVERAGE GOES THROUGH THE SAME BLEND THE GLYPHS DO. menu_paint.c's pixel_value() sees
+ * a coverage between 1 and 254 and mixes the ink over the button's face, so the icon's edges
+ * are antialiased exactly as a glyph's are -- and because the ink passed in is the ROW's ink,
+ * a refused row's gear is drawn in the OFF colour with everything else on that row. Returns
+ * -1 for a pixel outside the icon's box, which is "not this mark's business" and not "a
+ * coverage of zero". */
+/* THE BAKE THAT FITS A BAND `band_h` ROWS TALL, or NULL for one too short for any of them.
+ * The list is smallest first (gear_icon.h), so the last that fits is the largest -- a tall
+ * panel gets the 30 px mark and a short one the 22 px, rather than a refused band. TWO ROWS
+ * of clearance and not none: the mark is drawn over the button's outline rows and a witness
+ * point samples exactly those (menu_witness_point()), so an icon touching them would read as
+ * damage on every tick. A band with no icon at all is refused by menu_labels_fit(). */
+static const struct gear_icon *menu_gear_for(int band_h)
+{
+    const struct gear_icon *best = 0;
+    int i;
+
+    for (i = 0; i < GEAR_ICON_SIZES; i++)
+        if (gear_icons[i].h + 2 <= band_h)
+            best = &gear_icons[i];
+    return best;
+}
+
+/* The mark's coverage at a framebuffer pixel, 0..255, or -1 when the pixel is outside the
+ * icon's box -- which is "not this mark's business" and not "a coverage of zero". The icon
+ * is centred in the button. */
+static int menu_gear_cov(const struct gear_icon *g, int fx, int fy, int gcx, int gcy)
+{
+    int x, y;
+
+    if (!g)
+        return -1;
+    x = fx - gcx + g->w / 2;
+    y = fy - gcy + g->h / 2;
+    if (x < 0 || y < 0 || x >= g->w || y >= g->h)
+        return -1;
+    return (int)g->cov[y * g->w + x];
+}
+
 /* How much ink covers this framebuffer pixel of button i's label, 0..255.
  *
  * The pen walks the label's advances -- they are per glyph now, not one fixed cell
@@ -416,6 +516,23 @@ static int class_in_layout(const struct menu_layout *L, int fx, int fy, int pres
     if (fx == L->bx0[i] + MENU_BTN_PAD_PX || fx == L->bx1[i] - MENU_BTN_PAD_PX ||
         fy == L->by0 || fy == L->by1)
         return MENU_BORDER;
+    /* THE GEAR, for the one column that is an icon rather than its label (menu_zone.h's
+     * menu_column_is_gear()). It is DRAWN -- a body ring, eight teeth and a hole punched
+     * through the middle -- because neither the 19 px Decker atlas (menu_font.h) nor the
+     * face it is baked from carries a gear, and the operator asked for a gear by name:
+     * "and then it is just a gear icon" (2026-10-14). Integer arithmetic throughout: this
+     * is a soft-float build, and this test runs once per pixel of the column. */
+    if (menu_column_is_gear(btn)) {
+        int c = menu_gear_cov(menu_gear_for(L->by1 - L->by0 + 1), fx, fy,
+                              (L->bx0[i] + L->bx1[i]) / 2, (L->by0 + L->by1) / 2);
+
+        if (c > 0) {
+            if (cov)
+                *cov = c;              /* the icon's own antialiasing, blended below */
+            return (btn == pressed) ? MENU_LABEL_PRESSED : MENU_LABEL;
+        }
+        return (btn == pressed) ? MENU_BTN_PRESSED : MENU_BTN;
+    }
     /* The label band is the only place a glyph can be, and the guard is exact --
      * menu_label_cov() rejects everything outside it itself, including a label the
      * centring pushed past its button. Without it, EVERY pixel of the band pays the
@@ -477,8 +594,13 @@ int menu_class_in(const struct menu_layout *L, int fx, int fy, int pressed)
  * before it tests the pressed class, and the bed is outside the columns' buttons
  * entirely. test_menu.c asserts both properties against this list at ten sizes. */
 enum { WY_BTN_TOP = 0, WY_BTN_BOT, WY_BED };
-/* Which button (0-based column) each point samples, and what of it. Seven top edges,
- * seven bottom edges, then the one bed point. */
+/* Which button (0-based column) each point samples, and what of it. One top edge and one
+ * bottom edge per column, then the one bed point -- MZ_COLS of each, which is sixteen
+ * points at eight columns. THE GEAR COLUMN IS SAMPLED LIKE ANY OTHER: its mark is centred
+ * in the button and GEAR_ICON_H of the band's 40 rows, so the two outline rows
+ * are outside it exactly as they are outside a label's line box -- and the classifier
+ * tests the outline before it tests either mark, so the point's value cannot depend on
+ * `pressed` or on the state of the panel either way. test_menu.c asserts it. */
 static const unsigned char wcol[] = {
     0, 1, 2, 3, 4, 5, 6,
     0, 1, 2, 3, 4, 5, 6,

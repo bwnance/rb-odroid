@@ -144,7 +144,8 @@ port.
 | `0` | `0x0206` K_MENU | global |
 | `↑` / `↓` | `0x420c` K_SELECTOR, rotate ±1 (repeats while held) | global |
 | `Enter` | `0x420c` K_SELECTOR, press/release | global |
-| `Backspace`, mouse right button | `0x420d` K_BACK | global |
+| `Backspace`, mouse right button | `0x420d` K_BACK | global — **and it does not leave the browse screen**: 57 706 px on the first press and 58 209 on a second, both still BROWSE (measured 2026-10-14). The band's BROWSE column is a *toggle* and is the glass's way back to the decks ([07](07-touch.md#a-hold-on-a-column-is-that-columns-second-meaning)) |
+
 | `Esc` | `0x0201` K_SOURCE | global |
 | mouse wheel | `0x420c` K_SELECTOR, rotate ±1 per notch | global |
 
@@ -398,7 +399,7 @@ A MIDI dump records what a **surface** sent. A key dump records what **rbp was
 told**, and the two are not the same recording:
 
 * a touch the shim turns into a keycode — a QUANTIZE tap, a drawer's SYNC, a hot
-  cue pad, the USB STOP chooser — is not a sequencer event, so a MIDI dump has
+  cue pad, the settings panel's eject rows — is not a sequencer event, so a MIDI dump has
   nothing to record it as;
 * the note→keycode table lives in a map, so replaying a MIDI dump through today's
   map replays today's *interpretation* of those notes rather than the commands
@@ -1181,9 +1182,12 @@ the header of `rbp_key.h`.
 
 ## The safe-eject button — a keycode rbp already has, on three edges
 
-`USB STOP` is the seventh column of the swipe-down top menu
-([07](07-touch.md#the-swipe-down-top-menu-menu_zonec-menu_drawc)), and the reason it
-is there is that **this rig has no other way to reach rbp's own safe eject**. The
+`USB STOP` **had a column in the swipe-down top menu until 2026-10-14**, when the operator
+removed it (*"you can also remove the USB STOP item next to the settings icon"*) — the
+settings panel's `USB1 STOP`/`USB2 STOP` rows eject the same two devices now, one row each,
+so the keycode below reaches the glass through THOSE and no longer through the band. The
+reason it was ever a column is worth keeping: **this rig had no other way to reach rbp's own
+safe eject**. The
 FLX4 has no such button; the keycode `0x8002` appears nowhere in the MIDI maps, the
 keyboard map's whitelist cannot carry it, and rbp's name for it — `UsbStop`, from
 `ui::KeyInput::keyCodeAsText()` — is the last entry of a 173-slot name table. The
@@ -1191,9 +1195,17 @@ operator asked for it in exactly those terms: *"rekordbox has a stop button just
 that purpose to safe eject, but its not mapped currently, so i really don't want to
 pull the USB as it might continue to corrupt the USB stick"*.
 
+**The last column is a gear and it sends NO key at all** — it raises the settings panel
+([07](07-touch.md#the-settings-panel-settings_zonec-settings_paintc)), and the rows that do
+act send nothing either: they write the same one-word switch files the config page writes
+(`/run/rblive4/mixer.mode` and the viewer's `vnc.*`), because those files *are* the live
+switches ([09](09-audio.md)). It is the one column whose `menu_key[]` entry is 0, and
+`menu_fire()` catches it by COLUMN rather than by keycode — a zero keycode still means "no
+keycode yet, nothing sent" for any column that is merely unnamed.
+
 | | |
 |---|---|
-| **Keycode** | `0x8002` `K_USBSTOP` — `CH_GLOBAL` is USB 1's number (1) by coincidence; the chooser sends the **chosen device's own channel**, because the handler drops a key whose channel is not its own |
+| **Keycode** | `0x8002` `K_USBSTOP` — `CH_GLOBAL` is USB 1's number (1) by coincidence; the settings panel's `USB1 STOP`/`USB2 STOP` rows send the **chosen device's own channel**, because the handler drops a key whose channel is not its own |
 | **Reached by** | `UsbStorageManager::onKey` (entry **[2]** of the live handler table) → `ui::UsbStorageManager::onUsbStopKey` @ `0x325788` |
 | **Sent as** | **press + repeat + release**, back to back |
 
@@ -1276,28 +1288,34 @@ happily as on a fresh one, and rbp's own media fds read `09:40` across a `09:55`
 eject/remount. The grip question belongs to rbp's state (`[usb1+0x88]`, `[+0x8c]`,
 bit 7 of `[+0x3d0]`), not to the fd table.
 
-**A press on this column stops the media, so it is not a harmless button.** That is
-not a caveat about the implementation, it is the feature — it exists so the operator
-never has to pull live media — but it is worth saying plainly in the docs because
-every other column of that panel is safe to press.
+**A completed eject takes the media off rbp's screen, so the control is not a harmless
+button.** That is not a caveat about the implementation, it is the feature — it exists so
+the operator never has to pull live media — but it is worth saying plainly in the docs
+because every other row of the settings panel and every other column of the band is safe to
+press. It is also why the gesture is a three-second hold and not a tap: a tap on the two USB
+rows does nothing at all (below).
 
-**And since 2026-10-05 the column does not send the stop at all.** It *raises a
-chooser* ([07](07-touch.md#the-seventh-column-raises-a-chooser-prompt_zonec-prompt_paintc)),
-and the eject leaves on the **chosen device's own channel** — `usb_stop_send(ch)` in
+**Since 2026-10-14 the eject is reached from the settings panel, not from the band.** The
+band's `USB STOP` column and the chooser it raised are both gone
+([07](07-touch.md#the-swipe-down-top-menu-menu_zonec-menu_drawc)); the eject leaves instead
+from the panel's **`USB1 STOP`/`USB2 STOP` rows**
+([07](07-touch.md#the-settings-panel-settings_zonec-settings_paintc)), each on the **chosen
+device's own channel** — `settings_act_channel(row)` then `usb_stop_send(ch)` in
 `pointsrc.c`, channel 1 for USB 1 and 2 for USB 2. That channel is not decoration:
 `UsbStorageManager::onKey` @ `0x3259f4` drops a key whose channel is not its own, so the
 old `CH_GLOBAL` spelling could only ever have reached the first device.
-**Since 2026-10-07 it also takes a three-second hold** — the box puts up `HOLD USB 1` and
-`HOLD USB 2` (or the stick's own volume label in place of the number, since that day —
-[10](10-usb.md)), lit for a device rbp reports present; the press flashes the button, a hold
-of 3000 ms or more stops that device, and a release before the third second does **nothing
-at all**. So the two `menu 'USB STOP' tapped (button 7) -> key 0x8002` lines above are the
-pre-2026-10-05 build; the log reads `pointsrc: menu 'USB STOP' -> the USB STOP chooser
-(usb 1 ready 'HOLD RBOX USB', …)` when the box comes up, and then on a completed hold
-`pointsrc: usb stop chooser -> usb 1 held 3120 ms (hold is 3000 ms) -> eject (channel 1)`.
-Everything else in this section — the three edges, the press-mutes/repeat-ejects split,
-the `20 s` replug cycle, and that the button stops rbp's media without releasing the host
-mount — is unchanged and still the reason the column exists
+
+**The gesture is a three-second hold, and has been since 2026-10-07** — each row reads that
+stick's own volume label (the same string rbp's SOURCE screen shows, [10](10-usb.md)), lit
+only for a device rbp reports present; a press on the value starts the hold, the row blinks
+at `ST_HOLD_FLASH_MS` (250 ms), a hold of 3000 ms or more stops that device, and a release
+before the third second does **nothing at all**, so a *tap* on a USB row never ejects. So the
+two `menu 'USB STOP' tapped (button 7) -> key 0x8002` lines above are the pre-2026-10-05
+build; the log now reads `pointsrc: settings 'USB1 STOP' released after 1498 ms (hold is
+3000 ms) -> nothing` on an early release and `pointsrc: settings 'USB 1' held 3120 ms (hold
+is 3000 ms) -> eject (channel 1)` on a completed one. Everything else in this section — the
+three edges, the press-mutes/repeat-ejects split, the `20 s` replug cycle, and that the
+button stops rbp's media without releasing the host mount — is unchanged
 ([10](10-usb.md#notes)).
 
 ## The edge drawers' transports, sync, nudge and fader — keycodes rbp already has

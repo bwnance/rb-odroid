@@ -7,8 +7,8 @@
  * is the three rects, the picker's box, the latches and the arithmetic that turns a press
  * into an answer.
  *
- * THE THREE INTERACTIONS LIVE IN ONE MODULE ON PURPOSE, exactly as prompt_zone.c holds
- * both a chooser's geometry and its state machine: the picker is raised BY the zone's own
+ * THE THREE INTERACTIONS LIVE IN ONE MODULE ON PURPOSE, exactly as settings_zone.c holds
+ * both a box's geometry and its state machine: the picker is raised BY the zone's own
  * tap on the header bar, the power toggle is the zone's own tap on the effect-name cell,
  * and all three are asked from adjacent rungs of the same ladder in pointsrc.c. Splitting
  * them would put "which report is mine" in one file and "what to do with it" in another
@@ -54,16 +54,18 @@ static const char *const fx_names[FXLIST_ROWS] = {
  * only clears the anchor.
  *
  * The touch thread is the only writer, exactly as it is for menu_zone.c's panel and
- * prompt_zone.c's box.
+ * settings_zone.c's box.
  * ------------------------------------------------------------------------- */
 static int was_down;
 static int press_hit;
 static int cur_hit;
 
-/* The picker's state, prompt_zone.c's six fields verbatim and for the same reasons:
+/* The picker's state, the family's six fields verbatim and for the same reasons
+ * (prompt_zone.c's, and that chooser is gone 2026-10-14; settings_zone.c keeps the same
+ * shape):
  * `press_row` anchors the fire, `cur_row` is the highlight, and `deadline_ms` is the
  * caller's clock. There is no arming here -- a row IS the answer, so unlike the USB
- * chooser there is no second tap to wait for. */
+ * STOP chooser there is no second tap to wait for. */
 static int list_was_down;
 static int list_open_state;
 static int press_row;
@@ -119,7 +121,9 @@ int fx_feed(int down, int x, int y, int *act)
         was_down = 0;
         /* Fire on the release, and only for a press that began and ended on the SAME
          * rect -- see fx_zone.h. The rect is taken from the RELEASE's own coordinates
-         * and not from `cur_hit` for the reason prompt_zone.c:250 gives: a fast flick
+         * and not from `cur_hit` for the reason the family's feeders give
+         * (prompt_zone.c:250 first wrote it down; that chooser is gone, 2026-10-14):
+         * a fast flick
          * can lift at a moved position with no move report in between.
          *
          * THE NAME CELL ANSWERS NOTHING HERE: it fired on its press (below), so its
@@ -230,7 +234,8 @@ void fxlist_open(unsigned long long now_ms)
     list_deadline_ms = now_ms + FX_TIMEOUT_MS;
     /* No press is inherited: the tap that raised this fired on a release and is already
      * over, and a caller that raised it any other way must not adopt a finger it never
-     * saw go down (prompt_zone.c's prompt_open() rule). Neither is a row. */
+     * saw go down (settings_open()'s rule; prompt_zone.c's prompt_open() was the same
+     * one, and that chooser is gone 2026-10-14). Neither is a row. */
     list_was_down = 0;
     press_row = 0;
     cur_row = 0;
@@ -261,7 +266,8 @@ unsigned long long fxlist_deadline(void)
 
 int fxlist_expire(unsigned long long now_ms)
 {
-    /* NOT WHILE A FINGER IS DOWN -- prompt_zone.c:211's rule and the same consequence:
+    /* NOT WHILE A FINGER IS DOWN -- the family's rule (prompt_zone.c:211 first wrote it;
+     * that chooser is gone, 2026-10-14) and the same consequence:
      * a press the box swallowed has been withheld from rbp for its whole life and rbp
      * is going to be given its release, so closing mid-press would hand that release
      * back as a report with no press behind it. Deferring costs nothing; the release
@@ -299,7 +305,7 @@ int fxlist_feed(int down, int x, int y, int *act)
             *act = press_row - 1; /* the position rbp's switch wants, 0..13 */
         /* Every release closes the box: a row answers, and a miss, a slide or a tap
          * outside answers nothing. That is the whole of "tap outside to dismiss", with
-         * no second rule for it (prompt_zone.c:255's shape). */
+         * no second rule for it (settings_zone.c's feeder keeps the same shape). */
         fxlist_close();
         return MZ_FEED_TAKEN;
     }

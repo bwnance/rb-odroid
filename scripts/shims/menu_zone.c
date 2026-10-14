@@ -13,11 +13,19 @@
                            * menu_feed() below, and side_zone.h's ONE SURFACE note */
 
 /* In column order, one per menu_key[] slot in pointsrc.c -- the two tables are read
- * together and are the same length by construction. "USB STOP" is the seventh and
- * the only one that is not a browse key; it is uppercase like the rest because the
- * font has no lowercase (menu_font.h's set). */
+ * together and are the same length by construction. "USB STOP" is the seventh and the
+ * only one that is not a browse key; it is uppercase like the rest because the font has
+ * no lowercase (menu_font.h's set).
+ *
+ * THE EIGHTH IS "SETTINGS" AND THE BAND NEVER DRAWS THAT WORD. The column is a gear
+ * (menu_paint.c's menu_gear_cov()), because the operator asked for an icon -- "and then
+ * it is just a gear icon" -- and because a glyph of a gear is one neither the Decker bake
+ * nor the face it comes from has. The entry stays here because this table is what the LOG
+ * LINE, menu_labels_fit() and the tests read: a tap that raised the panel says
+ * "menu 'SETTINGS' -> ..." rather than naming a column by its number, and a picture too
+ * narrow for the column is refused by the same width test as the other seven. */
 static const char *const labels[MZ_COLS] = {
-    "SOURCE", "BROWSE", "TAG LIST", "PLAYLIST", "SEARCH", "MENU", "USB STOP"
+    "SOURCE", "BROWSE", "TAG LIST", "PLAYLIST", "SEARCH", "MENU", "SETTINGS"
 };
 
 /* ---------------------------------------------------------------------------
@@ -78,6 +86,11 @@ const char *menu_label(int button)
     if (button < 1 || button > MZ_COLS)
         return 0;
     return labels[button - 1];
+}
+
+int menu_column_is_gear(int button)
+{
+    return button == MZ_COLS;
 }
 
 int menu_button_at(int x, int y)

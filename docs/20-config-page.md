@@ -15,7 +15,8 @@ viewer was never installed.
 There is a second reason, and it is the sharper one. The viewer's page has no authentication
 and its controls are **state-changing GETs** (`vnc_http.c` — `/session`, `/input`, `/mode`),
 so anyone who can reach that port can start screen sharing, or turn clicks in the picture
-into real presses on the glass — including the top-menu strip, where raw x 1884 is USB STOP.
+into real presses on the glass — including the top-menu strip, where raw x 1884 is the
+far-right band column (it was `USB STOP`, and it is the gear that raises the settings panel now).
 **Measured, 2026-10-09**, by reading those routes. Closing that is part of this work: when the
 write path lands, the viewer's page moves to loopback-only and this page owns the LAN port.
 

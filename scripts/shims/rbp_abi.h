@@ -277,8 +277,9 @@
  * usable press. Here the press is load-bearing. */
 #define K_USBSTOP    0x8002
 
-/* THE TWO UsbStorageManager OBJECTS, and how to reach them -- what the USB STOP
- * chooser's two device rows are lit from (prompt_zone.c, pointsrc.c).
+/* THE TWO UsbStorageManager OBJECTS, and how to reach them -- what the settings
+ * panel's USB1 STOP/USB2 STOP rows are lit from (settings_zone.h, pointsrc.c; they
+ * were the USB STOP chooser's two device rows until it was deleted 2026-10-14).
  *
  * ui::IUiObjManager::getUsbStorageManager(Channel) @0x31dfc8 is four instructions
  * and they are all here:
