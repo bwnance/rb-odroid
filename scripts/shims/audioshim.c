@@ -365,6 +365,7 @@ static const char *master_dev_name(void)
  * reported line rather than a silent one. */
 static void parse_card_id(const char *dev);
 static void restore_pairs_for(const char *key);
+static void astate_write(const char *why, const char *route);
 
 static const char *audio_dev_default(void)
 {
@@ -576,6 +577,7 @@ static int apply_audio_device(const char **why)
      * with the same sentence. At start-up it always reports, because g_cfg.dev begins
      * empty and the answer is therefore always a change. */
     if (changed) {
+        astate_write(*why, NULL);
         adecide("audioshim: master dev=\"%s\" candidates=%d (%s)\n",
                 g_cfg.dev, g_master_ncands, *why);
         for (k = 0; k < g_master_ncands; k++)
@@ -1445,6 +1447,12 @@ static void load_config(void)
          g_cfg.fmt_name, mute_ms, fade_ms, g_cfg.sched_rt,
          g_cfg.mixer_external ? "external" : "internal",
          g_cfg.deck1.a, g_cfg.deck1.b, g_cfg.deck2.a, g_cfg.deck2.b);
+
+    /* AND NOW THE STATE FILE, which is the only place all of this is visible at once: the
+     * rung above writes too, but it runs before the conf's map has been parsed, so its copy
+     * reads channels=0 and a map of zeros. This one is the real picture, and it is what
+     * /run/rblive4/audio.state is for -- `cat` it from a laptop. */
+    astate_write(why, NULL);
 }
 
 /* Verify the shared-state contract before anything reads g_master_gain and
@@ -1498,6 +1506,62 @@ static void clamp_pair(const char *what, struct pair *p)
  * card they were resolved against, so this clears the three flags that say "the map has
  * been checked against the card" and lets reopen_try()'s replay commit the new count first.
  * A caller that forgot would route against the previous card's width. */
+/* WHAT THIS SHIM DECIDED, IN ONE FILE A HUMAN OR A PANEL CAN READ.
+ *
+ * /run/rblive4 is bound into the chroot (fix-dev.sh), so the shim can write it and the HOST
+ * can read it -- `cat /run/rblive4/audio.state` over ssh is the whole point, and it is the
+ * answer to the question that could not be asked on 2026-10-14: which card did it choose, by
+ * which rung, against which map, and had it failed.
+ *
+ * IT IS THE DATA THE AUDIO PAGE WILL DRAW (settings_zone.c), which is why it is a file rather
+ * than a shared global: a global is cheaper but invisible to a shell, and the bench is where
+ * this is worth most.
+ *
+ * WRITTEN IN PLACE, not by write-and-rename. A rename would need a syscall this shim would
+ * have to make raw (the vendor libc has no `stat`, and a shim that calls a missing symbol
+ * links fine and then kills rbp at start-up -- rbp-vendor-libc-has-no-stat). The cost is that
+ * a reader can catch the file half-written, which for a status file read by eye or once per
+ * panel build is a price worth paying.
+ *
+ * CALLED WHEN SOMETHING CHANGED, never per block: apply_audio_device() calls it on a device
+ * change, resolve_pairs() when the map is settled, and the route tick on a transition. */
+#define ASTATE_PATH "/run/rblive4/audio.state"
+
+static void astate_write(const char *why, const char *route)
+{
+    char buf[640];
+    int fd, n;
+
+    fd = open(env_str("AUDIO_STATE_FILE", ASTATE_PATH),
+              O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0)
+        return;                    /* no /run: nothing to say, and not worth a log line */
+    n = snprintf(buf, sizeof buf,
+                 "dev=%s\n"
+                 "why=%s\n"
+                 "card=%s\n"
+                 "key=%s\n"
+                 "channels=%u\n"
+                 "map=[master=%d,%d headphones=%d,%d booth=%d,%d monitor=%d,%d]\n"
+                 "decks=[deck1=%d,%d deck2=%d,%d]\n"
+                 "route=%s\n"
+                 "reopen_failures=%u\n"
+                 "frames=%lu\n",
+                 g_cfg.dev, why ? why : "", g_cfg.card_id, g_dev_key,
+                 g_out_channels,
+                 g_cfg.master.a, g_cfg.master.b,
+                 g_cfg.headphones.a, g_cfg.headphones.b,
+                 g_cfg.booth.a, g_cfg.booth.b,
+                 g_cfg.monitor.a, g_cfg.monitor.b,
+                 g_cfg.deck1.a, g_cfg.deck1.b, g_cfg.deck2.a, g_cfg.deck2.b,
+                 route ? route : "unknown",
+                 g_reopen_failures,
+                 (unsigned long)g_master_frames_delivered);
+    if (n > 0)
+        write(fd, buf, (size_t)n);
+    close(fd);
+}
+
 static void restore_pairs_for(const char *key)
 {
     const char *mem = env_str("AUDIO_PAIRS_MEMORY", "");
@@ -1565,6 +1629,7 @@ static void resolve_pairs(void)
     if (g_pairs_resolved)
         return;
     g_pairs_resolved = 1;
+    astate_write(NULL, NULL);      /* the map is settled: publish it */
 
     if (g_out_channels == 0) {
         /* set_channels() never arrived, so there is no params object left to ask.
@@ -3545,6 +3610,7 @@ static void mixer_route_tick(void)
     }
     if (external != g_cfg.mixer_external) {
         g_cfg.mixer_external = external;
+        astate_write(NULL, external ? "external" : "internal");
         adecide("audioshim: mixer route -> %s%s\n",
              external ? "EXTERNAL (decks raw on their own pairs, rbp's mix not sent)"
                       : "INTERNAL (rbp's mix, and its faders and EQ are the path again)",
