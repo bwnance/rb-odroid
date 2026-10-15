@@ -519,8 +519,8 @@ and there are only three candidates on this port:
 | the swipe menu (`menu_draw.c`) | a stale band in rows 0..55, the region it saves and repairs |
 | the **overlay plane** (`drmband.c`) | nothing in `/dev/fb0` at all — it is a separate plane composited *above* rbp's page, so a screenshot cannot see it |
 
-**The overlay plane is a fourth writer and it is not in the page.** When the band, the
-browser window, a side drawer or the USB STOP chooser is up, the shim owns a `vc4`
+**The overlay plane is a fourth writer and it is not in the page.** When the band, a
+side drawer or one of the boxes (the BEAT FX picker, the SETTINGS panel) is up, the shim owns a `vc4`
 overlay plane on `card1` and composites it over rbp's primary.
 
 **The UTILITY gesture is the one shim surface with no pixels at all.** It is input-side
@@ -533,7 +533,7 @@ move, which is why that drill is a frame diff and not a screenshot.
 
 **The device is shared; the plane is not.** DRM master is one per open **file**, so a
 second `drm_band_setup()` in a process was once refused `EBUSY` and the band, the window
-and the drawer had to pass one plane between them. `drmband.c` now opens the card
+(now removed) and the drawer had to pass one plane between them. `drmband.c` now opens the card
 **once** and refcounts the fd and the master (`dev_acquire()` / `dev_release()`), so each
 band is only a buffer, a framebuffer and a plane of its own, and `pick_plane()` skips any
 plane whose `crtc_id != 0` so two bands cannot land on one. That is what lets **both edge
@@ -549,9 +549,9 @@ it is stated where the operator will meet it (`07-touch.md`).
 
 Which surface owns which plane is legible from the log without any pixels at all,
 because `drm_band_setup()` prints the geometry it was asked for: `1280x56` is the band,
-`180x800` is a drawer, `560x127` is the USB STOP chooser's box (it was `560x271`
-until the box went to two buttons on 2026-10-07), and the browser window
-has its own size. A handover prints the old surface's teardown, the new one's setup, and
+`180x800` is a drawer, and `640x553` is the SETTINGS panel's box (the USB STOP chooser's
+`560x127` went with the chooser, 2026-10-14; the panel's own `640x429` became `640x553` when
+its two deck-pair rows were added, 2026-10-15). A handover prints the old surface's teardown, the new one's setup, and
 a line naming the direction (`side: a drawer is out -- the plane is handed over from the
 band`). Measured on the unit with both drawers out: **two distinct plane ids on the same
 crtc**, `plane 127` and `plane 138`, both `180x800`, neither reusing the other's. The
@@ -579,8 +579,8 @@ change-gated, only the copy is per-tick. The drawer's image pair and the reason 
 sits off the lock are in [07](07-touch.md) § *The fader's flicker*.
 
 **The present path is not a candidate on the measured panel.** `RB_DFB_PRESENT`
-defaults to `off` (`rb.conf:94`), and the upgrade to `scale` only fires when the
-real fb disagrees with 1280×800 (`:107`) — and [`PRESENT:` records that it does
+defaults to `off` (`rb.conf:110`), and the upgrade to `scale` only fires when the
+real fb disagrees with 1280×800 (`:172`) — and [`PRESENT:` records that it does
 not](06-display.md). Under `off` the layer surface *is* the fb page, so rbp's
 pixels reach the glass with nothing in between: no resample, no bars, no crop.
 A symptom that looks like a scaling artifact cannot be one here.

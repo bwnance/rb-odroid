@@ -17,16 +17,28 @@
 #include "tscfake.h"
 #include "touch_zone.h"
 #include "menu_zone.h"
-#include "menu_window.h"
 #include "side_zone.h"
 #include "util_zone.h"
 #include "wave_zone.h"
-#include "prompt_zone.h"
 #include "fx_zone.h"
 #include "fxpad_zone.h"  /* the BPM cell's momentary X/Y pad -- the operator's ask of
                           * 2026-10-07; fxpad_zone.h carries the rectangle, the two
                           * wire forms and the momentary restore */
 #include "hc_zone.h"
+#include "padmode_zone.h" /* the pad-mode caption band: a tap on the label line above the
+                           * pads cycles the mode. The operator's ask of 2026-10-10 */
+#include "deckbadge_zone.h" /* the deck's badge box beside the title: a tap is play/stop.
+                             * The operator's ask of 2026-10-10 */
+#include "bpmbox_zone.h"    /* the BPM box on the strip: a tap toggles SYNC. The operator's
+                             * ask of 2026-10-12 */
+#include "settings_zone.h"  /* the SETTINGS panel: the gear in the band raises it, and the
+                             * mixer route, USB STOP and the viewer's three switches
+                             * live in it. The operator's ask of 2026-10-14 */
+#include "usb_devices.h"    /* mixer_present(): the single walk of /sys/bus/usb/devices,
+                             * asked here for the one thing the panel cannot infer -- whether
+                             * a recognised digital mixer is on the bus, which is what makes
+                             * the MIXER ROUTE row operable. The same source audioshim.c asks,
+                             * so the panel and the routing cannot disagree. */
 #include "syscalls.h"
 #include "envutil.h"
 #include "usb_label.h"   /* what a media device's name may contain -- the same rules
@@ -46,6 +58,9 @@
  * shims so that "where it reads it" is this same array. fader_state.c says why that
  * object exists at all. */
 #include "rbp_vu.h"
+#include "pitch_state.h"  /* g_pitch_norm: the fader a nudge cell moves from, and the
+                           * shared-object arrangement that lets fbshim read a
+                           * knobshim-published position at all */
 
 #include <errno.h>
 #include <fcntl.h>
@@ -222,10 +237,38 @@ static int  fx_touch = 1;
 static int  hc_touch = 1;
 static int  menu_mouse = 0;
 
+/* The pad-mode caption band (padmode_zone.h), ON by default like hc_touch and with the same kind
+ * of switch: it is rbp's own drawing, so an operator who wants only the panel left alone sets
+ * POINT_PADMODE_TAP=0 and gets exactly that -- off means the reports this module would have taken
+ * reach rbp untouched, byte for byte.
+ *
+ * THE LATCH IS THE PRESS THIS MODULE TOOK. The tap fires on the RELEASE, and the press behind it
+ * was withheld from rbp for its whole life, so the release must be withheld with it -- otherwise
+ * rbp is handed an up for a down it never saw. -1 means nothing of ours is down. */
+static int  pm_touch = 1;
+static int  pm_latched_deck = -1;
+
+/* The deck badge box (deckbadge_zone.h), ON by default like the two above and with the same kind
+ * of switch. The latch is the press this module took: the tap fires on the RELEASE, and the press
+ * behind it was withheld from rbp for its whole life, so the release must be withheld with it --
+ * otherwise rbp is handed an up for a down it never saw. -1 means nothing of ours is down. */
+static int  db_touch = 1;
+static int  db_latched_deck = -1;
+
+/* The BPM box (bpmbox_zone.h), on by default like the two above and with the same kind of switch:
+ * rbp's own drawing, so an operator who wants only the panel left alone sets POINT_BPM_SYNC=0. The
+ * latch is the press this module took -- the tap fires on the RELEASE, and the press behind it was
+ * withheld from rbp, so the release must be withheld with it. */
+static int  bb_touch = 1;
+static int  bb_latched_deck = -1;
+
 /* The buttons' keycodes, in menu_zone.c's column order: the first six are rbp's own
  * browse keycodes, all six now measured (rbp_abi.h carries the derivation and the
  * runs), and they are the same six the keyboard map sends from its digit row. The
- * seventh is USB STOP, which no keyboard row has and which is here alone.
+ * seventh is the SETTINGS gear, which is not a key at all -- see its entry below. USB STOP
+ * (K_USBSTOP) was the seventh and is gone: the settings panel's USB1 STOP/USB2 STOP rows
+ * eject the same two devices now, so the column was a second door onto them (menu_zone.h).
+ * menu_fire() refuses that keycode rather than sending it -- see the block there.
  *
  * PLAYLIST and SEARCH were 0 here for one release: the two slots the derivation
  * named and nothing had measured, drawn and named and visibly pending, firing
@@ -233,7 +276,13 @@ static int  menu_mouse = 0;
  * survives the promotion -- it is the instrument, and the next unnamed key will
  * want it again. */
 static const int menu_key[MZ_COLS] = {
-    K_SOURCE, K_BROWSE, K_TAGLIST, K_PLAYLIST, K_SEARCH, K_MENU, K_USBSTOP
+    K_SOURCE, K_BROWSE, K_TAGLIST, K_PLAYLIST, K_SEARCH, K_MENU,
+    /* THE GEAR SENDS NO KEY AT ALL, and 0 is how that is said. menu_fire() answers a
+     * zero keycode with "no keycode yet, nothing sent", which is the right log for a
+     * column whose key has not been measured and the WRONG one for this column -- so the
+     * gear is intercepted by COLUMN, before that test (menu_column_is_gear()). A later
+     * column can therefore still be added as an unnamed key and keep that behaviour. */
+    0
 };
 
 /* Which of the keys above rbp only finishes on when it sees a SECOND edge. One
@@ -671,6 +720,18 @@ static void menu_keys_init(void)
 static int rbp_i32(unsigned long addr);
 static unsigned long long shim_now_ms(void);
 
+/* The settings panel's half, and the chooser's, both defined further down beside the
+ * modules they belong to. Declared here for the same reason the two above are: menu_fire()
+ * raises both -- the band's own USB STOP column raises the chooser, and the gear raises
+ * the panel, which can raise the chooser itself from its USB STOP row. */
+static void usb_stop_send(int ch);      /* the eject, defined beside the chooser's code */
+static void settings_state_fill(struct settings_state *S);
+static void settings_apply(int row);
+static void settings_eject(int row, unsigned long long held_ms);
+static const char *settings_refusal(int row);
+static int  switch_word_read(const char *path, char *out, size_t outsz);
+static void switch_word_write(const char *path, const char *word);
+
 /* A tap that landed on a menu button. Same shape as quantize_tap()'s: the
  * gesture is complete at the tap -- rbp's handler for a *press* of every one of
  * these keys acts on the press alone, with USB STOP the one exception (it is
@@ -713,13 +774,46 @@ static void menu_fire(int button, int held_ms)
     const char *label = menu_label(button);
     int hold_ms, send_ms, code;
 
-    /* A button with no label fires nothing and says nothing. The menu's eighth cell
-     * -- the globe that opened the browser window -- used to be the one case here;
-     * it is gone with the browser (menu_zone.h's block), so menu_button_at() now
-     * answers 1..MZ_COLS or 0 and this is belt-and-braces against a future cell
-     * being added to the hit test before it is added to the label table. */
+    /* A button with no label fires nothing and says nothing. menu_button_at() answers
+     * 1..MZ_COLS or 0, so this is belt-and-braces against a future cell being added to
+     * the hit test before it is added to the label table. */
     if (label == NULL)
         return;
+
+    /* THE GEAR RAISES THE SETTINGS PANEL INSTEAD OF SENDING A KEY, and it is caught by
+     * COLUMN and not by keycode -- the two other columns that deviate are caught by
+     * keycode, and this one cannot be, because it has none (menu_key[]'s eighth entry is
+     * 0). Catching it first also keeps a zero keycode meaning what it has always meant for
+     * a column that is merely unnamed: "no keycode yet, nothing sent".
+     *
+     * THE PICKER GOES AWAY FIRST, and it is the only other box left to displace: the two were
+     * opaque planes and there is one box at a time. (The USB STOP chooser was the third until
+     * 2026-10-14, and the same three lines closed it.) The band is closed by the caller by the
+     * time this runs -- menu_fire() is called on the release of a tap on an open panel's own
+     * button -- so nothing else has to be put away. */
+    if (menu_column_is_gear(button)) {
+        if (fxlist_is_open()) {
+            fxlist_close();
+            pointsrc_log("pointsrc: the settings panel displaces the Beat FX picker");
+        }
+        settings_open(shim_now_ms());
+        {
+            struct settings_state S;
+            int i;
+
+            /* The panel's opening line names every row and what it reads, so a drill's log
+             * says what the operator was looking at without a screenshot of the glass --
+             * the same rule the chooser's own line keeps. */
+            settings_state_fill(&S);
+            pointsrc_log("pointsrc: menu '%s' -> the settings panel", label);
+            for (i = 1; i <= SB_ROWS; i++)
+                pointsrc_log("pointsrc: settings row %d '%s' reads '%s'%s",
+                             i, settings_row_label(i), settings_row_text(i, &S),
+                             settings_row_live(i, &S) ? "" : " (not operable)");
+        }
+        return;
+    }
+
     code = menu_key_eff[button - 1];
     if (code == 0) {
         pointsrc_log("pointsrc: menu '%s' tapped (button %d): no keycode yet,"
@@ -727,51 +821,23 @@ static void menu_fire(int button, int held_ms)
         return;
     }
 
-    /* THE SEVENTH COLUMN RAISES THE CHOOSER INSTEAD OF FIRING -- the operator's
-     * "when you have USB stop, put up a prompt for USB1, USB2 or Cancel"
-     * (2026-10-05). The far right of the band used to stop the operator's stick on
-     * one tap, and the stick is production media whose FAT already carries damage
-     * (docs/10-usb.md); now the eject takes a three-second hold on a lit button
-     * (the operator's ask of 2026-10-07, prompt_zone.h).
+    /* K_USBSTOP SENDS NOTHING HERE, and that is a decision rather than an omission. It is
+     * rbp's SAFE EJECT, and the band's column that used to carry it raised the USB STOP
+     * chooser: a box whose two buttons each took a three-second hold, because one tap on a
+     * column that unmounts the operator's stick is the hazard the box existed to remove. Both
+     * are gone (2026-10-14) -- the settings panel's USB1 STOP/USB2 STOP rows eject now, one
+     * row per device, on the same three-second hold.
      *
-     * THE TEST IS BY KEYCODE AND NOT BY COLUMN, which is the same choice
-     * menu_key_needs_repeat() makes and for the same reason: POINT_MENU_KEY_EXTRA
-     * can repoint a column, and whatever column carries K_USBSTOP is the one that
-     * raises the box -- while a column that no longer carries it is unaffected.
-     *
-     * BOTH PATHS ARE CAUGHT, the tap and the hold, before either: there is no second
-     * meaning for a held USB STOP that is worth the operator's media, and the eject
-     * is then reachable ONLY from the box. POINT_USBSTOP_PROMPT=0 puts the immediate
-     * eject back for bench work.
-     *
-     * The box is raised on the RELEASE of the column tap -- this function is called
-     * from the release -- so no press is inherited, and prompt_open() clears its
-     * latches for the same reason. */
-    if (code == K_USBSTOP && env_int("POINT_USBSTOP_PROMPT", 1)) {
-        struct prompt_state S;
-
-        pointsrc_usb_state(&S);
-        /* And the Beat FX picker goes away if it was up. The funnel's own ladder already
-         * keeps the chooser from being raised UNDER the picker -- it is asked first, so a
-         * tap that would open the picker while the chooser is up is the chooser's -- but
-         * this path is a KEYCODE and not a tap, so it arrives with the picker possibly
-         * still on the glass. Both boxes are centred and both are opaque, so leaving the
-         * two up would show one through the other. Closing here rather than hiding a
-         * plane in menu_draw.c is the honest fix: there is one box at a time, and this is
-         * the line that says so. */
-        if (fxlist_is_open()) {
-            fxlist_close();
-            pointsrc_log("pointsrc: the USB STOP chooser displaces the Beat FX picker");
-        }
-        prompt_open(shim_now_ms());
-        /* The two labels are the ones the buttons will READ, word for word, so a drill's
-         * log says which stick each button offered without a screenshot of the glass. */
-        pointsrc_log("pointsrc: menu '%s' -> the USB STOP chooser (usb 1 %s '%s',"
-                     " usb 2 %s '%s')", label,
-                     S.live[0] ? "ready" : "absent",
-                     prompt_cell_text(&S, PR_CELL_USB1),
-                     S.live[1] ? "ready" : "absent",
-                     prompt_cell_text(&S, PR_CELL_USB2));
+     * The keycode can still be pointed at a column with POINT_MENU_KEY_EXTRA, which is how
+     * the unnamed-key slots were measured, so this branch stays: a bench lever that reached
+     * rbp's eject on a TAP would be the old hazard back, and it is refused with a line that
+     * says where the door is now. Nothing else in this file sends K_USBSTOP -- usb_stop_send()
+     * does, and only from the settings rows' completed hold. */
+    if (code == K_USBSTOP) {
+        pointsrc_log("pointsrc: menu '%s' -> nothing sent: K_USBSTOP is the eject, and it"
+                     " takes a three-second hold on the settings panel's USB1 STOP/USB2 STOP"
+                     " row (it had a band column and a chooser box until 2026-10-14)",
+                     label);
         return;
     }
 
@@ -792,6 +858,34 @@ static void menu_fire(int button, int held_ms)
      * plain tap, which is the second A/B lever. */
     hold_ms = env_int("POINT_MENU_HOLD_MS", MZ_HOLD_FINGER_MS);
     if (menu_hold_fires(held_ms, hold_ms)) {
+        /* BROWSE HAD A HOLD HERE FOR A FEW HOURS ON 2026-10-14 -- "if i press and hold browse
+         * it should jump to the performance view" -- AND IT WAS REMOVED THE SAME DAY, because
+         * it could not do anything a tap did not already do: BROWSE is a TOGGLE (measured by
+         * screenshot: 727 391 px to the browse screen, 72 464 px back), so tapping it from the
+         * browse screen already returns the operator to the decks. A hold that sent the same
+         * key was a duplicate, and the operator heard it as one: *"so it doesn't do anything
+         * then right? it looks like it just behaves the same"*.
+         *
+         * TWO MEASUREMENTS ARE WORTH KEEPING from the attempt, because both are things a
+         * reader would otherwise try again:
+         *
+         *   * K_BACK (0x420d) -- what the FLX4's CALL/PREV and the keyboard's Backspace send --
+         *     DOES NOT LEAVE THE BROWSE SCREEN. Pressed once: 57 706 px, still BROWSE. Pressed
+         *     twice: 58 209 px, still BROWSE. So the obvious "give the glass a back key" design
+         *     is a gesture that does nothing, and the LOG WOULD NOT HAVE SAID SO: the key went
+         *     out and nothing happened, which is exactly the trap rbp_abi.h's K_MENU note warns
+         *     about ("check the screen before doubting the keycode").
+         *   * There is NO KEY ON THIS UNIT THAT MEANS "PERFORMANCE" UNCONDITIONALLY. rbp's
+         *     browse family is BROWSE, SOURCE, USB1, TAG LIST, PLAYLIST, SEARCH, MENU, INFO,
+         *     LINK, REKORDBOX and BACK, and only BROWSE touches the performance screen at all.
+         *     Anything that wanted to guarantee a landing there would have to impose it by
+         *     reading rbp's screen and gating the key, which is a different design from this
+         *     one and was offered to the operator with it.
+         *
+         * So a held BROWSE takes the ordinary path below -- the column's own key, held, as
+         * every column without a second meaning does. Which is to say: the same thing a tap
+         * does, because that is what rbp's BROWSE key is.
+         */
         send_ms = env_int("POINT_MENU_HOLD_SEND_MS", MZ_HOLD_KEY_MS);
         pointsrc_log("pointsrc: menu '%s' held %dms (hold is %dms) -> key %#x"
                      " down for %dms, rbp's own hold action", label, held_ms,
@@ -830,10 +924,11 @@ static void menu_fire(int button, int held_ms)
  *
  *     "when you have USB stop, put up a prompt for USB1, USB2 or Cancel"
  *
- * -- is answered by prompt_zone.c (the box, the rows, the gesture, the labels) and
- * prompt_paint.c (its image). This block is the other half: where rbp's answer about the
- * two devices is read, where each device's own NAME is read, and what a chosen row
- * actually sends.
+ * -- was answered by the USB STOP chooser until 2026-10-14, and is answered by the settings
+ * panel's USB1 STOP/USB2 STOP rows now: one row per device, a three-second hold to eject it,
+ * and the row's VALUE is the device's own name. This block is the half that is not the box:
+ * where rbp's answer about the two slots is read, where each device's NAME is read, and what
+ * a completed hold actually sends.
  * ------------------------------------------------------------------------- */
 
 /* One slot's device name, off the file the watcher leaves beside that slot's FIFO.
@@ -844,23 +939,38 @@ static void menu_fire(int button, int held_ms)
  * name*). The chroot's /tmp IS the host's, which is how both reaches work.
  *
  * READ THROUGH THE RAW CALLS for the reason syscalls.h gives: rbp's own open/read are
- * interposed by this same process. Absent, empty and whitespace-only are one answer --
- * no name -- and prompt_state_name() then leaves the cell its own "HOLD USB n", which is
- * byte for byte the label this box shipped with before names existed. There is no
- * memoisation on purpose: a stick that goes away takes its name with it, and a stale name
- * over an empty slot is worse than reading two small files again.
+ * interposed by this same process. Absent, empty and whitespace-only are one answer -- no
+ * name -- and the row reading it says "--" rather than borrowing its own label back
+ * (settings_zone.c). There is no memoisation on purpose: a stick that goes away takes its
+ * name with it, and a stale name over an empty slot is worse than reading two small files
+ * again.
  *
  * NOT AN ERROR AND NOT LOGGED. This is asked on every tick of the builder's thread as
  * well as from this one, so a line here would be the log-filling trap
  * ([[rblive4-verbose-log-fills-tmpfs]]); what the box draws is the proof, and it says so
  * in menu_draw.c's own verbose line. */
-static void usb_name_read(int dev, struct prompt_state *S)
+/* The device's own name, sanitized, into `out` (at most `max` bytes, NUL included).
+ * Answers its length, 0 for a slot with no label file or an empty one.
+ *
+ * ONE READER, ONE ANSWER. The settings panel's USB1 STOP/USB2 STOP rows are what draw this
+ * (settings_zone.c puts it in the value column, cut to fit), and there is exactly one place
+ * that reads the file -- so a name cannot be sanitized one way for one surface and another
+ * way for the next. usb_label.h's sanitizer is what rbp's own SOURCE screen would accept, and
+ * the panel must not be able to show a name that screen would refuse.
+ *
+ * IT ANSWERED TWO SHAPES UNTIL 2026-10-14: the USB STOP chooser wore the name on a button as
+ * "HOLD <name>" (prompt_state_name() composed that) and the panel reads the BARE one, because
+ * "HOLD" was that box's instruction to the operator and not part of what the stick is called.
+ * The chooser is gone and the bare name is all that is left. */
+static int usb_name_bare(int dev, char *out, int max)
 {
     char path[64];
     char raw[USB_LABEL_MAX + 1];
-    char text[USB_LABEL_MAX + 1];
     int fd, n;
 
+    if (!out || max <= 0)
+        return 0;
+    out[0] = '\0';
     raw[0] = '\0';
     snprintf(path, sizeof path, "/tmp/udev_usb%d.label", dev + 1);
 
@@ -875,44 +985,37 @@ static void usb_name_read(int dev, struct prompt_state *S)
     else
         raw[n] = '\0';
 
-    n = usb_label_sanitize(raw, n, text, USB_LABEL_MAX);
-    prompt_state_name(S, dev, n > 0 ? text : 0);
+    return usb_label_sanitize(raw, n, out, max);
 }
 
-/* rbp's two UsbStorageManager objects, walked exactly the way
- * getUsbStorageManager() does (rbp_abi.h carries the disassembly).
+/* rbp's two UsbStorageManager objects, walked exactly the way getUsbStorageManager() does
+ * (rbp_abi.h carries the disassembly), into `live[0..1]`: "device i+1 has media present and
+ * ready", which is `[mgr+0x88] == USB_MGR_MEDIA_READY`.
  *
- * EVERY STEP IS GUARDED, and that is the difference from util_read_state() above.
- * uiBrowse is a plain .bss singleton read at one fixed address, so that one needs no
- * guard beyond "am I rbp at all"; these are POINTERS into objects rbp allocates while
- * it is starting up, so an unguarded walk from this thread can follow a null or a
- * half-built pointer and take the input thread down with it -- the same hazard
- * rbp_led.c's guarded walks exist for.
+ * EVERY STEP IS GUARDED, and that is what separates this from util_read_state(): uiBrowse is
+ * a plain .bss singleton read at one fixed address, so that one needs no guard beyond "am I
+ * rbp at all"; these are POINTERS into objects rbp allocates while it is starting up, so an
+ * unguarded walk from this thread can follow a null or a half-built pointer and take the
+ * input thread down with it -- the same hazard rbp_led.c's guarded walks exist for.
  *
- * A miss is not fatal and must not be. A caller that cannot read rbp gets both
- * devices absent, which draws both rows dim and sends nothing: a refusal, not an
- * assumption (prompt_zone.h).
+ * A MISS IS NOT FATAL AND MUST NOT BE. A caller that cannot read rbp gets both slots absent,
+ * which draws both rows dim and can start no hold: a refusal, not an assumption.
  *
- * THE TWO NAMES ARE FILLED FIRST, before any of the guards below, so every caller of
- * this leaves with a struct that is filled in full whether or not rbp could be read --
- * the names are the host's answer and have nothing to do with rbp's. A caller that
- * cannot walk rbp still gets buttons that name the devices they are refusing.
+ * IT ANSWERED A `struct prompt_state` UNTIL 2026-10-14, when the USB STOP chooser went and
+ * with it the second thing that used to want a snapshot shaped like a box's buttons. What is
+ * left is the two bits the settings panel's rows are gated on; their NAMES come from
+ * usb_name_bare() above, which reads the host's file and has nothing to do with rbp.
  *
- * PUBLIC (pointsrc.h) because the chooser's picture depends on it: a row whose
- * device rbp reports absent is drawn dim (prompt_paint.c), so menu_draw.c's builder
- * reads this too, on every build, and the answer it was read at is part of the
- * published image tuple. Two callers, two threads, and it reads only rbp's memory --
- * nothing here is written, so there is nothing to serialise. */
-int pointsrc_usb_state(struct prompt_state *S)
+ * A read-only snapshot, like pointsrc_cursor(): it touches nothing of rbp's, so it is safe
+ * from the builder thread as well as from this one. */
+static int usb_slots_live(int live[2])
 {
     static int am_rbp = -1;
     unsigned long objmgr, array;
     int count, i;
 
-    S->live[0] = 0;
-    S->live[1] = 0;
-    for (i = 0; i < PROMPT_DEVICES; i++)
-        usb_name_read(i, S);
+    live[0] = 0;
+    live[1] = 0;
 
     if (am_rbp < 0)
         am_rbp = is_rbp_process();
@@ -926,27 +1029,262 @@ int pointsrc_usb_state(struct prompt_state *S)
     array = *(volatile unsigned long *)(uintptr_t)(objmgr + UIOBJMGR_OFF_MGRARR);
     if (!array || count < 1)
         return 0;
-    /* This build has two; a larger count is not this binary and is not walked. Sized
-     * by PROMPT_DEVICES and not by the box's button count -- today's box has one button
-     * per device, but the two-line box it had until 2026-10-07 had OK and CANCEL under
-     * the devices, and a walk that grew with the buttons would have started reading
-     * managers that are not there (prompt_zone.h). */
-    if (count > PROMPT_DEVICES)
-        count = PROMPT_DEVICES;
+    /* This build has two; a larger count is not this binary and is not walked. */
+    if (count > 2)
+        count = 2;
 
     for (i = 0; i < count; i++) {
         unsigned long mgr = ((volatile unsigned long *)(uintptr_t)array)[i];
 
         if (!mgr)
             continue;
-        /* The channel word, which is what decides which manager a key reaches. A
-         * manager at index i that does not say it is channel i+1 is not one this row
-         * could fire at, so it is left absent. */
+        /* The channel word, which is what decides which manager a key reaches. A manager at
+         * index i that does not say it is channel i+1 is not one these rows could fire at, so
+         * it is left absent. */
         if (rbp_i32(mgr + USB_MGR_OFF_CHANNEL) != i + 1)
             continue;
-        S->live[i] = rbp_i32(mgr + USB_MGR_OFF_MEDIA) == USB_MGR_MEDIA_READY;
+        live[i] = rbp_i32(mgr + USB_MGR_OFF_MEDIA) == USB_MGR_MEDIA_READY;
     }
     return 1;
+}
+
+/* ---------------------------------------------------------------------------
+ * THE SETTINGS PANEL'S HALF -- everything that is not in settings_zone.c: the module owns
+ * the box, the rows and the gesture, and everything that touches a file, rbp or the clock is
+ * here (settings_zone.h's contract).
+ * ------------------------------------------------------------------------- */
+
+/* ONE WORD OUT OF A SWITCH FILE, or 0 when there is nothing to read. The same shape
+ * audioshim.c's own reader has -- a word and a newline, which is what every live switch in
+ * this tree is, /run/rblive4/mixer.mode and the viewer's vnc.* alike. The raw syscall
+ * helpers are used because fb_shim interposes open() for this whole process, the same
+ * reason the /tmp/udev_usbN.label read above uses them. */
+static int switch_word_read(const char *path, char *out, size_t outsz)
+{
+    char buf[32];
+    size_t i;
+    int fd;
+    ssize_t n;
+
+    if (!out || outsz == 0)
+        return 0;
+    out[0] = '\0';
+    if (!path || !path[0])
+        return 0;
+    fd = real_open(path, O_RDONLY, 0);
+    if (fd < 0)
+        return 0;
+    n = real_read(fd, buf, sizeof buf - 1);
+    real_close(fd);
+    if (n <= 0)
+        return 0;
+    buf[n] = '\0';
+    for (i = 0; buf[i] && buf[i] != '\n' && buf[i] != '\r' && i + 1 < outsz; i++)
+        out[i] = buf[i];
+    out[i] = '\0';
+    return out[0] != '\0';
+}
+
+/* WRITE ONE WORD INTO A SWITCH FILE -- the first thing in this tree that writes one FROM
+ * THE GLASS. Until 2026-10-14 the only writer was confscreen.py, on a laptop.
+ *
+ * NO O_TRUNC, AND THAT IS THE WHOLE OF THE ATOMICITY STORY. audioshim's reader treats an
+ * empty file as "no answer" and falls back to the value it booted with, so a
+ * truncate-then-write would be a window in which the mixer route could blip back to
+ * internal and out again. Writing over the old bytes without truncating removes the window
+ * entirely -- and it is safe because every word here ends with a newline and the reader
+ * stops at the first one, so whatever the file used to hold past that is unreachable.
+ * ("internal\n" and "external\n" are the same length too, which makes the common case
+ * exact.)
+ *
+ * The failure is LOGGED rather than swallowed: a switch the operator pressed that did not
+ * reach the file is otherwise indistinguishable from one that did. */
+static void switch_word_write(const char *path, const char *word)
+{
+    char buf[32];
+    int fd, n;
+
+    if (!path || !path[0] || !word || !word[0])
+        return;
+    n = snprintf(buf, sizeof buf, "%s\n", word);
+    if (n < 0 || (size_t)n >= sizeof buf)
+        return;
+    fd = real_open(path, O_WRONLY | O_CREAT, 0644);
+    if (fd < 0) {
+        pointsrc_log("pointsrc: could not open the switch file %s", path);
+        return;
+    }
+    if (real_write(fd, buf, (size_t)n) != (ssize_t)n)
+        pointsrc_log("pointsrc: short write to the switch file %s", path);
+    real_close(fd);
+}
+
+/* WHERE EACH ROW'S WORD GOES. The conf names the paths and the defaults are the servers'
+ * own: MIXER_MODE_FILE is audioshim's, and the three viewer switches belong to vnc-run.sh.
+ * The panel WRITES WHAT THOSE READ, which is the whole reason the glass can change them at
+ * all.
+ *
+ * THE THREE VIEWER NAMES ARE THE BARE ONES AND THE CONF'S ARE `RB_`-PREFIXED, which is this
+ * tree's rule and not a slip: start-rb.sh's SHIM_VARS loop reads `RB_<NAME>` out of rb.conf
+ * and exports it as `<NAME>`, so the shim-facing name has no prefix -- it is the same rule
+ * MIDI_MAP and AUDIO_MAP already follow. vnc-run.sh, which is a different process with its
+ * own environment, reads the RB_ spelling straight out of the conf. Both end up at one
+ * path: whichever spelling is set, the file written here is the file read there. */
+static const char *settings_row_path(int row)
+{
+    switch (row) {
+    case ST_ROW_MIXER:   return env_str("MIXER_MODE_FILE", "/run/rblive4/mixer.mode");
+    case ST_ROW_SHARE:   return env_str("VNC_LIVE_FILE", "/run/rblive4/vnc.live");
+    case ST_ROW_ENCODE:  return env_str("VNC_MODE_FILE", "/run/rblive4/vnc.mode");
+    case ST_ROW_POINTER: return env_str("VNC_INPUT_FILE", "/run/rblive4/vnc.input");
+    /* THE TWO DECK ROWS WRITE THE LIVE PAIR MAP -- audioshim's own switch, read by
+     * pairs_tick() while the unit plays. The word they write is a whole AUDIO_MAP line
+     * ("deck1=4,5;deck2=2,3"), which is why the row's answer is composed there and written
+     * here verbatim: this file is the switch's path and nothing else. */
+    case ST_ROW_DECK1:
+    case ST_ROW_DECK2:   return env_str("AUDIO_MAP_FILE", "/run/rblive4/audio.map");
+    default:             return 0;
+    }
+}
+
+/* THE DECK PAIRS AND THE CARD'S WIDTH, out of /run/rblive4/audio.state -- audioshim's own
+ * publish -- and NOT out of the live map file this row writes.
+ *
+ * THE ROW MUST SHOW WHAT THE UNIT IS DOING, which is the mixer row's rule and applies here for
+ * the same reason: audio.state carries the RESOLVED map, so a pair audioshim refused is not
+ * claimed on the glass. It also carries `channels=`, the width the card was opened with, and
+ * that is what decides which pairs the cycle may offer at all -- a 4-channel card offers 2,3 and
+ * nothing else, where offering 6,7 would be offering a pair the shim would refuse.
+ *
+ * A MISSING OR UNREADABLE FILE LEAVES THE STATE ZEROED, which settings_zone.c reads as its own
+ * defaults (2-3 and 4-5, against an unknown width): a unit whose shim has not published yet
+ * draws a real panel rather than a panel of blanks, which is the rule that module states. */
+static void settings_read_astate(struct settings_state *S)
+{
+    char buf[512];
+    const char *p;
+    int fd, n;
+    int ch = 0, a1 = 0, b1 = 0, a2 = 0, b2 = 0;
+
+    fd = real_open(env_str("AUDIO_STATE_FILE", "/run/rblive4/audio.state"), O_RDONLY, 0);
+    if (fd < 0)
+        return;
+    n = (int)real_read(fd, buf, sizeof buf - 1);
+    real_close(fd);
+    if (n <= 0)
+        return;
+    buf[n] = '\0';
+
+    p = strstr(buf, "channels=");
+    if (p && sscanf(p, "channels=%d", &ch) != 1)
+        ch = 0;
+    if (strstr(buf, "deck1=") && sscanf(strstr(buf, "deck1="), "deck1=%d,%d", &a1, &b1) != 2)
+        a1 = b1 = 0;
+    if (strstr(buf, "deck2=") && sscanf(strstr(buf, "deck2="), "deck2=%d,%d", &a2, &b2) != 2)
+        a2 = b2 = 0;
+
+    S->audio_channels = ch > 0 ? ch : 0;
+    S->deck_a[0] = a1;  S->deck_b[0] = b1;
+    S->deck_a[1] = a2;  S->deck_b[1] = b2;
+}
+
+/* WHAT THE PANEL READS: rbp's two media slots, the bus, and the four files.
+ *
+ * THE BUS IS ASKED OF mixer_present() AND NOT OF THE FILE, which is the readout rule
+ * settings_zone.h records: with no recognised mixer on the bus the route in effect is
+ * INTERNAL whatever the file says, because audioshim stays there. So `mixer_present` gates
+ * `mixer_external` in the module, and a file left saying `external` with the mixer unplugged
+ * reads INTERNAL -- which is what the unit is playing.
+ *
+ * THE THREE VIEWER BITS FALL BACK TO THE rb.conf DEFAULTS WHEN THEIR FILE IS ABSENT, which
+ * is right on the shipped configuration and wrong on a unit that overrides them: vncserve's
+ * start value comes from its own environment and its file only wins once one exists. The
+ * panel is authoritative the moment it writes one; docs/07-touch.md says so where the rows
+ * are described. */
+static void settings_state_fill(struct settings_state *S)
+{
+    char w[16];
+
+    usb_slots_live(S->usb_live);
+    /* THE STICK'S OWN NAME, bare -- see usb_name_bare(). Read every time the caller fills
+     * this, which is once per report while the panel is up and once per build: the file is
+     * written by usb-watch.sh when the host notices a stick, so it can appear or go while the
+     * panel is standing. */
+    usb_name_bare(0, S->usb_name[0], ST_NAME_MAX + 1);
+    usb_name_bare(1, S->usb_name[1], ST_NAME_MAX + 1);
+
+    S->mixer_present = mixer_present() != NULL;
+
+    S->mixer_external = switch_word_read(settings_row_path(ST_ROW_MIXER), w, sizeof w) &&
+                        strcmp(w, "external") == 0;
+    S->share_on       = switch_word_read(settings_row_path(ST_ROW_SHARE), w, sizeof w) &&
+                        strcmp(w, "on") == 0;
+    S->encode_hw      = switch_word_read(settings_row_path(ST_ROW_ENCODE), w, sizeof w) &&
+                        strcmp(w, "hwjpeg") == 0;
+    S->pointer_on     = switch_word_read(settings_row_path(ST_ROW_POINTER), w, sizeof w) &&
+                        strcmp(w, "on") == 0;
+
+    settings_read_astate(S);
+}
+
+/* The same snapshot for the painter, which is a different thread. See pointsrc.h. */
+void pointsrc_settings_state(struct settings_state *S)
+{
+    if (S)
+        settings_state_fill(S);
+}
+
+/* WHY A ROW REFUSED, in the row's own words -- the log line for a tap on a dim value,
+ * which is otherwise total silence: settings_zone.c answers nothing there, so without this
+ * nothing would say a tap had even happened. */
+static const char *settings_refusal(int row)
+{
+    if (row == ST_ROW_MIXER)
+        return "no recognised digital mixer is on the USB bus";
+    if (settings_row_ejects(row))
+        return "rbp reports no media in that slot";
+    return "not operable";
+}
+
+/* EJECT ONE DEVICE, on its own channel -- the two USB rows' act, and the same call the
+ * chooser's buttons make (usb_stop_send(ch)), so the two doors into one eject cannot drift in
+ * what they SEND. `held_ms` is what the caller logs: "held 3020 ms (hold is 3000 ms)" is the
+ * line that says a real finger crossed the threshold rather than the tick's own slice.
+ *
+ * IT NAMES NO DEVICE ITSELF. The row is the device (settings_act_channel()), which is the
+ * whole reason there are two rows instead of one chooser: a hold on "USB 2" ejects USB 2 and
+ * cannot be aimed at the other slot. */
+static void settings_eject(int row, unsigned long long held_ms)
+{
+    int ch = settings_act_channel(row);
+
+    if (!ch) {
+        pointsrc_log("pointsrc: settings '%s' asked to eject but names no device",
+                     settings_row_label(row));
+        return;
+    }
+    pointsrc_log("pointsrc: settings '%s' held %llu ms (hold is %d ms) -> eject"
+                 " (channel %d)", settings_row_label(row), held_ms, ST_HOLD_MS, ch);
+    usb_stop_send(ch);
+}
+
+/* ACT ON A CYCLE ROW -- one that writes a word into a switch file. The module says WHICH row;
+ * the work is here, which is where the files and rbp are, which is the family's contract. The
+ * two USB rows are not this path at all: they act from settings_eject() above, on a completed
+ * hold, and settings_next_value() answers NULL for them. */
+static void settings_apply(int row)
+{
+    const char *path, *word;
+    struct settings_state S;
+
+    settings_state_fill(&S);
+    word = settings_next_value(row, &S);
+    path = settings_row_path(row);
+    if (!word || !path)
+        return;
+    switch_word_write(path, word);
+    pointsrc_log("pointsrc: settings '%s' -> %s (wrote %s)",
+                 settings_row_label(row), word, path);
 }
 
 /* The eject, on the chosen device's OWN channel.
@@ -958,11 +1296,14 @@ int pointsrc_usb_state(struct prompt_state *S)
  * menu_key_needs_repeat() exists at all.
  *
  * THE CHANNEL IS THE DEVICE'S OWN NUMBER and not CH_GLOBAL, for the reason
- * rbp_abi.h's USB_MGR_OFF_CHANNEL records: onKey drops any key whose channel byte
- * differs from the manager's own. prompt_act_channel() is what names it -- 1 for the
- * left button, 2 for the right -- and it answers 0 for PR_ACT_NONE, which sends
- * nothing: a box that stopped nothing sends nothing at all, which is what a release
- * let go before its three seconds, and a press that missed, both are.
+ * rbp_abi.h's USB_MGR_OFF_CHANNEL records: onKey drops any key whose channel byte differs
+ * from the manager's own. settings_act_channel() is what names it -- 1 for the USB1 STOP row,
+ * 2 for USB2 STOP -- and it answers 0 for a row that is not an eject, which is the guard that
+ * keeps this from ever being called with a channel that is not a device's.
+ *
+ * IT HAD A SECOND CALLER UNTIL 2026-10-14 -- the USB STOP chooser's completed hold -- and the
+ * settings panel's rows are the only one now. The three edges below are unchanged and are
+ * still exactly what those rows send.
  *
  * Back to back, no sleep: one synthesized tap, exactly as menu_fire() sends its own.
  * A wait here would starve the one input loop the band, the window, the drawers and
@@ -1196,7 +1537,7 @@ static void fx_ch_cycle(void){
  * wave_zone.c already uses -- rbp_abi.h's BROWSE_MODE_PLAY, measured 1 with the
  * performance screen on the glass and 5 with INFO over it -- and it is re-read on EVERY
  * report because rbp can leave the screen under a press that is already down. */
-static int rbp_perf_screen(void)
+int rbp_perf_screen(void)
 {
     static int am_rbp = -1;
 
@@ -1207,17 +1548,18 @@ static int rbp_perf_screen(void)
     return rbp_i32(UIBROWSE_GLOBAL + UIBROWSE_OFF_MODE) == BROWSE_MODE_PLAY;
 }
 
-/* ------------------------------------------------ the HOT CUE pad row (hc_zone.h)
+/* ------------------------------------------------ the pad grid (hc_zone.h)
  *
- * The operator's ask of 2026-10-06 -- a touch on a HOT CUE pad fires that pad's cue,
- * and on a pad with no cue does NOTHING and creates nothing -- and the three reads it
- * needs. hc_zone.c owns the geometry, the anchor and the rule; this owns rbp.
+ * The operator's asks of 2026-10-06 and 2026-10-10: a touch on a HOT CUE pad fires that pad's cue
+ * and on a pad with no cue does NOTHING and creates nothing; and in the three OTHER pad modes
+ * every pad functions, because there a pad is a loop or a beat jump rather than something that
+ * writes to the track. hc_zone.c owns the geometry, the anchor and the rule; this owns rbp.
  *
- * THE MIDDLE READ IS THE WHOLE FEATURE. On real Pioneer gear an unlit HOT CUE pad
- * STORES a cue at the playhead, so "fires when it should not" does not merely
- * disappoint -- it writes a cue onto the operator's own track, mid-set. Every read
- * below therefore answers its FAILURE as "no": a pad mode that cannot be read is -1, a
- * registration that cannot be asked is 0, and hc_may_fire() refuses on both. */
+ * THE REGISTRATION READ IS THE WHOLE FEATURE IN HOT CUE. On real Pioneer gear an unlit HOT CUE
+ * pad STORES a cue at the playhead, so "fires when it should not" does not merely disappoint -- it
+ * writes a cue onto the operator's own track, mid-set. That is why the read answers its FAILURE as
+ * "no" (a pad mode that cannot be read is -1, a registration that cannot be asked is 0, and
+ * hc_may_fire() refuses on both) and why it is asked in that mode alone. */
 
 /* rbp's per-deck pad mode, straight out of the walk UiGetPadMode @0xfd3cc performs --
  * rbp_abi.h's UI_PADMODE_* block carries the derivation and the measurement behind it
@@ -1290,14 +1632,18 @@ static void hc_fire(int deck, int pad)
         am_rbp = is_rbp_process();
     mode = am_rbp ? rbp_i32(UIBROWSE_GLOBAL + UIBROWSE_OFF_MODE) : -1;
     pm = am_rbp ? hc_pad_mode(deck) : -1;
+    /* THE REGISTRATION IS ASKED IN HOT CUE ONLY. It is the one mode where an empty pad ACTS -- on
+     * real gear an unlit HOT CUE pad stores a cue at the playhead -- and every other mode fires on
+     * every pad, so asking there would be a read with no consumer and a gate with no reason.
+     * hc_zone.h's gate block is the rule; this is the one place it is fed. */
     reg = (pm == HC_PAD_MODE_HOT) ? hc_registered(deck, pad) : 0;
 
     if (!hc_may_fire(mode, pm, reg)) {
-        pointsrc_log("pointsrc: hot cue deck%d pad%d -> nothing sent "
+        pointsrc_log("pointsrc: pad deck%d pad%d -> nothing sent "
                      "(mode %d pad mode %d registered %d)", deck + 1, pad, mode, pm, reg);
         return;
     }
-    pointsrc_log("pointsrc: hot cue deck%d pad%d -> key %#x ch%d", deck + 1, pad,
+    pointsrc_log("pointsrc: pad deck%d pad%d mode%d -> key %#x ch%d", deck + 1, pad, pm,
                  hc_pad_keycode(pad), deck + 1);
     send_rx_key(hc_pad_keycode(pad), OP_PRESS, deck + 1, 0);
     send_rx_key(hc_pad_keycode(pad), OP_RELEASE, deck + 1, 0);
@@ -1334,82 +1680,109 @@ static void hc_fire(int deck, int pad)
  */
 
 /* ---------------------------------------------------------------------------
- * THE NUDGE, which is rbp's JOG and nothing else.
+ * THE NUDGE, WHICH IS THE TEMPO SLIDER AND NOT A BEND.
  *
- * There is NO bend, pitch-bend or nudge keycode in rbp's table -- the only mechanism
- * it has for "push the track a little" is the jog wheel's rotate message, which is the
- * whole reason this borrows map_flx4.c's flx4_jog() rather than inventing anything:
+ * rbp has no nudge keycode and does not need one: it has a TEMPO SLIDER, and the
+ * FLX4's own pitch fader drives it with an absolute position --
  *
- *   send_rx_key_fl(K_JOG_ROT 0x4305, OP_ROTATE, ch, 0, speed, vpos)
- *                                                            (rev/s)  (16-bit)
+ *   send_rx_key_fl(K_TEMPO_SLIDER 0x4109, OP_VALUE, ch, v10, norm, pos)
+ *                                                             [-1..+1] 14-bit
  *
- * TWO THINGS ABOUT THAT CONTRACT DRIVE THE CODE BELOW.
+ * -- which is map_flx4.c's flx4_pitch(), the call this borrows rather than inventing
+ * anything, and the one map_jp21.c makes too. So the drawer's '-' and '+' are, at the
+ * wire, a hand on that fader: the press moves it and the release puts it back.
  *
- * 1. rbp KEEPS BENDING UNTIL IT IS TOLD SPEED 0. A jog message starts a bend at a
- *    signed rate and nothing in rbp ends it -- flx4_jog_idle() exists for exactly this
- *    reason on the hardware path (it fires a speed-0 message once the wheel has been
- *    still for JOG_IDLE_MS). So the drawer's nudge is a START on the press and a STOP
- *    on the release, and the stop is emitted whether or not the finger is still on the
- *    cell it began on. A bend left running is a track that slides out from under the
- *    operator with nothing on the glass able to stop it.
+ * THE RELEASE READS THE FADER AT THAT MOMENT rather than restoring a value captured at
+ * the press, and the difference is deliberate. If something moves the fader during the
+ * hold -- the hardware's own pitch fader, or the DRAWER's when it is in pitch mode, which
+ * is a second writer of the same number since 2026-10-12 -- its messages have already
+ * taken the tempo there, and a release that restored a stale capture would yank the tempo
+ * back and fight the hand that had just moved it. Reading at the release is right in both
+ * cases -- and it is the same number when the fader never moved, which is the only case a
+ * bench shows. The cost of the second writer is that a nudge and a pitch-fader drag
+ * landing on the same deck at the same time resolve to "whichever spoke last", which is
+ * the honest answer for two hands on one control.
  *
- * 2. THE SPEED'S MAGNITUDE IS A CALIBRATION, NOT A DERIVATION. The FLX4 computes it
- *    from how fast the platter turns; a button has no speed, so one has to be chosen,
- *    and rbp's own mapping from rev/s to tempo bend is not known here. The default is
- *    deliberately small and the knob is SIDE_NUDGE_SPEED so it can be settled on the
- *    glass in one restart rather than in a rebuild -- which is the honest state of
- *    this number, and the drill on the unit is what will fix it.
+ * The position comes from pitch_state.o, which exists precisely because the writer is
+ * knobshim.so's map and this is fbshim.so, loaded FIRST: see that header. With no
+ * controller attached the published value is the fader's centre, which is where rbp's
+ * own tempo slider cold-starts, so the pair still works on the machine the drawers
+ * exist for.
  *
- * `nudge_running[]` is the bend each side is making RIGHT NOW (-1 back, +1 forward, 0
- * none) and `nudge_pos[]` is the 16-bit position the last message carried, which the
- * contract wants alongside the speed. The running state is what makes this idempotent:
- * the edges come from side_zone.c's acts, and side_bend_sync() reconciles them against
- * side_nudging() on the paths where no report will arrive to deliver an edge.
+ * The size is the one soft number, and it is a calibration settled on the glass in one
+ * restart rather than in a rebuild: SIDE_NUDGE_PCT, PERCENT OF THE FADER'S TRAVEL --
+ * see pitch_state.h for why that unit and not tempo points.
+ *
+ * `nudge_running[]` is the cell each side is holding RIGHT NOW (-1 back, +1 forward, 0
+ * none). It is what makes this idempotent: the edges come from side_zone.c's acts, and
+ * side_nudge_sync() reconciles them against side_nudging() on the paths where no report
+ * will arrive to deliver an edge. Without it, a finger lost with the touch device would
+ * leave the tempo moved with nothing on the glass able to put it back.
  * ------------------------------------------------------------------------- */
-#define SZ_NUDGE_SPEED_DEFAULT  0.35
+#define SZ_NUDGE_PCT_DEFAULT  5.0
 
-static int          nudge_running[2];
-static unsigned int nudge_pos[2];
+static int nudge_running[2];
 
-static void side_bend(int side, int dir)
+static void side_nudge(int side, int want)
 {
-    int ch = side_channel(side);
-    double speed = env_double("SIDE_NUDGE_SPEED", SZ_NUDGE_SPEED_DEFAULT);
+    float pct = (float)env_double("SIDE_NUDGE_PCT", SZ_NUDGE_PCT_DEFAULT);
+    float fader, norm;
+    int ch, v10;
 
     if (side != SZ_LEFT && side != SZ_RIGHT)
         return;
-    if (dir == nudge_running[side])
-        return;                      /* already bending that way: one message is the whole protocol */
-    nudge_running[side] = dir;
+    if (want == nudge_running[side])
+        return;              /* already doing that: one message per edge is the whole
+                              * protocol, and there is no repeat clock here or wanted */
+    nudge_running[side] = want;
 
-    if (dir != 0)
-        nudge_pos[side] = (unsigned int)(nudge_pos[side] +
-                                         (dir > 0 ? 128u : (unsigned int)-128)) & 0xFFFFu;
+    ch = side_channel(side);
+    fader = g_pitch_norm[side];             /* the fader's own position, RIGHT NOW */
+    norm = pitch_nudge_norm(fader, want, pct);
+    v10 = pitch_v10_from_norm(norm);
 
-    pointsrc_log("pointsrc: side %s nudge %s -> key %#x rotate speed %+.2f ch%d pos %u",
+    /* The log states the fader it moved FROM as well as what it sent, because those
+     * two numbers are the whole diagnosis: a nudge that "does nothing" is usually one
+     * that was clamped at the end of the travel, or one taken from a fader no surface
+     * has ever reported. */
+    pointsrc_log("pointsrc: side %s nudge %s -> key %#x op %d ch%d norm %+.3f"
+                 " (fader %+.3f%s, pct %.2f)",
                  side ? "right" : "left",
-                 dir > 0 ? "forward" : (dir < 0 ? "back" : "stop"),
-                 K_JOG_ROT, dir * speed, ch, nudge_pos[side]);
-    send_rx_key_fl(K_JOG_ROT, OP_ROTATE, ch, 0, (float)(dir * speed),
-                   (long)nudge_pos[side]);
+                 want > 0 ? "forward" : (want < 0 ? "back" : "restore"),
+                 K_TEMPO_SLIDER, OP_VALUE, ch, (double)norm, (double)fader,
+                 g_pitch_seen[side] ? "" : ", no fader seen", (double)pct);
+    send_rx_key_fl(K_TEMPO_SLIDER, OP_VALUE, ch, (long)v10, norm,
+                   (long)pitch_pos_from_norm(norm));
 }
 
 /* The reconciler, for the paths where no report will arrive. Called after
  * side_reset_all(), which is where a finger can stop existing without a release edge:
  * the touch device going away, and the menu being switched off under a held press. In
  * both, side_zone.c has already forgotten the press, so side_nudging() reads 0 and
- * this is what actually stops the track. It is idempotent, so calling it on a quiet
- * system sends nothing. */
-static void side_bend_sync(void)
+ * this is what actually puts the tempo back. It is idempotent, so calling it on a
+ * quiet system sends nothing. */
+static void side_nudge_sync(void)
 {
     int i;
 
-    for (i = 0; i < 2; i++) {
-        int want = side_nudging(i);
+    for (i = 0; i < 2; i++)
+        side_nudge(i, side_nudging(i));
+}
 
-        if (want != nudge_running[i])
-            side_bend(i, want);
-    }
+/* A BUTTON THAT IS ONE KEYCODE AND NOTHING ELSE: press, release, and the line that says
+ * which. Six of the drawer's controls are exactly this -- SYNC, MASTER, CUE, PLAY and the
+ * two discs -- and they were six copies of the same four lines until the discs arrived, at
+ * which point the copy stopped being shorter than the call. `what` is the word that goes
+ * in the log, and it is the LABEL on the glass so that a log line and a button can be
+ * matched by eye. */
+static void side_key(int side, int key, const char *what)
+{
+    int ch = side_channel(side);
+
+    pointsrc_log("pointsrc: side %s %s -> key %#x ch%d", side ? "right" : "left",
+                 what, key, ch);
+    send_rx_key(key, OP_PRESS, ch, 0);
+    send_rx_key(key, OP_RELEASE, ch, 0);
 }
 
 static void side_act(int side, int act, int value)
@@ -1418,40 +1791,94 @@ static void side_act(int side, int act, int value)
 
     switch (act) {
     case SZ_ACT_SYNC:
-        pointsrc_log("pointsrc: side %s SYNC -> key %#x ch%d", side ? "right" : "left",
-                     K_SYNC, ch);
-        send_rx_key(K_SYNC, OP_PRESS, ch, 0);
-        send_rx_key(K_SYNC, OP_RELEASE, ch, 0);
+        side_key(side, K_SYNC, "SYNC");
+        break;
+    case SZ_ACT_MASTER:
+        /* K_MASTER is rbp's "this deck is the master" designation -- the other half of the
+         * beat-match pair SYNC sits beside. It carries no value: which deck is master is
+         * rbp's own state and it is what rbp's screen shows. */
+        side_key(side, K_MASTER, "MASTER");
         break;
     case SZ_ACT_CUE:
-        pointsrc_log("pointsrc: side %s CUE -> key %#x ch%d", side ? "right" : "left",
-                     K_CUE, ch);
-        send_rx_key(K_CUE, OP_PRESS, ch, 0);
-        send_rx_key(K_CUE, OP_RELEASE, ch, 0);
+        side_key(side, K_CUE, "CUE");
         break;
     case SZ_ACT_PLAY:
-        pointsrc_log("pointsrc: side %s PLAY -> key %#x ch%d", side ? "right" : "left",
-                     K_PLAY, ch);
-        send_rx_key(K_PLAY, OP_PRESS, ch, 0);
-        send_rx_key(K_PLAY, OP_RELEASE, ch, 0);
+        side_key(side, K_PLAY, "PLAY");
+        break;
+    case SZ_ACT_RANGE:
+        /* A CYCLE, not a value: rbp advances +-6 -> +-10 -> +-16 -> WIDE on each press, and
+         * the shim is never told which one it lands on (pitch_state.h), which is why the
+         * disc has no lit state and why the nudge's size is expressed in fader travel. */
+        side_key(side, K_TEMPO_RANGE, "tempo range");
+        break;
+    case SZ_ACT_MT:
+        /* MASTER TEMPO (key lock). A toggle on rbp's side; the disc lights from rbp's own
+         * predicate, through RBP_TRANSPORT_MT. */
+        side_key(side, K_MT, "master tempo");
         break;
     case SZ_ACT_NUDGE_REV:
-        side_bend(side, -1);
+        side_nudge(side, -1);
         break;
     case SZ_ACT_NUDGE_FWD:
-        side_bend(side, +1);
+        side_nudge(side, +1);
         break;
     case SZ_ACT_NUDGE_STOP:
-        side_bend(side, 0);
+        side_nudge(side, 0);
+        break;
+    case SZ_ACT_MODE:
+        /* THE TOGGLE HAS ALREADY HAPPENED. side_zone.c flips its own mode and reports
+         * this as the notification (side_zone.h's side_mode() note), so there is nothing
+         * to send: the mode is the panel's, and rbp is told the fader's VALUE by whichever
+         * of the two messages the next drag produces. The line exists because it is the
+         * only place that says which control the strip is on -- and a drag's own line
+         * does not, since both modes report the same 0..1023 position. */
+        pointsrc_log("pointsrc: side %s fader is now %s", side ? "right" : "left",
+                     side_mode(side) == SZ_MODE_PITCH ? "PITCH" : "VOLUME");
         break;
     case SZ_ACT_FADER:
-        /* The value is logged for every change -- a full-height drag is a few hundred
-         * lines and not a few thousand, because side_zone.c only reports a change --
-         * and it is the only line that says what the drawer actually sent. */
-        pointsrc_log("pointsrc: side %s fader ch%d -> %d", side ? "right" : "left",
-                     ch, value);
-        send_rx_key_f(K_FADER, OP_VALUE, ch, value, (float)value / 1023.0f);
-        fader_state_set(ch, value);
+        /* WHICH MESSAGE THIS IS DEPENDS ON WHAT THE FADER IS, and this arm is the only
+         * place the two modes differ. The drawer reports the same 0..1023 position either
+         * way: its arithmetic does not know about modes, because side_zone.h's contract
+         * is that the module says WHICH control and leaves the message to the caller.
+         *
+         * PITCH sends exactly what the nudge pair sends, from exactly the same place --
+         * the position the finger is on, as the tempo slider's own 10-bit value, with the
+         * norm DERIVED FROM IT rather than the other way round. pitch_state.h's
+         * pitch_norm_from_v10() note says why: the forward map truncates, so re-deriving
+         * v10 from the norm would lose a step for 84 of the 1024 positions, and the value
+         * on the wire would no longer be the deduped one side_zone.c produced.
+         *
+         * AND THE FADER IS TURNED OVER, which is `pitch_norm_for_fader()` and not
+         * `pitch_norm_from_v10()`: the operator's own correction, *"sliding up should
+         * bring the tempo down not up"* (2026-10-12). The top of the track is the slow
+         * end. menu_draw.c draws the handle through the matching `pitch_v10_for_fader()`,
+         * so the two cannot disagree about which way up the control is; the NORM itself
+         * is unchanged, and a nudge's '+' still means forward.
+         *
+         * It then PUBLISHES that position, which is what keeps the nudge pair honest: a
+         * nudge moves FROM where this fader left the tempo, so the two surfaces cannot
+         * come to disagree about the position they are both describing.
+         *
+         * THE CHANNEL FADER IS NOT TOUCHED IN PITCH MODE. fader_state_set() would move
+         * the operator's volume, which is the one thing a pitch control must never do --
+         * and the same reason the readout is suppressed on the glass. */
+        if (side_mode(side) == SZ_MODE_PITCH) {
+            float norm = pitch_norm_for_fader(value);
+
+            pointsrc_log("pointsrc: side %s pitch ch%d -> %d (norm %+.3f)",
+                         side ? "right" : "left", ch, value, (double)norm);
+            send_rx_key_fl(K_TEMPO_SLIDER, OP_VALUE, ch, value, norm,
+                           (long)pitch_pos_from_norm(norm));
+            pitch_state_set(side, norm);
+        } else {
+            /* The value is logged for every change -- a full-height drag is a few hundred
+             * lines and not a few thousand, because side_zone.c only reports a change --
+             * and it is the only line that says what the drawer actually sent. */
+            pointsrc_log("pointsrc: side %s fader ch%d -> %d", side ? "right" : "left",
+                         ch, value);
+            send_rx_key_f(K_FADER, OP_VALUE, ch, value, (float)value / 1023.0f);
+            fader_state_set(ch, value);
+        }
         break;
     default:
         break;
@@ -1651,7 +2078,7 @@ static int wave_zoom_ok(int allow_menu)
         am_rbp = is_rbp_process();
     if (!am_rbp)
         return 0;
-    if (menu_window_is_open() || menu_is_open() || side_any_open())
+    if (menu_is_open() || side_any_open())
         return 0;
 
     return RB_WAVE_ZOOM_OK(rbp_i32(UIBROWSE_GLOBAL + UIBROWSE_OFF_MODE),
@@ -1742,30 +2169,23 @@ static void side_log_transitions(void)
     }
 }
 
-/* One report, in the one order that works: the browser WINDOW decides first if it
- * is open, then the menu decides whether rbp sees this press at all, then a drawer,
- * then rbp's own UTILITY screen if it is the one in front, then the QUANTIZE box
- * interprets it, then it goes to rbp.
+/* One report, in the one order that works: the menu decides whether rbp sees this
+ * press at all, then a drawer, then rbp's own UTILITY screen if it is the one in
+ * front, then the QUANTIZE box interprets it, then it goes to rbp.
  *
- * THE WINDOW IS FIRST because it is opaque and drawn OVER the menu's own rectangle:
- * a press that landed on the window must not also be judged by the swipe rules
- * underneath it. It answers only for points on itself, so nothing else in this
- * chain changes.
- *
- * THE MENU IS NEXT because it owns the whole report when it takes it. rbp gets
+ * THE MENU IS FIRST because it owns the whole report when it takes it. rbp gets
  * nothing -- not the touch, and not the QUANTIZE box either: a press that
  * dismisses the panel must not also press whatever is drawn under it, and
  * touch_zone_feed() is reached only through quantize_tap() below, so a swallowed
  * press never advances the box's edge state. That is what leaves the next real
  * press on a QUANTIZE box still a fresh press (test_point.c pins it).
  *
- * THE DRAWERS ARE LAST OF THE THREE, and they are asked only while the window is
- * shut: the window owns the plane and a drawer must not be opened under it. The
- * band's own precedence is inside side_zone.c instead (its closed-entry arm refuses
- * while the band is open) -- which is why an open band, which swallows at full
- * width, still answers first and a drawer cannot steal the tap that dismisses it.
- * side_feed_any() is the one call and it returns which drawer answered, because only
- * that drawer knows the channel the key or the fader value goes out on.
+ * THE DRAWERS ARE LAST OF THE THREE, and the band's own precedence is inside
+ * side_zone.c (its closed-entry arm refuses while the band is open) -- which is why an
+ * open band, which swallows at full width, still answers first and a drawer cannot
+ * steal the tap that dismisses it. side_feed_any() is the one call and it returns which
+ * drawer answered, because only that drawer knows the channel the key or the fader
+ * value goes out on.
  *
  * MZ_FEED_TAP is the one swallowed answer rbp does hear, and it hears a *different*
  * press: the swallowing surface's own copy, emitted here (menu_replay_tap /
@@ -1783,70 +2203,148 @@ static void side_log_transitions(void)
  * release, which is where a menu button fires and where the tap/hold split is
  * decided. The drawers have no hold of their own: a transport key has no second
  * meaning, so `held_ms` is not passed on. */
+/* A tap on the pad-mode caption: advance that deck's pad mode by one.
+ *
+ * rbp's own reader says which mode the deck is in -- hc_pad_mode(), the same one hc_fire() uses --
+ * and padmode_zone.c owns the keycode that advances it, so this holds no mode of its own and
+ * cannot disagree with rbp about where the cycle is. A mode that cannot be read sends nothing.
+ *
+ * NEVER SILENT, for hc_fire()'s reason: a tap that did nothing because the mode could not be read
+ * and a tap that did nothing because something else ate the report are the same pixels, and this
+ * line is the only thing that tells them apart.
+ *
+ * THE SEND IS hc_fire()'s: one press edge and one release edge, back to back, on rbp's own
+ * channel for the deck -- which is what keeps a tap on deck 1's caption off deck 2. */
+static void pm_fire(int deck)
+{
+    int mode, key;
+
+    mode = hc_pad_mode(deck);
+    key = padmode_next_keycode(mode);
+    if (!key) {
+        pointsrc_log("pointsrc: pad mode deck%d -> nothing sent (pad mode %d could not be "
+                     "read)", deck + 1, mode);
+        return;
+    }
+    pointsrc_log("pointsrc: pad mode deck%d %d -> %d, key %#x ch%d", deck + 1, mode,
+                 (mode + 1) % PM_MODES, key, deck + 1);
+    send_rx_key(key, OP_PRESS, deck + 1, 0);
+    send_rx_key(key, OP_RELEASE, deck + 1, 0);
+}
+
+/* A tap on a deck's badge box: play/stop that deck.
+ *
+ * rbp's own keycode on rbp's own channel for the deck -- K_PLAY 0x4101, which is what the drawer's
+ * PLAY button sends (side_zone.c's SZ_ACT_PLAY) and what the FLX4's play button sends
+ * (map_flx4.c). So a tap here is the same gesture arriving by a third route rather than a third
+ * mechanism, which is the only way it can be trusted to mean the same thing. One press edge and
+ * one release edge, back to back, as both of those do.
+ *
+ * IT DOES NOT TRY TO BE CLEVERER THAN rbp: on a deck with nothing on it rbp's own play button does
+ * nothing, and so does this. What it does instead is SAY SO, so a tap that looked like it did
+ * nothing can be told apart from a report that never arrived. */
+static void db_fire(int deck)
+{
+    pointsrc_log("pointsrc: deck%d badge -> play/stop, key %#x ch%d", deck + 1, K_PLAY, deck + 1);
+    send_rx_key(K_PLAY, OP_PRESS, deck + 1, 0);
+    send_rx_key(K_PLAY, OP_RELEASE, deck + 1, 0);
+}
+
+/* A tap on a deck's BPM box: toggle that deck's SYNC.
+ *
+ * THE SAME TWO CALLS THE DRAWER'S SYNC MAKES (pointsrc.c's SZ_ACT_SYNC below), which is the same
+ * key the FLX4's own SYNC button sends: rbp's K_SYNC 0x4112, a press edge and a release edge back to
+ * back on THAT deck's channel. rbp's handler toggles -- there is no on/off to send -- so this asks
+ * nothing about the current state and cannot get it wrong.
+ *
+ * NEVER SILENT, like the pad row: a tap that did nothing because the report never arrived and one
+ * that did nothing because something above ate it are the same pixels. */
+static void bb_fire(int deck)
+{
+    pointsrc_log("pointsrc: deck%d BPM box -> sync toggle, key %#x ch%d", deck + 1, K_SYNC, deck + 1);
+    send_rx_key(K_SYNC, OP_PRESS, deck + 1, 0);
+    send_rx_key(K_SYNC, OP_RELEASE, deck + 1, 0);
+}
+
 static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
 {
     int button = 0;
     int verdict = MZ_FEED_NONE;
     int side = -1, sact = SZ_ACT_NONE, svalue = 0;
 
-    /* THE USB STOP CHOOSER FIRST, before everything else including the waveform
-     * swipe, and unconditionally -- not behind `allow_menu`. While the box is up it
-     * owns every report (prompt_zone.h), and a report it did not take would reach rbp
-     * as a press or a release of rbp's own: a finger that dismisses the box would
-     * also press whatever the performance screen has under it. The box can only be up
-     * if the menu was enabled when it was raised, and the POINT_MENU=0 path calls
-     * prompt_reset() beside menu_reset(), so ungated is safe as well as simpler.
-     *
-     * The device liveness is re-read on EVERY report, not cached at the open: rbp's
-     * answer is the whole point of the two device buttons and a stop the operator
-     * starts elsewhere is exactly the change the box should show.
-     *
-     * EVERY WAY A HOLD CAN END IS LOGGED, which is what makes the drill readable. The
-     * eject is logged with the milliseconds it was actually held, because "held 3020 ms"
-     * is the line that says a finger crossed the threshold rather than the tick's own
-     * slice; an early release is logged with its (shorter) duration, because the absence
-     * of an eject line is otherwise the same evidence as "the box never opened"; and a
-     * finger that leaves the button it was holding on is logged for the same reason,
-     * since that rule -- the anchor does not resume -- is invisible on the glass.
-     *
-     * THE CLOSE LAST, and it is the one line that cannot say WHY. By the time the release
-     * arrives the box has no memory of the press either way: the release that dismisses a
-     * box nobody pressed into and the release that puts away a box whose hold just fired
-     * are the same report through the same path (prompt_zone.c's fire branch disowns the
-     * press precisely so that they can be). It is logged as the fact and not as a verdict,
-     * and the line above it says which of the two it was. */
-    if (prompt_is_open()) {
-        struct prompt_state ps;
-        int pact = PR_ACT_NONE;
-        int held_cell = prompt_hold_cell();
-        unsigned long long now = shim_now_ms();
-        unsigned long long held = prompt_hold_ms(now);
+    /* Everything below that turns a finger into a keycode is labelled "touch"
+     * for the key dump. Set once, here, rather than beside each of the ~15 sends
+     * (this is the one entry for the absolute pointer path, and the second
+     * contact goes through pointer_report_alt -- see its own label), and it is
+     * the label that makes the dump answer the question MIDI_DUMP cannot: which
+     * of these commands came off the glass. A report that reaches rbp as a
+     * finger of its own (tscfake_emit, at the bottom) sends no keycode and so
+     * writes no record -- rbp's own widget handling is not a command the shim
+     * gave it. */
+    keylog_from("touch");
 
-        pointsrc_usb_state(&ps);
-        if (prompt_feed(&ps, down, x, y, now, &pact) != MZ_FEED_NONE) {
-            if (pact != PR_ACT_NONE) {
-                int ch = prompt_act_channel(pact);
+    /* THE SETTINGS PANEL, before the chooser and everything else, and unconditionally --
+     * the same rule the chooser's own block below states: while a box is up it owns every
+     * report, and a report it did not take would reach rbp as a press or a release of
+     * rbp's own, so a finger that dismissed the panel would also press whatever the
+     * performance screen has underneath it.
+     *
+     * IT IS FIRST AND THE CHOOSER IS SECOND because the panel can RAISE the chooser (its
+     * USB STOP row) and closes itself when it does, so the two are never up together and
+     * the order between them cannot matter to the gesture. It matters here only in that the
+     * panel's own reports are answered before anything that might swallow them.
+     *
+     * THE STATE IS RE-READ ON EVERY REPORT, like the chooser's device liveness and for the
+     * same reason: a row's operability is rbp's answer about the bus and about the media
+     * slots, and both change while the panel is up -- plugging the digital mixer in is
+     * exactly the change the operator is watching for (settings_zone.h). Four small file
+     * reads and one sysfs walk per report is the price, and it is the price
+     * pointsrc_usb_state() already pays on this same path.
+     *
+     * EVERY WAY OUT IS LOGGED, INCLUDING THE REFUSAL: a tap on a dim row's value answers
+     * nothing at all (settings_zone.c will not fire a control that cannot be operated), so
+     * without the line below a refused tap and a tap that never landed are the same
+     * silence. A HOLD is logged where it fires -- from here with the finger still down, or
+     * from the read loop's tick -- and the line names the milliseconds it was actually
+     * held, because that is what separates a real three seconds from the tick's slice. */
+    if (settings_is_open()) {
+        struct settings_state ss;
+        int sact = ST_ACT_NONE;
+        unsigned long long shel = settings_hold_ms(shim_now_ms());
 
-                pointsrc_log("pointsrc: usb stop chooser -> usb %d held %llu ms"
-                             " (hold is %d ms) -> eject (channel %d)",
-                             ch, held, PR_HOLD_MS, ch);
-                usb_stop_send(ch);
-            } else if (!down && held_cell) {
-                pointsrc_log("pointsrc: usb stop chooser -> usb %d released after"
-                             " %llu ms (hold is %d ms) -> nothing",
-                             held_cell, held, PR_HOLD_MS);
-            } else if (down && held_cell && !prompt_hold_cell()) {
-                pointsrc_log("pointsrc: usb stop chooser -> usb %d left the button"
-                             " after %llu ms -> the hold is off",
-                             held_cell, held);
-            } else if (!prompt_is_open()) {
-                pointsrc_log("pointsrc: usb stop chooser closed");
+        int held_row = settings_hold_row();
+
+        settings_state_fill(&ss);
+        if (settings_feed(&ss, down, x, y, shim_now_ms(), &sact) != MZ_FEED_NONE) {
+            if (sact != ST_ACT_NONE) {
+                /* A row that EJECTS answers from a completed hold and sends on a device's
+                 * own channel; every other row writes a word into a switch file. The module
+                 * says which kind (settings_row_ejects()) and the two never mix. */
+                if (settings_row_ejects(sact))
+                    settings_eject(sact, shel);
+                else
+                    settings_apply(sact);
+            } else if (!down && held_row) {
+                /* A HOLD THAT WAS LET GO EARLY, which sends nothing -- the operator's "if they
+                 * release it before three seconds don't eject it". It is logged for the
+                 * chooser's reason: without this line the absence of an eject is the same
+                 * evidence as "the hold never started", and a drill cannot tell them apart. */
+                pointsrc_log("pointsrc: settings '%s' released after %llu ms (hold is %d ms)"
+                             " -> nothing", settings_row_label(held_row), shel, ST_HOLD_MS);
+            } else if (!down) {
+                int row = settings_value_at(x, y);
+
+                if (row && !settings_row_live(row, &ss))
+                    pointsrc_log("pointsrc: settings '%s' refused -- %s",
+                                 settings_row_label(row), settings_refusal(row));
+                else if (!settings_is_open())
+                    pointsrc_log("pointsrc: settings panel closed");
             }
             return;
         }
     }
 
-    /* THE EFFECT PICKER, beside the USB chooser and for the same reason: while the box is
+    /* THE EFFECT PICKER, and for the reason the settings panel's rung above gives: while the box is
      * up it owns every report (fx_zone.h), so a finger that dismisses it must not also
      * press whatever the performance screen has underneath it. Ungated on `allow_menu`,
      * like the chooser: the box can only be up if its knob was on when it was raised, and
@@ -1876,23 +2374,10 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * says why that is a rule and not a preference. */
     wave_swipe(allow_menu, down, x, y);
 
-    /* THE WINDOW FIRST, and it is asked before the menu rather than after because
-     * the two overlap on the glass: the window is opaque, so a press inside its
-     * rectangle must never reach the menu's gesture rules underneath it. It only
-     * answers for points on itself (menu_window.h), so a press anywhere else still
-     * gets both the menu and rbp exactly as before -- which is what keeps the
-     * swipe-down gesture and test_menu.c's 6,373 checks untouched.
-     *
-     * A window report is always TAKEN, never TAP: the caller must not replay it to
-     * rbp, and `button` is left alone because the window acts on its own state
-     * machine inside menu_window_feed() rather than handing a button back. */
-    if (allow_menu && menu_window_is_open())
-        verdict = menu_window_feed(down, x, y);
-
-    if (verdict == MZ_FEED_NONE && allow_menu)
+    if (allow_menu)
         verdict = menu_feed(down, x, y, &button);
 
-    if (verdict == MZ_FEED_NONE && allow_menu && !menu_window_is_open())
+    if (verdict == MZ_FEED_NONE && allow_menu)
         verdict = side_feed_any(SZ_PTR_MAIN, down, x, y, &side, &sact, &svalue);
 
     /* After the one call that can change it and before any of the three ways out, so
@@ -1916,7 +2401,7 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * leave the performance screen under a press that is already down, and a swallowed
      * press on a screen that no longer has the panel is a control firing on nothing. */
     if (verdict == MZ_FEED_NONE && fx_touch && rbp_perf_screen() &&
-        !menu_window_is_open() && !menu_is_open() && !side_any_open()) {
+        !menu_is_open() && !side_any_open()) {
         int fact = FX_ACT_NONE;
 
         if (fx_feed(down, x, y, &fact) != MZ_FEED_NONE) {
@@ -1952,14 +2437,14 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * read, because a press this module swallowed has been withheld from rbp for its
      * whole life and must see its own release (declined-press-must-still-see-release).
      *
-     * THE PICKER AND THE CHOSER ARE GATED OUT TOO (`!fxlist_is_open() && !prompt_is_open()`),
+     * THE PICKER AND THE PANEL ARE GATED OUT TOO (`!fxlist_is_open() && !settings_is_open()`),
      * which the three taps above do not need: those are one-shot, while this pad owns a
      * gesture for as long as a finger is down, so a box raised by a second finger, or by
      * the band, must never have a pad engaged underneath it. */
     if (verdict == MZ_FEED_NONE && fx_touch &&
-        (fxpad_busy() || (rbp_perf_screen() && !menu_window_is_open() &&
+        (fxpad_busy() || (rbp_perf_screen() &&
                           !menu_is_open() && !side_any_open() &&
-                          !fxlist_is_open() && !prompt_is_open()))) {
+                          !fxlist_is_open() && !settings_is_open()))) {
         struct fxpad_live fl;
         const char *why = 0;
         int may = 1;
@@ -2017,13 +2502,100 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * handed an up for a down it never saw. hc_latched() is that term, and hc_feed()
      * refuses the release of a gesture that began off the grid on its own. */
     if (verdict == MZ_FEED_NONE && hc_touch &&
-        (hc_latched() || (rbp_perf_screen() && !menu_window_is_open() &&
+        (hc_latched() || (rbp_perf_screen() &&
                           !menu_is_open() && !side_any_open()))) {
         int hdeck = -1, hpad = 0;
 
         if (hc_feed(down, x, y, &hdeck, &hpad) != MZ_FEED_NONE) {
             if (hdeck >= 0)
                 hc_fire(hdeck, hpad);
+            return;
+        }
+    }
+
+    /* THE PAD-MODE CAPTION BAND (padmode_zone.h), one rung below the pads it names and for the
+     * same reason: it is rbp's own drawing, so every surface drawn over it gets first refusal.
+     *
+     * THE PRESS IS TAKEN AND THE TAP FIRES ON THE RELEASE. Taking the press is what stops a
+     * finger that lands on the caption from reaching rbp as a click, and it is why the release
+     * must be answered here even if rbp has left the performance screen under that finger:
+     * pm_latched_deck is the only record that this module owes rbp a swallowed up. A press the
+     * band did NOT take falls through to the rungs below, so a release that no press of ours
+     * began still reaches rbp -- the rule the HOT CUE rung above states for its own cells. */
+    if (verdict == MZ_FEED_NONE && pm_touch &&
+        (pm_latched_deck >= 0 || (rbp_perf_screen() &&
+                                  !menu_is_open() && !side_any_open()))) {
+        int pdeck = -1;
+
+        if (!down) {
+            int latched = pm_latched_deck;
+
+            pm_latched_deck = -1;
+            if (latched >= 0) {
+                if (padmode_band(x, y, &pdeck) && pdeck == latched)
+                    pm_fire(latched);
+                else
+                    pointsrc_log("pointsrc: pad mode deck%d -> nothing sent (the release "
+                                 "landed off the band)", latched + 1);
+                return;
+            }
+        } else if (padmode_band(x, y, &pdeck)) {
+            pm_latched_deck = pdeck;
+            return;
+        }
+    }
+
+    /* THE DECK BADGE BOX (deckbadge_zone.h): a tap on the rectangle around `DECK ( 1 )` beside the
+     * track title is play/stop for that deck. The same shape as the pad-mode band above, and for
+     * the same reason: it is rbp's own drawing, so every surface drawn over it has had its first
+     * refusal by the time this rung is reached -- and the press is taken here so that a finger
+     * landing on the badge cannot reach rbp as a click before the release decides. */
+    if (verdict == MZ_FEED_NONE && db_touch &&
+        (db_latched_deck >= 0 || (rbp_perf_screen() &&
+                                  !menu_is_open() && !side_any_open()))) {
+        int bdeck = -1;
+
+        if (!down) {
+            int latched = db_latched_deck;
+
+            db_latched_deck = -1;
+            if (latched >= 0) {
+                if (deckbadge_hit(x, y, &bdeck) && bdeck == latched)
+                    db_fire(latched);
+                else
+                    pointsrc_log("pointsrc: deck%d badge -> nothing sent (the release landed "
+                                 "off the badge)", latched + 1);
+                return;
+            }
+        } else if (deckbadge_hit(x, y, &bdeck)) {
+            db_latched_deck = bdeck;
+            return;
+        }
+    }
+
+    /* THE BPM BOX (bpmbox_zone.h): a tap on it toggles that deck's SYNC. Same shape as the two
+     * rungs above, and for the same reason -- it is rbp's own drawing, so every surface drawn over
+     * it has had first refusal by the time this is reached, and the press is taken here so a finger
+     * landing on the box cannot reach rbp as a click before the release decides. */
+    if (verdict == MZ_FEED_NONE && bb_touch &&
+        (bb_latched_deck >= 0 || (rbp_perf_screen() &&
+                                  !menu_is_open() && !side_any_open()))) {
+        int sdeck = -1;
+
+        if (!down) {
+            int latched = bb_latched_deck;
+
+            bb_latched_deck = -1;
+            if (latched >= 0) {
+                if (bpmbox_hit(x, y, &sdeck) && sdeck == latched)
+                    bb_fire(latched);
+                else
+                    pointsrc_log("pointsrc: deck%d BPM box -> nothing sent (the release landed "
+                                 "off the box)", latched + 1);
+                return;
+            }
+        } else if (bpmbox_hit(x, y, &sdeck)) {
+            bb_latched_deck = sdeck;
             return;
         }
     }
@@ -2050,7 +2622,7 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * which is what keeps the six columns, the keyboard and the mouse working over
      * it. */
     if (verdict == MZ_FEED_NONE && allow_menu &&
-        !menu_window_is_open() && !menu_is_open() && !side_any_open()) {
+        !menu_is_open() && !side_any_open()) {
         struct util_state ust;
         int uact = UTIL_ACT_NONE, uvalue = 0;
 
@@ -2094,16 +2666,15 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
  * produced was `side left fader ch1 -> 198`.
  *
  * IT GOES TO THE DRAWERS AND NOWHERE ELSE, and that is the whole of its scope. rbp
- * has ONE pointer -- the whole rest of this file, the band, the browser window, the
- * USB STOP chooser and the UTILITY gesture are built around it -- so a second contact
- * that lands anywhere but a drawer is DROPPED, never forwarded. Forwarding it would
- * hand rbp a press it cannot interpret.
+ * has ONE pointer -- the whole rest of this file, the band, the USB STOP chooser and
+ * the UTILITY gesture are built around it -- so a second contact that lands anywhere
+ * but a drawer is DROPPED, never forwarded. Forwarding it would hand rbp a press it
+ * cannot interpret.
  *
- * THE TWO GATES ARE THE SURFACES THAT OWN THE GLASS. The USB STOP chooser takes every
- * report by design while it is up (prompt_zone.h), and the browser window is opaque
- * and drawn over everything; both would otherwise be reachable by a hand the operator
- * did not aim with. The band needs no gate here: a drawer cannot arm while the band is
- * open, which side_zone.h's closed-entry arm already enforces.
+ * THE ONE GATE IS THE SURFACE THAT OWNS THE GLASS. The USB STOP chooser takes every
+ * report by design while it is up (settings_zone.h); it would otherwise be reachable by
+ * a hand the operator did not aim with. The band needs no gate here: a drawer cannot
+ * arm while the band is open, which side_zone.h's closed-entry arm already enforces.
  *
  * A TAP IS DROPPED, not replayed. `side_feed_any()` can answer MZ_FEED_TAP for a
  * second finger that tapped a shut drawer's entry column, and the primary path
@@ -2119,18 +2690,30 @@ static void pointer_report_alt(int down, const struct point_xform *x, int rx, in
     int lx, ly;
     int side = -1, act = SZ_ACT_NONE, value = 0;
 
+    /* The second contact's own label, for the same reason pointer_report() sets
+     * one: this path is not reached through it, and its writes (a drawer's fader,
+     * its nudge pair) are commands off the glass like any other. */
+    keylog_from("touch");
+
     if (!menu_enabled)
         return;
-    /* The picker joins the chooser here: both own every report while they are up, so a
-     * second contact must not reach a drawer underneath one -- and a second finger on a
-     * drawer while a box is over the glass is a hand the operator did not aim with.
+    /* The picker and the settings panel own every report while they are up -- each is asked
+     * first in pointer_report() -- so a second contact must not reach a drawer underneath
+     * one: a second finger on a drawer while a box is over the glass is a hand the operator
+     * did not aim with.
      *
      * THE BPM CELL'S PAD JOINS THEM for the same reason, and it is the one surface here
      * that owns the glass for as long as a finger is DOWN rather than while a box is up:
      * the right-hand drawer's entry column runs the full height of the cell's own panel,
      * so a second finger landing there while the pad is engaged would open a drawer drawn
-     * straight over the pad the operator is still dragging. */
-    if (prompt_is_open() || fxlist_is_open() || menu_window_is_open() || fxpad_busy())
+     * straight over the pad the operator is still dragging.
+     *
+     * AND THE SETTINGS PANEL JOINS THEM, because it is a box like the other two: a second
+     * contact reaching a drawer while the panel is over the glass would draw the drawer
+     * under it. The main contact cannot do that -- the panel's own rung in
+     * pointer_report() takes every report while it is up -- but this path does not go
+     * through that rung, which is exactly why the list is written out here. */
+    if (fxlist_is_open() || settings_is_open() || fxpad_busy())
         return;
 
     point_xform_abs(x, rx, ry, &lx, &ly);
@@ -2175,7 +2758,7 @@ static void read_loop_abs(int fd, const struct point_xform *x)
 {
     struct ev_input_event ev;
     /* ONE POINTER PER SLOT. Index 0 is the primary contact -- the one rbp, the band,
-     * the browser window, the USB STOP chooser and the UTILITY gesture all read, and
+     * the USB STOP chooser and the UTILITY gesture all read, and
      * the only one they are told about. Index 1 exists solely for the edge drawers,
      * whose two channel faders are the one control pair a DJ rides with both hands;
      * pointer_report_alt() below is where it goes, and a report it does not take is
@@ -2217,36 +2800,25 @@ static void read_loop_abs(int fd, const struct point_xform *x)
          * non-zero only while the panel is open with a button under the finger, so
          * a press that cannot become a hold -- anywhere on the glass, with the panel
          * shut -- is answered by the blocking read exactly as before. */
-        /* THE CHOOSER'S OWN CLOCK, and the reason it is here rather than in a thread
-         * of its own: the box has to be able to go away with nobody touching anything,
-         * AND a hold has to be able to fire with nobody touching anything -- the whole
-         * point of a three-second hold is that the finger does not move, so there is no
-         * further report to wake this loop on. Waiting in slices keeps the touch thread
-         * the ONE writer of the prompt's state, exactly as the hold block below does --
-         * menu_draw.c only ever reads it.
-         *
-         * prompt_tick() refuses the timeout while a finger is down, so this cannot hand
-         * rbp a release with no press behind it (prompt_zone.c). It is also the only
-         * caller of it: the tick is the module's single time entry point precisely so
-         * that the eject and the blink cannot come to disagree about the clock. */
-        if (prompt_is_open()) {
-            struct prompt_state ps;
-            int pact = PR_ACT_NONE;
-            unsigned long long held = prompt_hold_ms(shim_now_ms());
+        /* THE SETTINGS PANEL'S OWN CLOCK, the same shape as the chooser's below and for
+         * the same reasons: the panel covers the middle of the performance screen and has
+         * to be able to go away with nobody touching anything, and this loop otherwise
+         * wakes only on an event. settings_tick() refuses the timeout while a finger is
+         * down, so this cannot hand rbp a release with no press behind it
+         * (settings_zone.h). */
+        if (settings_is_open()) {
+            struct settings_state ss;
+            int sact = ST_ACT_NONE;
+            unsigned long long shel = settings_hold_ms(shim_now_ms());
             int ev;
 
-            pointsrc_usb_state(&ps);
-            ev = prompt_tick(&ps, shim_now_ms(), &pact);
-            if (ev == PR_TICK_EJECT) {
-                int ch = prompt_act_channel(pact);
-
-                pointsrc_log("pointsrc: usb stop chooser -> usb %d held %llu ms"
-                             " (hold is %d ms) -> eject (channel %d)",
-                             ch, held, PR_HOLD_MS, ch);
-                usb_stop_send(ch);
-            } else if (ev == PR_TICK_TIMEOUT) {
-                pointsrc_log("pointsrc: usb stop chooser timed out after %d ms",
-                             PR_TIMEOUT_MS);
+            settings_state_fill(&ss);
+            ev = settings_tick(&ss, shim_now_ms(), &sact);
+            if (ev == ST_TICK_EJECT) {
+                settings_eject(sact, shel);
+            } else if (ev == ST_TICK_TIMEOUT) {
+                pointsrc_log("pointsrc: settings panel timed out after %d ms",
+                             SB_TIMEOUT_MS);
             } else {
                 struct pollfd p;
 
@@ -2258,7 +2830,7 @@ static void read_loop_abs(int fd, const struct point_xform *x)
             }
         }
 
-        /* THE PICKER'S OWN CLOCK, the same shape one block up and for the same reasons:
+        /* THE PICKER'S OWN CLOCK, the same shape as the settings panel's slice above and for the same reasons:
          * a box that covers rbp's pad rows has to be able to go away with nobody touching
          * anything, and this loop otherwise wakes only on an event. fxlist_expire() refuses
          * while a finger is down, so this cannot hand rbp a release with no press behind
@@ -2289,7 +2861,7 @@ static void read_loop_abs(int fd, const struct point_xform *x)
          *     asynchronously, so the unwind that puts the effect back can only be driven
          *     by a loop that keeps running after the finger is gone.
          *
-         * fxpad_tick() is the module's single time entry point, exactly as prompt_tick()
+         * fxpad_tick() is the module's single time entry point, exactly as settings_tick()
          * and fxlist_expire() are for the two boxes, and it is the only writer of the
          * pad's state -- menu_draw.c only ever reads it.
          *
@@ -2669,11 +3241,11 @@ static void *reader_thread(void *arg)
          * five -- it can only ever cost an unwanted zoom -- and it costs nothing to
          * say, so it is said. */
         wave_reset();
-        /* ...and the USB STOP chooser. Its failure is the one with a real
-         * consequence: a box left up by a finger that went away with the device
-         * cannot be dismissed at all -- every press is swallowed while it is up --
-         * and its deadline would close it with a press that never came. */
-        prompt_reset();
+        /* ...and the settings panel, whose failure is the chooser's exactly: a panel left
+         * up by a finger that went away with the device cannot be dismissed at all --
+         * every press is swallowed while it is up -- and its deadline would close it with
+         * a press that never came. */
+        settings_reset();
         /* ...and the BEAT FX panel's three controls. Both halves, because their failures
          * are the chooser's: a picker left up by a finger that went away with the device
          * cannot be dismissed at all -- every press is swallowed while it is up -- and its
@@ -2693,10 +3265,10 @@ static void *reader_thread(void *arg)
          * continuation of a gesture whose beginning rbp never saw, so the release that
          * follows would fire a pad the operator never aimed at. */
         hc_reset();
-        /* ...and the bend, which is the one piece of drawer state rbp holds rather
-         * than this process: the finger went away without a release, so no STOP edge
-         * will ever be delivered and the track would keep sliding. */
-        side_bend_sync();
+        /* ...and the nudge, which is the one piece of drawer state rbp holds rather
+         * than this process: the finger went away without a release, so no RESTORE
+         * edge will ever be delivered and the tempo would stay moved. */
+        side_nudge_sync();
         if (log_debug)
             pointsrc_log("pointsrc: %s went away; rescanning", path);
     }
@@ -2714,6 +3286,12 @@ int pointsrc_start(void)
      * rather than a shim surface. Off means rbp's stream is untouched at those sixteen
      * cells, byte for byte. */
     hc_touch = env_flag("POINT_HOTCUE_TOUCH", 1);
+    /* The pad-mode caption's own switch, for hc_touch's reason. */
+    pm_touch = env_flag("POINT_PADMODE_TAP", 1);
+    /* ...and the deck badge's. */
+    db_touch = env_flag("POINT_DECK_PLAY", 1);
+    /* ...and the BPM box's. */
+    bb_touch = env_flag("POINT_BPM_SYNC", 1);
     /* menu_key_eff is built even when the menu is off, so the log states the
      * table it would use rather than staying silent about a knob that was set. */
     menu_keys_init();
@@ -2724,9 +3302,9 @@ int pointsrc_start(void)
                             * untouched stream, and a drawer cannot be opened while
                             * it is set -- the funnel never offers it a report */
     if (!menu_enabled)
-        side_bend_sync();  /* and stop any bend a held nudge cell left running:
-                            * this runs at start-up, where "the drawer was reset"
-                            * has to mean "so was the track" */
+        side_nudge_sync();  /* and put back any tempo a held nudge cell left moved:
+                             * this runs at start-up, where "the drawer was reset"
+                             * has to mean "so was the fader" */
     if (!menu_enabled)
         util_reset();      /* and the UTILITY gesture: it is offered the same
                             * reports as the rest of the menu, so POINT_MENU=0
@@ -2736,31 +3314,6 @@ int pointsrc_start(void)
         wave_reset();      /* and the waveform swipe: it is offered the same reports
                             * and gated on the same switch, so POINT_MENU=0 must leave
                             * nothing anchored behind it either */
-    if (!menu_enabled)
-        prompt_reset();    /* and the USB STOP chooser, which is raised from the
-                            * band's own seventh column: with the band off there is
-                            * no way to raise it, and a box left up from a state
-                            * before would swallow every report in the file */
-    if (!fx_touch) {
-        /* And the Beat FX panel's three controls, which are rbp's drawing rather than a
-         * shim surface and so have their OWN switch: with POINT_FX_TOUCH=0 the panel
-         * belongs to rbp entirely, and a picker left up from a state before would
-         * swallow every report in the file -- the same failure the chooser's line above
-         * names, one surface over. */
-        fx_reset();
-        fxlist_reset();
-        fxpad_reset();     /* ...and the BPM cell's pad, which is rbp's drawing too and so
-                            * shares this switch rather than POINT_MENU's: an engagement
-                            * left from a run where the panel was live would keep the loop
-                            * ticking and hold the only copy of where the effect belonged */
-    }
-    if (!hc_touch)
-        hc_reset();        /* and the HOT CUE pad row, which is also rbp's own drawing and
-                            * so shares this shape rather than POINT_MENU's: a latch left
-                            * holding a press from a run where the row was live would make
-                            * the next press look like a continuation, and fire a pad the
-                            * operator never aimed at */
-
     if (reader_started)
         return 0;
     /* POINT_KIND=none means "no pointer at all" — the display-only bring-up

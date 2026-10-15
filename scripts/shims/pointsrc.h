@@ -17,7 +17,7 @@
 #ifndef RBPI4B_POINTSRC_H
 #define RBPI4B_POINTSRC_H
 
-#include "prompt_zone.h"    /* struct prompt_state, for the snapshot below */
+#include "settings_zone.h"  /* struct settings_state, for the snapshot below */
 
 /* Start (or re-start) the discovery/reader thread. Idempotent and safe to call
  * from any thread; returns 0 if the thread is running. */
@@ -42,24 +42,23 @@ int pointsrc_cursor(int *logical_x, int *logical_y, int *down);
  * in one file, in the order things happened. */
 void pointsrc_log(const char *fmt, ...);
 
-/* What rbp currently says about the two USB devices -- and what the host says they are
- * called -- for the USB STOP chooser. `S->live[i]` is "device i+1 has media present and
- * ready" (rbp's own test, `[UsbStorageManager+0x88] == 2`); both are left 0 when rbp
- * cannot be read, which the painter and the gesture both treat as a refusal rather than
- * as an absence of information. Returns 1 if rbp was walked, 0 if not -- the return is
- * for the log, not for the caller's decision.
+/* Everything the SETTINGS panel reads: rbp's two media slots -- BOTH the answer about whether
+ * each has media and each device's own NAME, off `/tmp/udev_usbN.label`, which is what the
+ * USB1 STOP/USB2 STOP rows print -- the USB bus (through usb_devices.c's mixer_present(), the same single walk audioshim asks),
+ * and the four live switch files. Public for the reason the snapshot above is: the panel's
+ * picture depends on all of it, so menu_draw.c's builder reads it on every build and the
+ * answer it was read at is part of the published image.
  *
- * `S->label[i]` is that device's button text, composed by prompt_state_name() from
- * `/tmp/udev_usbN.label` -- the file usb-watch.sh writes with the stick's own volume
- * label, the same one rbp's SOURCE screen shows. THE TWO HALVES DO NOT SHARE A GUARD:
- * the names are read first and are filled in full even when rbp could not be walked, so
- * a caller that gets 0 still gets buttons that name the devices they are refusing. An
- * absent, empty or whitespace-only file leaves the cell EMPTY, which is "this device has
- * no name of its own and the button keeps its number", and the shipped "HOLD USB 1".
+ * A NULL S is legal and does nothing, so a caller cannot fault here by accident. */
+void pointsrc_settings_state(struct settings_state *S);
+
+
+/* Is rbp on the PERFORMANCE screen -- the one it draws the deck badges and the pads on?
  *
- * A read-only snapshot, like pointsrc_cursor(): it touches nothing of rbp's. Safe
- * from the drawer/chooser builder thread as well as from this one, which is why it
- * is not static. See prompt_zone.h for the derivation of the walk. */
-int pointsrc_usb_state(struct prompt_state *S);
+ * EXPORTED, and it is the touch thread's own answer: menu_draw.c's paint thread gates the deck
+ * badges' play ring on it, and a second read of rbp's browse mode up there would be a second
+ * spelling of one question. 0 when rbp is not the reader, or the mode cannot be asked -- every
+ * failure answers "not the screen", so nothing is drawn on a guess. */
+int rbp_perf_screen(void);
 
 #endif /* RBPI4B_POINTSRC_H */

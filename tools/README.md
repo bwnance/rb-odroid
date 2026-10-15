@@ -8,7 +8,12 @@ Two kinds of tool live here:
 | [`build-directfb/`](build-directfb/) | workstation | C / patch | patched DirectFB 1.4.16 (core + fbdev + modules) |
 | [`build-toolchain/`](build-toolchain/) | workstation | Docker | the soft-float armel cross build environment the shims are built in |
 | [`fit-crosscheck.sh`](fit-crosscheck.sh) | workstation | shell + C | prove the driver's copy and the shim's copy of the fit rule still agree |
+| [`conf-crosscheck.sh`](conf-crosscheck.sh) | workstation | shell | prove the three pairs that must be changed together — `SHIM_VARS` ↔ `rb.conf`, `RB_CONF_VERSION` ↔ `lib.sh`'s `RB_CONF_SCHEMA`, and each unit's `ExecStart` ↔ install.sh's copy list — still agree |
+| [`fbimg.py`](fbimg.py) | workstation | Python | decode a raw RGB565 frame to BMP and PNG — one encoder, so the pixel format is written down once |
+| [`fbwatch.py`](fbwatch.py) | workstation | Python | catch a display artifact: a burst of frames from the unit around an operator action, reporting only the frames that changed |
+| [`pdb.py`](pdb.py) | workstation | Python | read a rekordbox DeviceSQL export (`export.pdb`): its own track id for a title or artist, or the track for an id. The id is what `rbp_load.c` loads by, so this is the lookup half of "play that track" |
 | [`fbdump.c`](fbdump.c) | **the Pi** | C | dump `/dev/fb0` geometry/format + say what it means for the present path |
+| [`fbscreen.py`](fbscreen.py) | **the Pi** | Python | draw a known picture on `/dev/fb0` — a ticking clock or cycling solid colours — as a loop, so the panel can be read off the glass |
 | [`evdevdump.c`](evdevdump.c) | **the Pi** | C | enumerate input devices; find the pointer and its axis algebra |
 | [`pcmprobe.c`](pcmprobe.c) | **inside the chroot on the Pi**, or a workstation under `qemu-arm` | C | name ALSA's `snd_pcm_format_t` values, list a card's accepted formats by name, and run the whole open→configure→write sequence against a named device, access and channel count |
 | [`aseqdump2dump.py`](aseqdump2dump.py) | the Pi or a workstation | Python | turn an `aseqdump` capture into a replayable MIDI dump, and print the inventory and arithmetic a controller map is written from |
@@ -108,6 +113,45 @@ driver prints the rectangle in its one-shot `PRESENT:` line
 (`/tmp/dfbdig9.log`) and `fb_cursor.c` logs its own, so the two numbers can be
 compared on a mismatched panel.
 
+## `conf-crosscheck.sh` — the pairs that have to be changed together
+
+Three settings live in two files each, so nothing but a habit holds them in step:
+
+* **`SHIM_VARS`** (`scripts/device/start-rb.sh`) exports names into rbp's
+  environment, and each one needs an `RB_<name>` line in `scripts/device/rb.conf`.
+  This is the pair with teeth, because the loop under the list exports **every**
+  name unconditionally: a listed name with no `rb.conf` line is exported as the
+  empty string, over the top of an ad-hoc value, so the setting becomes
+  unreachable and nothing says so. `RB_KEY_DUMP`, `RB_KEY_REPLAY`,
+  `RB_KEY_REPLAY_SPEED` and `RB_SIDE_NUDGE_PCT` were all in that state while
+  [docs/08](../docs/08-controls.md) and [docs/07](../docs/07-touch.md) published
+  them as knobs the operator could set.
+* **`RB_CONF_VERSION`** (`rb.conf`) must equal `RB_CONF_SCHEMA`
+  (`scripts/device/lib.sh`). `lib.sh:19-24` asks for the two to be bumped
+  together; a half-bump fails closed on the unit, which is correct and looks like
+  *the launcher is broken*.
+* **each unit's `ExecStart`** names a program under the deploy root that
+  `install.sh` has to copy there. This is the bug its own comment records:
+  `healthwatch.sh` was missing from the copy list, the unit still started, and its
+  `ExecStart` pointed at a file that was never there — and a missing file and a
+  running service look the same from `systemctl status`. `novnc_patch.py` was the
+  second of these.
+
+```bash
+sh tools/conf-crosscheck.sh      # a fraction of a second, no target needed
+```
+
+It fails loudly when a pattern it reads changes shape rather than skipping, and
+it reports every pair that is out of step in one run rather than the first.
+
+What it does **not** check: that an `rb.conf` key is *read* by anything (that is a
+question about the C sources, and `grep` is a poor witness), or that a runtime
+script's `$HERE/<file>` reference is copied to the deploy root. That last
+direction is real — `novnc_patch.py` was one — but the deploy root also receives
+the unit files and the two conf drop-ins by a second path in `install.sh`, so a
+naive scan there is a false-positive machine. The `ExecStart` check covers the
+same hazard from the one side that is unambiguous.
+
 ## `fbdump` — the first thing to run on a new target
 
 The patched fbdev driver makes its decisions from fields that differ per SoC and
@@ -130,6 +174,42 @@ mirror, and then a plain-language verdict: whether the format is a straight
 `memcpy` or needs a 565→8888 convert, whether the fb is pannable, and whether
 the geometry matches `rbp`'s logical 1280x800 so the present path can copy 1:1
 or must letterbox. It is read-only — it never issues a mode-set.
+
+## `fbscreen` — a known picture, so the glass can be read
+
+`fbdump` says what the framebuffer *is*; `fbscreen` says whether it is *alive*.
+It draws one of two patterns over the whole 1280x800 area, framed by a thin
+border: a clock ticking on the second boundary, or solid colours cycling.
+
+```bash
+python3 fbscreen.py clock              # Ctrl-C stops it
+python3 fbscreen.py solid --colour red
+python3 fbscreen.py clock --once       # one frame, for a timestamped capture
+```
+
+A **loop**, not a one-shot, on purpose: a single paint cannot be told apart
+from "the write landed and something repainted over it", and this unit has
+several things that repaint. The picture has to keep saying so.
+
+Read it off the glass. With `rbp` healthy the picture **strobes** — rbp
+repaints over it ~46/s, so the clock flickers through rather than sitting. With
+`rbp` in the blank cold-boot state it **sticks**, clean and still, because rbp
+is turning its loop and drawing nothing to compete with it. That is the
+discriminator the tool exists for: it separates "the panel is broken" from
+"rbp never produced a frame", and only the second is what this unit does on a
+cold boot — a known open item, not yet written up in `docs/`.
+
+Two traps, both worth knowing before writing anything else to `/dev/fb0`:
+
+* **`write(2)` advances `f_pos`.** The fbdev driver refuses a write that would
+  run past `smem_len`, so a loop built on `write()` paints exactly one frame
+  and then dies — silently, if the caller drops the return value. `fbscreen`
+  uses an **mmap**, which has no file offset to get wrong.
+* **The depth is 16 bpp, not the shim's lie.** `/dev/fb0` is 1280x800 RGB565 at
+  stride 2560 — 2,048,000 contiguous bytes, so pixel `(x, y)` sits at
+  `(y*1280 + x) * 2`. `rbp` is told 32 bpp by the fbshim (`RB_FB_LIE_BPP`), and
+  believing that from a shell writes garbage. `fix.smem_len` = 2048000 is what
+  gives the real depth away.
 
 ## `evdevdump` — finding the pointer
 

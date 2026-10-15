@@ -65,7 +65,7 @@
  * `1`->`2`). So rbp binds nothing to any of the three and withholding the reports costs
  * the operator nothing.
  *
- * PURE, LIKE prompt_zone.c AND util_zone.c. Nothing here reaches rbp, the framebuffer
+ * PURE, LIKE menu_zone.c AND util_zone.c. Nothing here reaches rbp, the framebuffer
  * or a clock of its own: the time arrives as an argument and both answers ("which
  * channel" and "which effect") leave as an `act` the caller sends. That is what lets
  * test_fx.c pin the geometry, the latch, the picker and the timeout on a host with no
@@ -216,9 +216,11 @@ enum {
 #define FXLIST_ROW_Y0(i)  FXLIST_ROW_TOP(i)
 #define FXLIST_ROW_Y1(i)  (FXLIST_ROW_Y0(i) + FX_ROW_H - 1)
 
-/* The box goes away on its own, the same rule and the same number as the USB chooser's
- * (prompt_zone.h's PR_TIMEOUT_MS). The picker covers rbp's pad rows while it is up, and
- * nothing about choosing an effect is urgent enough to be worth being modal over. */
+/* The box goes away on its own, at the number the USB STOP chooser set (prompt_zone.h's
+ * PR_TIMEOUT_MS -- the chooser and its header went on 2026-10-14, and settings_zone.h's
+ * SB_TIMEOUT_MS carries the same 10000 now). The picker covers rbp's pad rows while it
+ * is up, and nothing about choosing an effect is urgent enough to be worth being modal
+ * over. */
 #define FX_TIMEOUT_MS 10000
 
 /* ------------------------------------------------------------------- the input */
@@ -244,8 +246,9 @@ int fx_hit(int x, int y);
  * FOR THE RECT THE PRESS BEGAN ON, AND ONLY IF THE RELEASE IS STILL ON IT, with the
  * rect taken from the RELEASE's own coordinates rather than from the tracked one: a fast
  * flick can lift at a moved position with no move report between, and a release that
- * moved must not answer for the box the finger has already left. That is
- * prompt_zone.c:256-285's anchor rule, and it is what stops a drag that drifted onto the
+ * moved must not answer for the box the finger has already left. That is the family's
+ * anchor rule (prompt_zone.c:256-285 first spelled it out and is gone, 2026-10-14;
+ * settings_zone.c's feeder keeps it), and it is what stops a drag that drifted onto the
  * panel from firing -- and, on the name cell, what stops a SLIDE from the header onto
  * the name cell from toggling.
  *
@@ -257,8 +260,10 @@ int fx_feed(int down, int x, int y, int *act);
 
 /* -------------------------------------------------------------------- the picker
  *
- * The state machine is prompt_zone.c's, deliberately and down to the field names,
- * because that shape has already been through a real drill on this unit. The rules it
+ * The state machine is the family's, deliberately and down to the field names
+ * (prompt_zone.c's, and that chooser is gone 2026-10-14; settings_zone.c keeps the
+ * identical shape), because it has already been through a real drill on this unit. The
+ * rules it
  * carries, restated because each one is load-bearing:
  *
  *   - It is asked FIRST in pointsrc.c's ladder, above the band, the drawers and rbp,
@@ -305,7 +310,8 @@ unsigned long long fxlist_deadline(void);
  *
  * IT IS NOT ONLY THE TOUCH THREAD THAT ASKS: pointsrc.c's read loop otherwise wakes
  * only on an event, so it waits in slices while the box is up -- exactly as it already
- * does for the USB chooser -- and asks this at each one. That keeps ONE writer of this
+ * does for the SETTINGS panel (and did for the USB STOP chooser, before it was deleted)
+ * -- and asks this at each one. That keeps ONE writer of this
  * state (the touch thread) and needs no lock: menu_draw.c only ever READS it. */
 int fxlist_expire(unsigned long long now_ms);
 

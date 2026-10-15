@@ -28,6 +28,8 @@ EDB_LOG="$LOG_DIR/edb_streamd.log"
 
 echo "start-rb: deploy root $RB_DEPLOY_ROOT"
 echo "start-rb: chroot      $RB_CHROOT"
+rb_bootmsg "deploy root $RB_DEPLOY_ROOT"
+rb_bootmsg "chroot      $RB_CHROOT"
 
 # --- 1. stop desktop services that would fight us for the display ------------
 #
@@ -93,7 +95,8 @@ done
 sleep 1
 
 # --- 3. device binds, stubs and FIFOs ---------------------------------------
-sh "$HERE/fix-dev.sh" || { echo "start-rb: fix-dev.sh failed" >&2; exit 1; }
+rb_bootmsg "device binds, stubs and FIFOs (fix-dev.sh)"
+sh "$HERE/fix-dev.sh" || { echo "start-rb: fix-dev.sh failed" >&2; rb_bootmsg "fix-dev.sh FAILED"; exit 1; }
 
 # --- 4. optional shim/player overrides --------------------------------------
 #
@@ -116,6 +119,24 @@ install_override() {
     src=$1
     dst=$2
     [ -f "$src" ] || return 0
+    # Already current -> do not copy it. The deploy root keeps its files across
+    # boots, so on most launches every one of these is already identical to what
+    # the chroot holds, and the player alone is 7.6 MB. Copying it anyway is what
+    # made this the launch's slow stage: 0.27-2.4 s with the card idle, and 14 s
+    # the time the card answered `Card stuck being busy` mid-write. It is also
+    # 7.6 MB of writes per launch on an SD card, which is that stall's raw
+    # material rather than a cost the launch needs to pay.
+    #
+    # `cmp -s`, not a hash: it exits at the FIRST differing byte, so a genuinely
+    # rebuilt file costs almost nothing, and only the equal case reads both files
+    # to the end -- still cheaper than the read plus the write it replaces. This
+    # is the guard install_artifact() in install.sh already uses. A target with
+    # no `cmp` fails the test and copies, so it degrades to the old behaviour
+    # rather than to a stale shim.
+    if [ -f "$dst" ] && cmp -s "$src" "$dst"; then
+        echo "  override: $(basename "$src"): already current"
+        return 0
+    fi
     tmp="$dst.new.$$"
     if install -m 755 "$src" "$tmp" && mv -f "$tmp" "$dst"; then
         echo "  override: $(basename "$src") -> $dst"
@@ -124,6 +145,12 @@ install_override() {
         echo "  WARNING: could not install override $src" >&2
     fi
 }
+# THE DEPLOY ROOT IS THE SOURCE OF TRUTH AND THE CHROOT IS DERIVED. Every launch
+# copies these in, so a shim staged directly into the chroot is overwritten here
+# on the next start -- the deployed file to replace is $RB_DEPLOY_ROOT/<name>.so,
+# and the chroot's copy is only ever a copy of it. (`cmp -s` means the copy is
+# skipped when the two already match, so this is also why a chroot-only edit
+# appears to work until the next restart and then silently reverts.)
 install_override "$RB_DEPLOY_ROOT/fbshim.so"     "$RB_CHROOT/usr/lib/fbshim.so"
 install_override "$RB_DEPLOY_ROOT/knobshim.so"   "$RB_CHROOT/usr/lib/knobshim.so"
 install_override "$RB_DEPLOY_ROOT/audioshim.so"  "$RB_CHROOT/usr/lib/audioshim.so"
@@ -177,7 +204,9 @@ if [ -n "${RB_FB_LIE_BPP:-}" ] && [ -f "$DEPTH_PLAYER" ] && command -v od >/dev/
         echo "start-rb: note: $DEPTH_PLAYER holds no DSPF_RGB16/32 word at"
         echo "start-rb:       0x19bab8 -- not a player this tree built. Not checking"
         echo "start-rb:       it against RB_FB_LIE_BPP=$RB_FB_LIE_BPP (sh doctor.sh)."
+        rb_bootmsg "depth: unchecked (not a player this tree built)"
     elif [ "$PLAYER_BPP" != "$RB_FB_LIE_BPP" ]; then
+        rb_bootmsg "REFUSED: depth pair disagrees (player $PLAYER_BPP vs lie $RB_FB_LIE_BPP)"
         echo "start-rb: REFUSING TO START: the depth pair disagrees." >&2
         echo "start-rb:   player $DEPTH_PLAYER renders ${PLAYER_BPP} bpp" >&2
         echo "start-rb:   shim   RB_FB_LIE_BPP=${RB_FB_LIE_BPP} (rb.conf, or this unit's rb.local.conf)" >&2
@@ -192,6 +221,7 @@ if [ -n "${RB_FB_LIE_BPP:-}" ] && [ -f "$DEPTH_PLAYER" ] && command -v od >/dev/
         exit 1
     else
         echo "start-rb: depth: player and lie both ${PLAYER_BPP} bpp"
+        rb_bootmsg "depth: player and lie both ${PLAYER_BPP} bpp"
     fi
 fi
 
@@ -262,19 +292,32 @@ rm -f /tmp/displaywatch.geom
 # unconditionally, so being listed means an ad-hoc `LED_DUMP=1 sh start-rb.sh`
 # would be overwritten with the empty string. Set those by exporting the shim
 # name directly, which reaches rbp because nothing here uses `env -i`.
+#
+# THE THREE VNC_*_FILE NAMES ARE HERE BECAUSE THE GLASS WRITES THEM. The settings
+# panel has three rows that move the viewer's live switches (share, encode, pointer
+# injection) and it needs the same paths vnc-run.sh uses. They arrive by this loop's
+# own rule -- `RB_VNC_LIVE_FILE` in rb.conf becomes `VNC_LIVE_FILE` in the shim's
+# environment -- and an empty or unset one is not a problem: env_str() falls back to
+# the /run/rblive4 default, so the panel writes where the viewer reads either way.
 SHIM_VARS="
 DFB_PRESENT DFB_ROTATE PAN_PACER_MS FB_DEV FB_LIE_BPP
 DFB_PRESENT_AUTO DFB_PRESENT_FIT DFB_PRESENT_SKIP DFB_PRESENT_PX_BUDGET
 POINT_KIND POINT_DEV POINT_DEBUG POINT_MIN_DWELL_MS POINT_MOUSE_SPEED
 POINT_SWAP_XY POINT_INVERT_X POINT_INVERT_Y POINT_CURSOR POINT_CURSOR_MS
 POINT_QUANTIZE_TAP POINT_MENU POINT_MENU_MOUSE POINT_FX_TOUCH POINT_HOTCUE_TOUCH
-AUDIO_DEV AUDIO_CHANNELS AUDIO_MAP AUDIO_FMT AUDIO_MONITOR_PAIR
+POINT_PADMODE_TAP POINT_DECK_PLAY POINT_BPM_SYNC
+AUDIO_DEV AUDIO_CHANNELS AUDIO_MAP AUDIO_MAP_FILE AUDIO_FMT AUDIO_MONITOR_PAIR MIXER_MODE
+MIXER_MODE_FILE
+AUDIO_PAIRS_MEMORY
+VNC_LIVE_FILE VNC_MODE_FILE VNC_INPUT_FILE
 AUDIO_MIRROR_DEV AUDIO_MIRROR_FMT AUDIO_MIRROR_REOPEN_MS AUDIO_MIRROR_BOOST_DB
 STARTUP_MUTE_MS STARTUP_FADE_MS SCHED_RT
 MIDI_MAP EVDEV_MAP MIDI_IN_MATCH MIDI_OUT_MATCH MIDI_DUMP MIDI_REPLAY
-MIDI_REPLAY_SPEED KBD_DEV CTRL_KEEPALIVE
+MIDI_REPLAY_SPEED KEY_DUMP KEY_REPLAY KEY_REPLAY_SPEED
+KBD_DEV CTRL_KEEPALIVE
 LED_VU LED_VU_SEGMENTS LED_PADS LED_DISABLE PAD_BRIGHT JOG_PPR
 JOG_SCALE JOG_REV JOG_IDLE_MS KNOB_SCALE TEMPO_REV MIRROR_GAIN_MID
+SIDE_NUDGE_PCT
 KNOB_VERBOSE JOG_VERBOSE TEMPO_VERBOSE LED_VERBOSE
 SHMSTATE_STRICT
 CRASH_LOG
@@ -310,6 +353,7 @@ echo "start-rb: AUDIO_DEV=$AUDIO_DEV MIDI_MAP=$MIDI_MAP POINT_KIND=$POINT_KIND"
 # and its plughw twin and nothing else, so any third name there — `default` above
 # all — means a fallback the configuration did not ask for has come back.
 echo "start-rb: AUDIO_MIRROR_DEV=${AUDIO_MIRROR_DEV:-<off>} fmt=${AUDIO_MIRROR_FMT:-<s24_le>}"
+rb_bootmsg "shims: DFB_PRESENT=${DFB_PRESENT:-<unset>} AUDIO_DEV=${AUDIO_DEV:-<unset>} POINT_KIND=${POINT_KIND:-<unset>}"
 
 # --- 7. start the EDB daemon inside the chroot ------------------------------
 #
@@ -322,6 +366,44 @@ sleep 1
 
 # --- 8. stop the USB watcher while rbp initialises --------------------------
 sh "$HERE/usb-watch.sh" stop 2>/dev/null
+
+# --- 8b. pre-warm rbp's startup set into the page cache ---------------------
+#
+# rbp reads ~47 MB of its own files at startup. On a COLD page cache -- the
+# first start after a power-up -- that comes off the SD as faults interleaved
+# with its init, and the screen stays black: not a display fault, because the
+# loop turns (vsync ~50/s) and simply never presents (0 pan, and not one
+# DS_HW frame line). A warm start does identical work and draws. MEASURED
+# 2026-10-09 on `.239`, five cold starts, `read_bytes` off the live pid:
+#
+#   cold reads left   flips   screen
+#        58.0 MB        0     blank     (no pre-warm)
+#        52.3 MB        0     blank     (only the fonts pre-warmed)
+#        17.3 MB        0     blank     (only the 40.7 MB imagedata.dat)
+#         8.1 MB      922     draws     (this set)
+#           0         589+    draws     (cache already warm)
+#
+# `rchar` is ~47 MB in every one of them: the logical work never changes, only
+# how much comes off the card. So this is a THRESHOLD on cold I/O during init,
+# not one culprit file -- neither the 40 MB blob nor the fonts is it, each alone
+# still blanked, and the line falls between 8.1 and 17.3 MB.
+#
+# Blocking on purpose: POSIX_FADV_WILLNEED is asynchronous, so the pages could
+# still be absent at rbp's first fault, and residency before that fault is the
+# entire point. It costs ~2.5 s, which is not net boot time -- these are bytes
+# rbp would read anyway, in one bulk pass at ~42 MB/s instead of one stalling
+# fault at a time during init. RB_PREWARM=0 disables it (rb.conf).
+if [ "${RB_PREWARM:-1}" = 1 ]; then
+    _pw0=$(cut -d' ' -f1 /proc/uptime)
+    for _pw_d in "$RB_CHROOT/root/gui" "$RB_CHROOT/root/pdj" \
+                 "$RB_CHROOT/usr/lib" "$RB_CHROOT/root/settings"; do
+        [ -d "$_pw_d" ] && find "$_pw_d" -type f -exec cat {} + >/dev/null 2>&1
+    done
+    _pw1=$(cut -d' ' -f1 /proc/uptime)
+    _pw_s=$(awk -v a="$_pw0" -v b="$_pw1" 'BEGIN{printf "%.1f", b-a}')
+    echo "start-rb: pre-warmed rbp's startup set in ${_pw_s}s"
+    rb_bootmsg "pre-warmed rbp files (${_pw_s}s)"
+fi
 
 # --- 9. start rbp -----------------------------------------------------------
 #
@@ -337,8 +419,14 @@ sh "$HERE/usb-watch.sh" stop 2>/dev/null
 # and rbp only — never for the host process doing the chroot. The player is
 # started through the chroot's loader rather than by exec because it is non-PIE,
 # soft-float, and linked against glibc 2.13.
-echo "start-rb: display baseline: $(sh "$HERE/display-watch.sh" baseline 2>/dev/null)"
+BASELINE=$(sh "$HERE/display-watch.sh" baseline 2>/dev/null)
+echo "start-rb: display baseline: $BASELINE"
+rb_bootmsg "display baseline: $BASELINE"
 echo "start-rb: launching rbp (log: $RBP_LOG)"
+# The phrase "launching rbp" is load-bearing: bootscreen.py keys its
+# "rbp is running, drawing nothing" timer on this substring, so it must survive
+# any wording edit here.
+rb_bootmsg "launching rbp (log: $RBP_LOG)"
 nohup chroot "$RB_CHROOT" env \
       "PATH=/bin:/sbin:/usr/bin:/usr/sbin" \
       "LD_PRELOAD=$RB_LD_PRELOAD" \
@@ -353,6 +441,7 @@ for i in $(seq 1 30); do
     RBP=$(pids_matching "$RB_PLAYER" | head -1)
     if [ -n "$RBP" ] && ls -l "/proc/$RBP/fd" 2>/dev/null | grep -q udev_usb1; then
         echo "start-rb: rbp pid $RBP ready (udev_usb1 fd open)"
+        rb_bootmsg "rbp pid $RBP ready (udev_usb1 fd open)"
         break
     fi
     sleep 0.5
@@ -360,6 +449,7 @@ done
 if [ -z "$RBP" ]; then
     echo "start-rb: rbp is not running. Last lines of $RBP_LOG:" >&2
     tail -20 "$RBP_LOG" >&2 2>/dev/null
+    rb_bootmsg "rbp is not running -- see $RBP_LOG"
     exit 1
 fi
 
@@ -370,6 +460,7 @@ sh "$HERE/usb-watch.sh" start 2>/dev/null
 # grepping the journal cannot tell which started when. These two lines are what
 # boot-trim.sh report reads, and they are the only reason it can.
 echo "start-rb: usb-watch started"
+rb_bootmsg "usb-watch started"
 # The display watcher starts here rather than beside the baseline for two
 # reasons. It reads its baseline once, at start, so the file has to exist by
 # now — it does, written just above. And it refuses to fire while rbp is not
@@ -377,6 +468,7 @@ echo "start-rb: usb-watch started"
 # bring-up; starting it earlier would only ever produce those refusals.
 sh "$HERE/display-watch.sh" start 2>/dev/null
 echo "start-rb: display-watch started"
+rb_bootmsg "display-watch started"
 
 # --- 11. cleanup, on every exit path ----------------------------------------
 #
@@ -411,3 +503,4 @@ done
 
 cleanup
 echo "start-rb: rbp exited (see $RBP_LOG)"
+rb_bootmsg "rbp exited"

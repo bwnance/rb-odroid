@@ -61,7 +61,7 @@ one-time (and idempotent) entry point — it untars the deploy root to
 `/opt/rblive4`, puts the device scripts beside it, and runs `fix-dev.sh`:
 
 ```sh
-scp work/rbpi4b-pi4.tgz scripts/device pi@<host>:/tmp/
+scp -r work/rbpi4b-pi4.tgz scripts/device pi@<host>:/tmp/
 ssh pi@<host> 'sudo sh /tmp/device/install.sh /tmp/rbpi4b-pi4.tgz'
 ```
 

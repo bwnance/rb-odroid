@@ -140,25 +140,25 @@ Four things about it are deliberate:
 The small caption under the drive icon, at the left of each row, is a **different**
 string, still rbp's own slot number. Only the DEVICE NAME column carries the label.
 
-**The USB STOP chooser's buttons carry it too.** Since 2026-10-07 the box the band's
-seventh column raises reads `HOLD PHASIM_USB2 | HOLD RBOX USB` rather than `HOLD USB 1 |
-HOLD USB 2`. Same file, one hop further: `fbshim.so` reads `/tmp/udev_usbN.label` itself
+**The settings panel's `USB1 STOP`/`USB2 STOP` rows carry it too.** The band's seventh
+column and the USB STOP chooser it raised were removed on 2026-10-14; the per-stick rows
+that took over the eject read the stick's own name — `RBOX USB`, `PHASIM_USB2` — as their
+value. Same file, one hop further: `fbshim.so` reads `/tmp/udev_usbN.label` itself
 (`pointsrc.c`'s `usb_name_read()`, in the shim that already owns `real_open`),
-`prompt_zone.c` composes `"HOLD " + <label>` and falls back to the shipped `HOLD USB n`
-on an absent, empty or whitespace-only file, and `prompt_paint.c` clips the result to the
-cell. **The names travel in the state**, so the drawn module still opens nothing of its
-own, and the two guards do not share a path: `pointsrc_usb_state()` fills the names
-**before** it tries to walk rbp, so a caller that gets `0` still gets buttons that name
-the devices they are refusing.
+`settings_state.usb_name[]` carries it, and `settings_text_clip()` cuts the result to the
+value column (160 px, `SB_VALUE_W`). **The names travel in the state**, so the drawn module
+still opens nothing of its own, and the two guards do not share a path:
+`pointsrc_usb_state()` fills the names **before** it tries to walk rbp, so a caller that
+gets `0` still gets rows that name the devices they are refusing.
 
-**Measured on the unit 2026-10-07**, both sticks in, through the production composition
-code: `HOLD PHASIM_USB2` is **166 px** and `HOLD RBOX USB` **135 px** in a 265 px cell, so
-neither is clipped and `prompt_paint_ok()` still answers 1. A name **longer** than the cell
-is cut rather than allowed to blank the box: the width refusal measures the cell's
-**default** label, which is the label every cell is guaranteed to have, so a unit whose
-`usb-watch.sh` writes no label files draws byte-for-byte the picture it drew before.
+**Measured on the unit 2026-10-07**, both sticks in, through the production composition code
+(then the chooser's buttons, 265 px wide): `HOLD PHASIM_USB2` is **166 px** and `HOLD RBOX
+USB` **135 px** in that cell, so neither was clipped. A name **longer** than the column is
+cut the same way rather than allowed to blank the panel: the width refusal measures the
+column's **default** value, which is the value every row is guaranteed to have, so a unit
+whose `usb-watch.sh` writes no label files draws byte-for-byte the picture it drew before.
 Characters the atlas cannot draw become `?` for the same reason they do in the SOURCE
-row — a gap in the middle of a button reads as a dead panel rather than as a missing
+row — a gap in the middle of a value reads as a dead panel rather than as a missing
 glyph.
 
 ## Files and paths
@@ -216,9 +216,9 @@ root.
   `usb-watch.sh` feeds both paths, so both rows are live when both sticks are in
   — measured as both managers reading `media=2` and rbp holding all four
   databases (`export.pdb` *and* `exportExt.pdb` for `/media/usb1/sda1` and
-  `/media/usb2/sda1`) open at once. The shim's USB STOP chooser
-  ([07](07-touch.md#the-seventh-column-raises-a-chooser-prompt_zonec-prompt_paintc))
-  lights a row from rbp's own answer, so an empty slot draws dimmed and answers
+  `/media/usb2/sda1`) open at once. The settings panel's `USB1 STOP`/`USB2 STOP` rows
+  ([07](07-touch.md#the-settings-panel-settings_zonec-settings_paintc))
+  light from rbp's own answer, so an empty slot draws dimmed and answers
   nothing while a populated one ejects **on a three-second hold** — the release
   before the third second does nothing at all. Note that the *channel* is what a
   stop is addressed on — the old `CH_GLOBAL` spelling is USB 1's number (1) by

@@ -23,9 +23,18 @@ monitor and a DDJ-FLX4.
 * **Extracted assets:** an `XDJRX3-rootfs/`, the GUI assets and `rbp-audio`
   (stock `rbp` + the shared patches). See
   [docs/04](docs/04-firmware-assets.md).
-* **The Pi:** Pi OS Lite 32-bit, booted, on the network, with root.
+* **The Pi:** Pi OS Lite 32-bit, booted, on the network, with root, **plus
+  `gcc`, `make` and `python3`**. Pi OS Lite ships no compiler, and `install.sh`
+  compiles `vncserve` *on the unit* — that compile is what gives you the VNC
+  viewer and its unit. Without `make`/`cc` it warns and carries on, and the
+  result is no VNC binary and no `rblive4-vnc` unit rather than a failed install.
+  `python3` is what the boot screen and the configuration page run under, and
+  that page's unit carries `ConditionPathExists=/usr/bin/python3`, so without it
+  the page is simply absent. The diagnostic tools in step 6 are single-file C and
+  want the compiler too.
   ```sh
   ssh pi@<host>
+  sudo apt-get install -y gcc make python3    # if they are not already there
   ```
   Confirm the image before anything else. What matters is that the kernel can
   execute 32-bit ARM ELF — **not** that its name says `armv7l`, because current
@@ -99,6 +108,12 @@ The same applies to `fbshim.so`, `audioshim.so` and `rbp-audio`.
 
 ## 5. Launch
 
+**The player is normally already up by the time you get here.** `install.sh`
+installs *and enables* `rblive4.service` (`RB_AUTOSTART=1`, the shipped default),
+so after the reboot that follows a deploy `rbp` starts on its own. This command
+is then a **restart**, and the manual path only if you set `RB_AUTOSTART=0`
+([docs/11](docs/11-runtime-launcher.md)):
+
 ```sh
 ssh pi@<host> 'sudo sh /opt/rblive4/start-rb.sh'
 ```
@@ -117,6 +132,14 @@ Work down [docs/13](docs/13-raspberrypi4.md)'s bring-up table rather than
 jumping to the last row: each step exists so that a failure cannot be masked by
 the next subsystem, and the display one in particular is the gate for everything
 else.
+
+Two of the rows below read tools that are not built for you — both are
+single-file C, so build them on the Pi first, with the `gcc` from step 0:
+
+```sh
+gcc -O2 -static -o fbdump    tools/fbdump.c
+gcc -O2 -static -o evdevdump tools/evdevdump.c
+```
 
 | Check | Expectation |
 |---|---|
@@ -163,4 +186,7 @@ again by the line above.
 * Booth output is dropped: the FLX4 has two output pairs ([docs/09](docs/09-audio.md)).
 * DJ FX parameter/layer encoders, TrackSkip, BeatJump and some SHIFT-actions are
   not mapped ([docs/08](docs/08-controls.md)).
-* No autostart unit; launch `start-rb.sh` manually ([docs/11](docs/11-runtime-launcher.md)).
+* Autostart ships enabled — `install.sh` installs and enables `rblive4.service`
+  (`RB_AUTOSTART=1`), so the player is already up after a reboot. `RB_AUTOSTART=0`
+  installs the unit but leaves it disabled, and `start-rb.sh` is then run by hand
+  ([docs/11](docs/11-runtime-launcher.md)).

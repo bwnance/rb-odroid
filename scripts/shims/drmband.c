@@ -52,14 +52,18 @@
  * exactly like "this hardware has no RGB565 overlay". */
 #define DRM_BAND_MAXFORMATS 64
 
+/* How many planes this process will hold at once: the band, two drawers, the window and two
+ * deck badges is six, and the kernel has sixty objects. */
+#define DRM_BAND_MAXPLANES   16
+
 /* ------------------------------------------------------------- the device
  *
  * ONE DEVICE, ONE MASTER, MANY PLANES -- and this holder is the whole of it.
  *
  * DRM master is per OPEN FILE, not per process, so the second drm_band_setup() in
- * a process used to be refused EBUSY: it opened the card again, got a second
+ * a process was refused EBUSY: it opened the card again, got a second
  * file description, and could not take master from the first. That is why the
- * band, the browser window and the drawer were written as MUTUALLY EXCLUSIVE
+ * band and the (since removed) browser window were written as MUTUALLY EXCLUSIVE
  * HOLDERS OF ONE PLANE, handing a single slot back and forth (menu_draw.c).
  *
  * The operator then asked for both edge drawers at once -- "allow for both side
@@ -82,7 +86,18 @@
 static struct {
     int fd;
     int refs;
-} g_dev = { -1, 0 };
+    /* THE PLANES THIS PROCESS HAS ALREADY GIVEN OUT. Without this, pick_plane() hands every band
+     * the SAME plane: its only exclusion is "not bound to a CRTC", and a plane that has been set
+     * up but not yet shown is not bound to anything -- so the band, the two drawers and the two
+     * deck badges all came back as plane 127, and only whichever showed last was on the glass.
+     * The comment above says two planes was the honest answer for the two drawers; this is the
+     * bookkeeping that makes it true, and it is what lets the deck badges' two rings show at
+     * once, which is what the operator asked for next. */
+    unsigned int taken[DRM_BAND_MAXPLANES];
+    int ntaken;
+    /* ...and THE RANK the next setup asks for -- see drm_band_want_rank(). */
+    unsigned int want_rank;
+} g_dev = { -1, 0, { 0 }, 0, 0 };
 
 static int dev_acquire(void)
 {
@@ -239,11 +254,47 @@ static int live_crtc(int fd, unsigned int *id, unsigned int *index)
  * carrying rbp's picture reports crtc_id = 102 (bound), so this cannot pick it,
  * and a cursor plane would be an overlay in name only if it were bound to the
  * pointer. */
+/* Is this plane one THIS PROCESS has already handed to a band? See g_dev.taken. */
+static int plane_taken_by_us(unsigned int id)
+{
+    int i;
+
+    for (i = 0; i < g_dev.ntaken; i++)
+        if (g_dev.taken[i] == id)
+            return 1;
+    return 0;
+}
+
+static void plane_take(unsigned int id)
+{
+    if (g_dev.ntaken < DRM_BAND_MAXPLANES)
+        g_dev.taken[g_dev.ntaken++] = id;
+}
+
+static void plane_release(unsigned int id)
+{
+    int i;
+
+    if (id == 0)
+        return;
+    for (i = 0; i < g_dev.ntaken; i++)
+        if (g_dev.taken[i] == id) {
+            g_dev.taken[i] = g_dev.taken[--g_dev.ntaken];
+            return;
+        }
+}
+
+void drm_band_want_rank(unsigned int n)
+{
+    g_dev.want_rank = n;
+}
+
 static int pick_plane(int fd, unsigned int index, unsigned int fourcc,
-                      unsigned int *out)
+                      unsigned int skip, unsigned int *out)
 {
     struct drm_mode_get_plane_res pr;
     unsigned int *ids, i, n;
+    unsigned int seen = 0;          /* candidates passed over -- see DRM_BAND_SKIP_OVERLAYS */
 
     memset(&pr, 0, sizeof pr);
     if (real_ioctl(fd, DRM_IOCTL_MODE_GETPLANERESOURCES, &pr) < 0)
@@ -296,6 +347,27 @@ static int pick_plane(int fd, unsigned int index, unsigned int fourcc,
             continue;
         if (plane_type_of(fd, ids[i]) != DRM_PLANE_TYPE_OVERLAY)
             continue;
+        if (plane_taken_by_us(ids[i]))
+            continue;                   /* ours already -- see g_dev.taken */
+
+        /* ...PAST THE ONES THAT GO NOWHERE. See DRM_BAND_SKIP_OVERLAYS in drmband.h: the first
+         * free overlays are reported by the kernel as bound and enabled and are not composited,
+         * so every surface steps over them. This is counted per call and before the rank, so the
+         * ranks still order the surfaces relative to one another. */
+        if (seen < DRM_BAND_SKIP_OVERLAYS) {
+            seen++;
+            continue;
+        }
+
+        /* ...AND THE RANK: the caller wants the (skip+1)-th free one, not the first. This is how
+         * the stacking order is chosen (see drmband.h), because the driver's DEFAULT zpos follows
+         * the plane's index -- measured, not assumed -- so a later pick scans out above an earlier
+         * one. A plane is passed over whether or not the caller ends up with anything, so two
+         * surfaces asking for different ranks cannot land on the same plane. */
+        if (skip > 0) {
+            skip--;
+            continue;
+        }
 
         *out = ids[i];
         free(ids);
@@ -349,7 +421,7 @@ int drm_band_setup(struct drm_band *b, int w, int h, int bpp)
         drm_band_teardown(b);
         return -1;
     }
-    if (pick_plane(fd, crtc_index, fourcc, &b->plane) != 0) {
+    if (pick_plane(fd, crtc_index, fourcc, g_dev.want_rank, &b->plane) != 0) {
         pointsrc_log("menu plane: no free overlay plane on crtc %u can carry"
                      " %c%c%c%c", crtc_id,
                      (char)(fourcc & 0xff), (char)((fourcc >> 8) & 0xff),
@@ -357,6 +429,11 @@ int drm_band_setup(struct drm_band *b, int w, int h, int bpp)
         drm_band_teardown(b);
         return -1;
     }
+    /* AFTER the pick, both of them: `plane_take` because b->plane is 0 until then, and the rank
+     * because pick_plane() has just READ it -- consuming it before the call is how an earlier
+     * version handed every surface plane 127. */
+    plane_take(b->plane);
+    g_dev.want_rank = 0;
     b->crtc = crtc_id;
 
     memset(&cd, 0, sizeof cd);
@@ -433,30 +510,38 @@ int drm_band_setup(struct drm_band *b, int w, int h, int bpp)
     return 0;
 }
 
-int drm_band_show(struct drm_band *b, int x, int y)
+/* THE GENERAL COMMIT, and the only one that sets the two rectangles independently.
+ *
+ * src_* is the rectangle taken OUT of our buffer; crtc_* is where and how big it
+ * lands on the glass. The kernel takes them separately -- that IS the plane scaling
+ * mechanism -- so a buffer of one size can be shown at another, scaled by the HVS,
+ * with no software scaler and no second buffer. Both are 16.16 fixed point in the
+ * source rect; the crtc rect is whole pixels.
+ *
+ * drm_band_show() is this with the whole buffer and its own size, i.e. 1:1, which is
+ * what every other surface in this shim wants. */
+int drm_band_show_rect(struct drm_band *b, int sx, int sy, int sw, int sh,
+                       int x, int y, int w, int h)
 {
     struct drm_mode_set_plane sp;
 
     if (b->fd < 0 || !b->pix)
         return -1;
-    if (b->on && b->on_x == x && b->on_y == y)
-        return 0;
-
     memset(&sp, 0, sizeof sp);
     sp.plane_id = b->plane;
     sp.crtc_id  = b->crtc;
     sp.fb_id    = b->fb;
     sp.crtc_x   = (__s32)x;
     sp.crtc_y   = (__s32)y;
-    sp.crtc_w   = (__u32)b->w;
-    sp.crtc_h   = (__u32)b->h;
-    sp.src_x    = 0;
-    sp.src_y    = 0;
-    sp.src_w    = (__u32)b->w << 16;      /* 16.16 fixed point */
-    sp.src_h    = (__u32)b->h << 16;
+    sp.crtc_w   = (__u32)w;
+    sp.crtc_h   = (__u32)h;
+    sp.src_x    = (__u32)sx << 16;
+    sp.src_y    = (__u32)sy << 16;
+    sp.src_w    = (__u32)sw << 16;
+    sp.src_h    = (__u32)sh << 16;
     if (real_ioctl(b->fd, DRM_IOCTL_MODE_SETPLANE, &sp) < 0) {
-        pointsrc_log("menu plane: SETPLANE %u at %d,%d: %s",
-                     b->plane, x, y, strerror(errno));
+        pointsrc_log("menu plane: SETPLANE %u %dx%d at %d,%d from %d,%d %dx%d: %s",
+                     b->plane, w, h, x, y, sx, sy, sw, sh, strerror(errno));
         b->on = 0;
         return -1;
     }
@@ -464,6 +549,15 @@ int drm_band_show(struct drm_band *b, int x, int y)
     b->on_x = x;
     b->on_y = y;
     return 0;
+}
+
+int drm_band_show(struct drm_band *b, int x, int y)
+{
+    if (b->fd < 0 || !b->pix)
+        return -1;
+    if (b->on && b->on_x == x && b->on_y == y)
+        return 0;
+    return drm_band_show_rect(b, 0, 0, b->w, b->h, x, y, b->w, b->h);
 }
 
 void drm_band_hide(struct drm_band *b)
@@ -492,6 +586,7 @@ void drm_band_teardown(struct drm_band *b)
         return;
     }
     drm_band_hide(b);
+    plane_release(b->plane);           /* back to the pool; a no-op if it was never taken */
 
     if (b->fb) {
         __u32 fbid = b->fb;

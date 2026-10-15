@@ -77,7 +77,6 @@
 #include "menu_paint.h"
 #include "menu_zone.h"
 #include "pointsrc.h"
-#include "prompt_paint.h"     /* the box's size and its painter, for the assertions */
 #include "rbp_vu.h"           /* g_fader: what the drawer's handle is drawn at */
 #include "side_paint.h"       /* the drawer's pixels, for the plane assertion */
 #include "side_zone.h"        /* the drawer's gesture, driven below */
@@ -136,13 +135,22 @@ static int log_has(const char *s)
  * without a player, a panel or a USB stick. Default: both live, and NEITHER NAMED -- the
  * designated initializer is here so the labels, which are what usb-watch.sh would have
  * written to /tmp/udev_usbN.label, stay empty and the buttons keep their numbers
- * (prompt_zone.h). A scenario that wants a named button fills label[] itself. */
-static struct prompt_state usb_fake = { .live = { 1, 1 } };
+ * (settings_zone.h). Default: both slots ready. */
+static int usb_live_fake[2] = { 1, 1 };
 
-int pointsrc_usb_state(struct prompt_state *S)
+/* WHAT THE SETTINGS PANEL WOULD READ, the same seam one surface along: the real one walks
+ * rbp's memory and four switch files (pointsrc.c's pointsrc_settings_state()), and here it
+ * is a struct the scenario sets. The defaults are the SHIPPED picture -- internal, nothing
+ * in either slot's name column, sharing off, raw, pointer injection off -- so every
+ * scenario that does not arm the panel sees the rows this unit would draw with nothing
+ * plugged in and no switch file written. */
+static struct settings_state sett_fake;
+
+void pointsrc_settings_state(struct settings_state *S)
 {
-    *S = usb_fake;
-    return 1;
+    *S = sett_fake;
+    S->usb_live[0] = usb_live_fake[0];
+    S->usb_live[1] = usb_live_fake[1];
 }
 
 /* A fresh window, so a check can be about the lines one action produced rather than
@@ -433,20 +441,20 @@ static void run_tick(void)
  * show/hide/teardown in menu_draw.c.
  *
  * WHAT "THE BAND'S" MEANS HERE. The wrapper is handed a `struct drm_band *` and a
- * size, and nothing else distinguishes the surfaces -- all four are this same struct,
- * all four take their buffer from this fake. The SIZE does. The band asks for the full
+ * size, and nothing else distinguishes the surfaces -- every surface is this same struct
+ * and takes its buffer from this fake. The SIZE does. The band asks for the full
  * picture WIDTH and menu_panel_ph() rows; a drawer asks for SZ_W (180) and the full
- * picture height; the chooser's box asks for prompt_paint_w() x prompt_paint_h(), which
- * is neither. So the classification below is by both dimensions and the box is the
- * else-arm of it -- and that is asserted rather than trusted: the first check of each
+ * picture height; the settings panel asks for settings_paint_w() x settings_paint_h(),
+ * which is neither. So the classification below is by both dimensions and the panel is
+ * the else-arm of it -- and that is asserted rather than trusted: the first check of each
  * scenario is that the surface it is about is the one it thinks it is.
  * ------------------------------------------------------------------------- */
 
 /* Both surfaces are handed this one buffer, and its size is the PAGE's, not the
  * drawer's, because the band is not a drawer: drm_band_setup() is asked for the
  * band at the full picture WIDTH and menu_panel_ph() rows (56), for the drawer at
- * SZ_W (180) and the full picture height, and for the chooser's box at
- * prompt_paint_w() x prompt_paint_h(). One buffer has to host all of them. */
+ * SZ_W (180) and the full picture height, and for the settings panel at
+ * settings_paint_w() x settings_paint_h(). One buffer has to host all of them. */
 #define PLANE_BUF_W  FB_W
 #define PLANE_BUF_H  FB_H
 
@@ -459,8 +467,8 @@ static unsigned short plane_buf[PLANE_BUF_W * PLANE_BUF_H];
  * second run that memcpy would ship untested. Same size, same zeroing, only the stride
  * differs.
 
- * IT IS ALSO the prompt's fast path, and for the same reason: the box is 560 px wide
- * and a box-sized dumb buffer has a 560 px pitch, so menu_prompt_publish() takes its
+ * IT IS ALSO a box's fast path, and for the same reason: a panel-sized dumb buffer whose
+ * pitch is the box's width is what menu_settings_publish() takes its
  * one-memcpy arm. `plane_alt` is what makes that arm reachable. */
 static unsigned short plane_alt[PLANE_BUF_W * PLANE_BUF_H];
 
@@ -470,21 +478,26 @@ static int plane_use_alt;                 /* ...and which of the two buffers it 
 static int plane_fake;            /* armed only inside scenario_drawer() and its sequel */
 static int plane_step;            /* a tag shared by every wrapped call, for order */
 /* A machine that has room for the band and the drawers but refuses the chooser's box:
- * armed only by scenario_prompt()'s page-route half, to reach `prompt_fail`. */
-static int plane_refuse_prompt;
+ * armed by any scenario yet, so the fallback route below is the one that ships. */
 
 /* WHICH SURFACE. A `struct drm_band` is handed to the wrapper with a size and nothing
- * else, so the size IS the identity -- see the block above. All four are counted
- * separately rather than lumped, because "the box got a plane" and "the band got its
- * plane back" are different claims and a shared counter could not tell them apart. */
-enum { SURF_BAND = 0, SURF_SIDE, SURF_PROMPT };
+ * else, so the size IS the identity -- see the block above. They are counted separately
+ * rather than lumped, because "the box got a plane" and "the band got its plane back" are
+ * different claims and a shared counter could not tell them apart.
+ *
+ * THE THIRD IS THE SETTINGS PANEL, and it is the FALLBACK -- anything that is not the band's
+ * width or the drawer's size. It was the USB STOP chooser's until 2026-10-14, when the chooser
+ * and its scenario were removed; the panel is 640x429, which is neither, so it lands here and
+ * gets a counter of its own. No scenario arms that plane yet (the panel's own behaviour is
+ * pinned in test_settings.c, on the host, without a plane in the loop). */
+enum { SURF_BAND = 0, SURF_SIDE, SURF_SETTINGS };
 static int surface_of(int w, int h)
 {
     if (h == FB_H && w == SZ_W)
         return SURF_SIDE;
     if (w == FB_W)
         return SURF_BAND;
-    return SURF_PROMPT;
+    return SURF_SETTINGS;
 }
 
 static int setup_n[3], teardown_n[3];
@@ -494,12 +507,11 @@ static int seq_band_teardown, seq_side_setup;
 
 /* side_paint() is wrapped for one reason: the gate's claim is a COUNT, and "at
  * least one paint" is exactly what a broken gate produces. See scenario_drawer().
- * prompt_paint() is wrapped for the same claim about the box, in scenario_prompt(). */
+ */
 static int side_paints;
 static int side_paints_left, side_paints_right;
 static int side_last_which = -1;
 static int side_last_led = -1;      /* the packed SYNC/CUE/PLAY the wrapper was handed */
-static int prompt_paints;
 
 /* rbp's deck state, faked.
  *
@@ -524,11 +536,8 @@ extern int  __real_drm_band_show(struct drm_band *b, int x, int y);
 extern void __real_drm_band_hide(struct drm_band *b);
 extern void __real_drm_band_teardown(struct drm_band *b);
 extern void __real_side_paint(const struct menu_view *v, int side,
-                              int pressed_hit, int fader_v,
-                              int sync, int cue, int play);
-extern void __real_prompt_paint(const struct menu_view *v,
-                                const struct prompt_state *S, int pressed_cell,
-                                int selected_cell);
+                              int pressed_hit, int fader_v, int mode,
+                              int sync, int cue, int play, int mt, int master);
 
 int __wrap_drm_band_setup(struct drm_band *b, int w, int h, int bpp)
 {
@@ -539,8 +548,6 @@ int __wrap_drm_band_setup(struct drm_band *b, int w, int h, int bpp)
                w, h, bpp);
         return -1;
     }
-    if (plane_refuse_prompt && surface_of(w, h) == SURF_PROMPT)
-        return -1;
     memset(b, 0, sizeof *b);
     b->fd      = -1;              /* never used: show/hide/teardown are wrapped too */
     b->pix     = plane_use_alt ? plane_alt : plane_buf;
@@ -595,8 +602,28 @@ void __wrap_drm_band_teardown(struct drm_band *b)
     b->on  = 0;
 }
 
+
+/* THE PAINT THREAD'S NEW GATE, stubbed: menu_badge_build() asks the touch thread's answer about
+ * the performance screen, and this suite is about the band's picture. Answering "not the
+ * performance screen" is the honest stub -- it means the badge ring is never drawn here, so no
+ * painter and no touch thread has to be linked into a test that does not look at either. */
+int __wrap_rbp_perf_screen(void) { return 0; }
+
+/* ...and the ring's planes, for the same reason: deckbadge_plane_sync() opens /dev/dri/card1 and
+ * asks for overlay planes, which is not something a host test should do -- and this suite is about
+ * the band's picture. Counting the calls lets a later test ask "was the ring offered?" without any
+ * of that. */
+int ring_calls;
+void __wrap_deckbadge_plane_sync(const int *playing, int on_screen)
+{
+    (void)playing;
+    (void)on_screen;
+    ring_calls++;
+}
+
 void __wrap_side_paint(const struct menu_view *v, int side, int pressed_hit,
-                       int fader_v, int sync, int cue, int play)
+                       int fader_v, int mode, int sync, int cue, int play, int mt,
+                       int master)
 {
     side_paints++;
     if (side == SZ_RIGHT)
@@ -605,15 +632,10 @@ void __wrap_side_paint(const struct menu_view *v, int side, int pressed_hit,
         side_paints_left++;
     side_last_which = side;
     side_last_led   = sync | (cue << 1) | (play << 2);
-    __real_side_paint(v, side, pressed_hit, fader_v, sync, cue, play);
+    __real_side_paint(v, side, pressed_hit, fader_v, mode, sync, cue, play, mt,
+                      master);
 }
 
-void __wrap_prompt_paint(const struct menu_view *v, const struct prompt_state *S,
-                         int pressed_cell, int flash_cell)
-{
-    prompt_paints++;
-    __real_prompt_paint(v, S, pressed_cell, flash_cell);
-}
 
 /* ---------------------------------------------------------------------------
  * Driving the drawer, in the funnel's own terms.
@@ -1101,7 +1123,7 @@ static int plane_is_drawer(int which, int hit, int v, const char *what, int line
     sv.bpp   = FB_BPP;
     sv.dw    = pw;
     sv.dh    = FB_H;
-    __real_side_paint(&sv, which, hit, v, 0, 0, 0);
+    __real_side_paint(&sv, which, hit, v, SZ_MODE_VOL, 0, 0, 0, 0, 0);
     if (memcmp(plane_use_alt ? plane_alt : plane_buf, want, sizeof want) == 0)
         return 1;
     failures++;
@@ -1144,7 +1166,7 @@ static int page_is_drawer(int which, int hit, int v, const char *what, int line)
     sv.bpp   = FB_BPP;
     sv.dw    = pw;
     sv.dh    = FB_H;
-    __real_side_paint(&sv, which, hit, v, 0, 0, 0);
+    __real_side_paint(&sv, which, hit, v, SZ_MODE_VOL, 0, 0, 0, 0, 0);
 
     memset(want, 0, sizeof want);
     for (y = 0; y < FB_H; y++)
@@ -1522,414 +1544,6 @@ static void scenario_drawer_routes(void)
     CHECK(!side_is_open(SZ_LEFT), "the drawer would not close at the end of the routes");
 }
 
-/* ---------------------------------------------------------------------------
- * The USB STOP chooser's plane -- the FOURTH band, and the three claims about it
- * that nothing before this scenario could make.
- *
- * WHY IT NEEDS A SCENARIO OF ITS OWN. The box is a surface with a lifetime of its
- * own: it is raised from the band's seventh column (pointsrc.c), it outlives the tap
- * that raised it by up to PR_TIMEOUT_MS, and it is the only surface in this shim
- * whose PICTURE depends on something outside the shim -- rbp's own answer about the
- * two USB devices (pointsrc_usb_state()). Three consequences of that are pinned
- * nowhere else: a fresh box-sized plane can be SHOWN holding an uninitialised buffer
- * if the defer is wrong, the repaint gate must notice a device appearing or going
- * away and not only a finger moving, and the band's plane has to be taken off the
- * glass while the box is up.
- *
- * THE BOX IS RAISED BY CALLING prompt_open() DIRECTLY, and that is the one thing
- * this scenario does not do the shipped way. The raise lives in pointsrc.c's
- * menu_fire(), which is static and not linked here -- pointsrc.c is the input half
- * and brings the whole device layer with it. prompt_open() is exactly what that
- * function calls and nothing else happens on the way, so the state machine under
- * test is the shipped one; what is NOT covered here is that the seventh column is
- * what reaches this call, and that is scenario-level truth about pointsrc.c that no
- * test in this file can see either way.
- *
- * The liveness is `usb_fake`, the stub above: it is the whole reason the box's
- * picture can be driven on a host with no rbp, and it is what makes the "a dead button
- * is a different picture" claim testable at all.
- *
- * THE GESTURE ITSELF IS NOT TESTED HERE, and since 2026-10-07 that is worth saying out
- * loud. The box is two buttons held for three seconds (prompt_zone.h), and the whole of
- * that -- the hold, the flash phase, the threshold, the release that sends nothing -- is
- * pinned by test_prompt.c against the production prompt_zone.c with a clock the test owns.
- * What is pinned HERE is the DRAW thread's half: that the picture the module's state asks
- * for is the picture on the plane, that the repaint gate notices a device appearing or
- * going away and a button lighting up, and that the box's plane is taken off the glass and
- * given back at the right moments. Nothing in this file calls prompt_tick() -- the tick
- * lives in pointsrc.c's read loop, which is the input half and is not linked here -- so no
- * hold can COMPLETE in this scenario, which is what makes the "let go early" leg below a
- * real test of the early-release rule rather than of a clock nobody moved.
- * ------------------------------------------------------------------------- */
-
-static int box_pw(void) { return prompt_paint_w(FB_W); }
-static int box_ph(void) { return prompt_paint_h(FB_H); }
-
-/* A point comfortably inside a cell, in LOGICAL coordinates -- prompt_feed() takes the
- * same space the panel reports in, so these are the PR_CELL_* rects and not page px. */
-static int box_cell_x(int c) { return PR_CELL_X0(c) + 10; }
-static int box_cell_y(int c) { return PR_CELL_Y0(c) + 10; }
-
-/* The box's rect on the PAGE, which is what the fallback route writes into. Centred,
- * because that is what the logical geometry says and what menu_prompt_bx()/by()
- * reproduce in page pixels. */
-static int box_page_x0(void) { return (FB_W - box_pw()) / 2; }
-static int box_page_y0(void) { return (FB_H - box_ph()) / 2; }
-
-/* The plane holds exactly the image the shipped painter makes for this state, at the
- * plane's own size and stride -- built by that same painter, so it cannot drift with
- * the palette.
- *
- * ONLY THE BOX'S OWN RECT IS COMPARED, and that is not a weakening. On the unit the
- * plane IS the box: drm_band_setup() is asked for menu_prompt_pw() x menu_prompt_ph()
- * and the dumb buffer it maps has exactly that stride, so there is no pixel of this
- * surface outside the rect. This fake hands the module the PAGE's buffer instead --
- * one allocation shared by all four surfaces -- so the columns past the box's width
- * hold whatever the band or a drawer left there, which is not this surface's business
- * and must not be asserted on. Where "nothing else was written" IS a real claim it is
- * made against the page, by BOX_PAGE_IS below, on a page that is clobbered first. */
-static int box_plane_is(const struct prompt_state *S, int cell, int flash,
-                        const char *what, int line)
-{
-    static unsigned short want[PLANE_BUF_W * PLANE_BUF_H];
-    const unsigned short *got = plane_use_alt ? plane_alt : plane_buf;
-    struct menu_view sv;
-    int pw = box_pw(), ph = box_ph();
-    int y, bad = 0;
-
-    checks++;
-    memset(want, 0, sizeof want);
-    memset(&sv, 0, sizeof sv);
-    sv.pix   = want;
-    sv.pitch = plane_pitch_px;
-    sv.fb_w  = pw;
-    sv.fb_h  = ph;
-    sv.bpp   = FB_BPP;
-    sv.dw    = pw;
-    sv.dh    = ph;
-    __real_prompt_paint(&sv, S, cell, flash);
-
-    for (y = 0; y < ph; y++) {
-        if (memcmp(got + (size_t)y * plane_pitch_px,
-                   want + (size_t)y * plane_pitch_px,
-                   (size_t)pw * sizeof *got) == 0)
-            continue;
-        bad++;
-    }
-    if (bad == 0)
-        return 1;
-    failures++;
-    printf("FAIL %s:%d: %s: the plane is not the chooser's box"
-           " (%d of %d rows wrong; cell=%d flash=%d usb1=%d usb2=%d)\n",
-           __FILE__, line, what, bad, ph, cell, flash, S->live[0], S->live[1]);
-    return 0;
-}
-
-#define BOX_PLANE_IS(s, c, a, what) box_plane_is((s), (c), (a), (what), __LINE__)
-
-/* The PAGE route's version of the same claim, and the same second half as
- * PAGE_IS_DRAWER: the box is on the page at its own rect, and every pixel outside it
- * still holds the sentinel the page was filled with. That is what tests the
- * PLACEMENT -- menu_prompt_publish()'s page arm writes a run per row from an offset of
- * its own arithmetic, and an off-by-one would leave a column of sentinel inside the
- * box or a column of box beside it, neither of which a comparison of the box alone
- * could see. */
-static int box_page_is(const struct prompt_state *S, int cell, int flash,
-                       const char *what, int line)
-{
-    static unsigned short want[FB_PITCH * FB_H];
-    static unsigned short img[PR_W * PR_H];
-    struct menu_view sv;
-    int x0 = box_page_x0(), y0 = box_page_y0();
-    int pw = box_pw(), ph = box_ph();
-    long bad = 0;
-    int x, y, fx = -1, fy = -1;
-    unsigned int got = 0, wantv = 0;
-
-    checks++;
-    memset(img, 0, sizeof img);
-    memset(&sv, 0, sizeof sv);
-    sv.pix   = img;
-    sv.pitch = PR_W;              /* the image is built tight, the box's own width */
-    sv.fb_w  = pw;
-    sv.fb_h  = ph;
-    sv.bpp   = FB_BPP;
-    sv.dw    = pw;
-    sv.dh    = ph;
-    __real_prompt_paint(&sv, S, cell, flash);
-
-    memset(want, 0, sizeof want);
-    for (y = 0; y < FB_H; y++)
-        for (x = 0; x < FB_W; x++) {
-            unsigned short v = PAGE_SENTINEL;
-
-            if (x >= x0 && x < x0 + pw && y >= y0 && y < y0 + ph)
-                v = img[(size_t)(y - y0) * PR_W + (x - x0)];
-            want[(size_t)y * FB_PITCH + x] = v;
-        }
-
-    for (y = 0; y < FB_H; y++)
-        for (x = 0; x < FB_W; x++) {
-            unsigned short w = want[(size_t)y * FB_PITCH + x];
-            unsigned short g = px(x, y);
-
-            if (g != w) {
-                bad++;
-                if (fx < 0) { fx = x; fy = y; got = g; wantv = w; }
-            }
-        }
-    if (bad == 0)
-        return 1;
-    failures++;
-    printf("FAIL %s:%d: %s: the page is not the chooser's box"
-           " (%ld of %d page pixels wrong; first at %d,%d: %#06x, wanted %#06x)\n",
-           __FILE__, line, what, bad, FB_W * FB_H, fx, fy, got, wantv);
-    return 0;
-}
-
-#define BOX_PAGE_IS(s, c, a, what) box_page_is((s), (c), (a), (what), __LINE__)
-
-/* The raise the shipped path makes, minus the funnel that reaches it. */
-static void box_open(void)
-{
-    prompt_open(0);               /* the clock is pointsrc.c's; this module keeps none */
-    CHECK(prompt_is_open(), "the chooser would not open");
-}
-
-static void scenario_prompt(void)
-{
-    struct prompt_state live2 = { .live = { 1, 1 } };
-    struct prompt_state usb1only = { .live = { 1, 0 } };
-    int x0, y0;
-
-    /* The routes above left the left drawer shut and the band's plane back in its
-     * hands. Nothing here needs the band, so put it away first and start from a glass
-     * that holds only the page. */
-    press_and_dismiss();
-    run_tick();
-    CHECK(!menu_is_open() && !side_any_open(),
-          "the glass was not clear before the chooser test");
-    CHECK(!prompt_is_open(), "the chooser was open before its scenario");
-
-    /* --- 1. a shut box costs nothing ---------------------------------------- */
-    plane_fake = 1;
-    usb_fake = live2;
-    setup_n[SURF_PROMPT] = teardown_n[SURF_PROMPT] = 0;
-    prompt_paints = 0;
-    log_reset();
-    run_tick();
-    run_tick();
-    CHECK(setup_n[SURF_PROMPT] == 0, "a shut box set up a plane (%d)",
-          setup_n[SURF_PROMPT]);
-    CHECK(prompt_paints == 0, "a shut box painted %d times", prompt_paints);
-
-    /* --- 2. the raise: a plane of its own, at its own size ------------------ */
-    x0 = box_page_x0();
-    y0 = box_page_y0();
-    CHECK(box_pw() != FB_W && box_ph() != MZ_PANEL_H && box_ph() != FB_H,
-          "the box is not distinguishable from the band or a drawer (%dx%d)",
-          box_pw(), box_ph());
-
-    box_open();
-    run_tick();
-    CHECK(setup_n[SURF_PROMPT] == 1, "the box's plane was set up %d times",
-          setup_n[SURF_PROMPT]);
-    CHECK(prompt_paints == 1, "the box painted %d times on its first tick",
-          prompt_paints);
-    CHECK(last_show_x == x0 && last_show_y == y0,
-          "the box was shown at %d,%d, not centred at %d,%d",
-          last_show_x, last_show_y, x0, y0);
-    BOX_PLANE_IS(&live2, 0, 0, "the box on its own plane");
-
-    /* --- 3. the gate: a steady tick builds nothing --------------------------- */
-    run_tick();
-    run_tick();
-    CHECK(prompt_paints == 1, "a steady tick repainted the box (%d)", prompt_paints);
-    CHECK(setup_n[SURF_PROMPT] == 1, "a steady tick re-set-up the box's plane (%d)",
-          setup_n[SURF_PROMPT]);
-
-    /* --- 4. the finger, the hold let go early, and the way out -------------- */
-    /* The highlight is driven through the module's own gesture and not by poking the
-     * row: prompt_feed() is what pointsrc.c's funnel calls, so what the plane holds is
-     * what the operator's finger would have made.
-     *
-     * THE PRESS IS STAMPED, because a press on a live button now starts the three-second
-     * hold and the module has to know WHEN. Nothing in this file calls prompt_tick() --
-     * the tick lives in pointsrc.c's read loop, which is the input half and is not linked
-     * here -- so the hold cannot complete in this scenario, which is exactly what makes
-     * "let go early" testable at all: the release below must send nothing because 1000 ms
-     * is short of the operator's three seconds, and not because this file's clock never
-     * moved. */
-    {
-        int act = PR_ACT_NONE;
-
-        prompt_feed(&live2, 1, box_cell_x(PR_CELL_USB1), box_cell_y(PR_CELL_USB1),
-                    0, &act);
-        run_tick();
-        CHECK(prompt_paints == 2, "the box did not repaint for a finger on USB 1 (%d)",
-              prompt_paints);
-        /* THE LIT BUTTON IS THE FINGER'S CELL, and it arrives through the flash and not
-         * through prompt_pressed(): the cell whose hold is running reports 0 as the
-         * finger's own cell precisely so that the blink has somewhere to blink to
-         * (prompt_zone.h). What that means HERE is that the picture is the pressed one,
-         * which is the same pair of pixels either way -- the plane cannot tell them
-         * apart, and neither can the operator, which is the point. */
-        BOX_PLANE_IS(&live2, 0, PR_CELL_USB1, "the box with USB 1 held");
-
-        /* LET GO EARLY: nothing is sent, and the box STAYS UP. This is the operator's own
-         * "if they release it before three seconds don't eject it", and it is the one
-         * release in the module that leaves the box standing -- so it is pinned here as a
-         * change of picture back to idle and not as a close. */
-        prompt_feed(&live2, 0, box_cell_x(PR_CELL_USB1), box_cell_y(PR_CELL_USB1),
-                    1000, &act);
-        run_tick();
-        CHECK(prompt_is_open(), "letting go early closed the box");
-        CHECK(act == PR_ACT_NONE, "letting go early answered %d", act);
-        CHECK(teardown_n[SURF_PROMPT] == 0,
-              "the box's plane was released on a hold let go early (%d)",
-              teardown_n[SURF_PROMPT]);
-        CHECK(prompt_paints == 3, "letting go early did not repaint the box (%d)",
-              prompt_paints);
-        BOX_PLANE_IS(&live2, 0, 0, "the box after a hold let go early");
-
-        /* ...and the way out, which is now a tap anywhere that is not a button: the press
-         * begins off every cell, so its release dismisses and answers nothing. There is no
-         * CANCEL and no OK any more (prompt_zone.h). */
-        prompt_feed(&live2, 1, 10, 10, 0, &act);
-        prompt_feed(&live2, 0, 10, 10, 1000, &act);
-        run_tick();
-        CHECK(act == PR_ACT_NONE, "a tap outside answered %d", act);
-        CHECK(!prompt_is_open(), "a tap outside did not put the box away");
-        CHECK(teardown_n[SURF_PROMPT] == 1, "the box's plane was not released (%d)",
-              teardown_n[SURF_PROMPT]);
-        CHECK(prompt_paints == 3, "the close repainted the box (%d)", prompt_paints);
-    }
-
-    /* --- 5. rbp's answer is part of the picture, so it is part of the gate --- */
-    usb_fake = usb1only;
-    box_open();
-    run_tick();
-    CHECK(setup_n[SURF_PROMPT] == 2, "the second open did not get a plane (%d)",
-          setup_n[SURF_PROMPT]);
-    CHECK(prompt_paints == 4, "the box did not build with USB 2 absent (%d)",
-          prompt_paints);
-    BOX_PLANE_IS(&usb1only, 0, 0, "the box with USB 2 absent");
-    /* ...and the dim row really is a different picture, which is the only reason the
-     * liveness belongs in the gate at all. */
-    {
-        static unsigned short a[PLANE_BUF_W * PLANE_BUF_H];
-        struct menu_view sv;
-
-        memset(a, 0, sizeof a);
-        memset(&sv, 0, sizeof sv);
-        sv.pix = a; sv.pitch = plane_pitch_px;
-        sv.fb_w = box_pw(); sv.fb_h = box_ph(); sv.bpp = FB_BPP;
-        sv.dw = box_pw(); sv.dh = box_ph();
-        __real_prompt_paint(&sv, &live2, 0, 0);
-        CHECK(memcmp(a, plane_buf, sizeof a) != 0,
-              "the absence of USB 2 made no difference to the picture");
-    }
-    /* A device GOING AWAY is the same kind of change in the other direction. */
-    usb_fake = live2;
-    run_tick();
-    CHECK(prompt_paints == 5, "USB 2 coming back did not rebuild the box (%d)",
-          prompt_paints);
-    BOX_PLANE_IS(&live2, 0, 0, "the box with USB 2 back");
-    prompt_close();
-    run_tick();
-    CHECK(teardown_n[SURF_PROMPT] == 2, "the box's plane was not released (%d)",
-          teardown_n[SURF_PROMPT]);
-
-    /* --- 6. the pitch-matching plane, which is the one the unit has ---------- */
-    /* drmband.c allocates the buffer it was asked for, so on the unit the box's plane
-     * has the box's own WIDTH for a stride and `g.prompt.pitch == prompt_buf_w` --
-     * menu_prompt_publish()'s single memcpy. The fake above reports the PAGE's stride
-     * and takes the per-row loop instead, so without this leg the memcpy would ship
-     * untested, exactly the gap the drawers' second buffer exists for.
-     *
-     * The pitch has to be set BEFORE the setup, because that is the only moment
-     * drm_band_setup() reads it -- so this is a leg of its own, with its own open and
-     * close, rather than a knob flipped under a plane that already exists. */
-    plane_pitch_px = box_pw();
-    box_open();
-    run_tick();
-    CHECK(setup_n[SURF_PROMPT] == 3, "the narrow box plane was set up %d times",
-          setup_n[SURF_PROMPT]);
-    CHECK(prompt_paints == 6, "the box did not repaint for the narrow plane (%d)",
-          prompt_paints);
-    BOX_PLANE_IS(&live2, 0, 0, "the box down the pitch-matching memcpy path");
-    prompt_close();
-    run_tick();
-    plane_pitch_px = PLANE_BUF_W;
-    CHECK(teardown_n[SURF_PROMPT] == 3, "the narrow box plane was not released (%d)",
-          teardown_n[SURF_PROMPT]);
-
-    /* --- 7. the band's plane is taken off the glass while the box is up ------ */
-    /* THE STATE THIS CONSTRUCTS IS NOT REACHABLE from the shipped gesture, and that is
-     * stated rather than glossed: the tap that raises the box is the same release that
-     * closes the band, so on the unit the band is already shut. But menu_frame_tick()'s
-     * early return is what makes the band's own path unreachable while the box is up,
-     * and a band left on the glass over a box the operator is being asked to read is
-     * exactly the kind of thing that would only ever be noticed on the unit. So it is
-     * built here, and what is pinned is the defence and not the sequence. */
-    open_panel();
-    run_tick();
-    run_tick();
-    {
-        int hides = hide_n;
-        int paints = prompt_paints;
-
-        box_open();
-        run_tick();
-        CHECK(hide_n > hides, "the band's plane was left on the glass over the box");
-        CHECK(prompt_paints == paints + 1, "the box did not paint over the band (%d)",
-              prompt_paints);
-    }
-
-    prompt_close();
-    run_tick();
-    press_and_dismiss();         /* the band open_panel() left standing */
-    run_tick();
-    CHECK(!menu_is_open() && !side_any_open(),
-          "the glass was not clear before the fallback route");
-
-    /* --- 8. the fallback: a machine that refuses the box a plane -------------- */
-    /* The same claim as the drawers' page route, and it has to keep working: on a unit
-     * that will not grant a fourth plane the box goes onto the page every tick --
-     * prompt_pending cannot be honoured there, because rbp repaints over it and there
-     * is no damage witness for a region this size. */
-    setup_n[SURF_PROMPT] = teardown_n[SURF_PROMPT] = 0;
-    plane_refuse_prompt = 1;
-    usb_fake = live2;
-    box_open();
-    run_tick();
-    CHECK(setup_n[SURF_PROMPT] == 0,
-          "the refused box setup was counted as a plane (%d)", setup_n[SURF_PROMPT]);
-    /* The page is written EVERY tick on this route, so this is the second tick's
-     * output and not the first's -- which is why the clobber is repeated. */
-    clobber();
-    run_tick();
-    BOX_PAGE_IS(&live2, 0, 0, "the box on the page, on a machine with no fourth plane");
-
-    prompt_close();
-    run_tick();
-    CHECK(teardown_n[SURF_PROMPT] == 0,
-          "a box that never had a plane tore one down (%d)", teardown_n[SURF_PROMPT]);
-
-    /* ...and the refusal is a LATCH, not a verdict: the close clears it, so a later
-     * open tries once more -- exactly what win_fail and side_fail do, and the whole
-     * reason prompt_fail is cleared in the close arm. */
-    plane_refuse_prompt = 0;
-    box_open();
-    run_tick();
-    CHECK(setup_n[SURF_PROMPT] == 1,
-          "a later open did not try the box's plane again (%d)", setup_n[SURF_PROMPT]);
-    prompt_close();
-    run_tick();
-    CHECK(teardown_n[SURF_PROMPT] == 1, "the box's plane was not released (%d)",
-          teardown_n[SURF_PROMPT]);
-}
-
 int main(int argc, char **argv)
 {
     int rc;
@@ -1986,7 +1600,6 @@ int main(int argc, char **argv)
     /* ...and LAST of all the chooser's box, which is the only scenario that uses the
      * fake plane for a surface other than the band and the drawers, and the only one
      * whose picture depends on rbp's own answer (the usb_fake stub). */
-    scenario_prompt();
 
     /* Stop the thread from inside, the way it was started: the wrapped usleep is
      * called BY that thread, so exiting there is legal and leaves nothing running. */

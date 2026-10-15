@@ -277,8 +277,9 @@
  * usable press. Here the press is load-bearing. */
 #define K_USBSTOP    0x8002
 
-/* THE TWO UsbStorageManager OBJECTS, and how to reach them -- what the USB STOP
- * chooser's two device rows are lit from (prompt_zone.c, pointsrc.c).
+/* THE TWO UsbStorageManager OBJECTS, and how to reach them -- what the settings
+ * panel's USB1 STOP/USB2 STOP rows are lit from (settings_zone.h, pointsrc.c; they
+ * were the USB STOP chooser's two device rows until it was deleted 2026-10-14).
  *
  * ui::IUiObjManager::getUsbStorageManager(Channel) @0x31dfc8 is four instructions
  * and they are all here:
@@ -764,6 +765,12 @@ static const signed char bfx_type_to_pos[15] = {
 /* rbp LedStat ids we have identified (channels 1/2 = deck 1/2):
  *   49 = deck PLAY  (state 2 while paused  -> panel must blink)
  *    4 = SYNC       3 = VINYL      6 = KEY LOCK      11 = SLIP */
+/* 5 = MASTER, and it is MEASURED rather than inferred: rbp MOVES this entry's channel when
+ * the master changes decks (2026-10-12, work/ledstat.py, the only difference across one MASTER
+ * press on the left drawer: `id=5 ch=2` -> `id=5 ch=1`). Because it moves, the table itself
+ * answers "which deck is master" -- there is nothing to keep in step, and only one deck can
+ * be master, so at most one channel is ever lit. */
+#define LEDSTAT_MASTER  5
 #define LEDSTAT_PLAY   49
 #define LEDSTAT_SYNC   4
 #define LEDSTAT_VINYL  3
@@ -855,6 +862,27 @@ static const signed char bfx_type_to_pos[15] = {
 #define MIXER_ROUTE_INPUT0       0x01149f08UL
 #define ADDR_MIXER_ROUTE_PLAYER1 0x01149f54UL   /* *word = MIXER_ROUTE_INPUT1 */
 #define MIXER_ROUTE_INPUT1       0x01149f10UL
+
+/* And one hop further on is that input's AUDIO: the word at source_object+4 is
+ * the address of the input's Float2 block for the block in flight. This is what
+ * djengine::MixerRouteMngr::getPlayerDataPointer(EnMixerInput) @0x85898 returns,
+ * and its whole body is these two loads --
+ *
+ *   r3 = 0x01149f08 + input*4;  r0 = *(u32 *)(r3 + 0x48);  return r0 ? *(u32 *)(r0+4) : 0;
+ *
+ * -- so the routing words above and this pointer are fields of one per-input
+ * object (0x01149f08 + 0x48 IS ADDR_MIXER_ROUTE_PLAYER0). Two loads is why
+ * audioshim reads it rather than calling in: its fill_deck_taps() records the
+ * measurement that the address is fixed and the buffer written in place each
+ * block, which is what makes the deck taps readable at flush time with no hook,
+ * no patch and no added latency.
+ *
+ * The data is rbp's, pre-strip: mixerengine::MixerChannel::update @0x9e890
+ * fetches this pointer and then applies TRIM -> EQ -> isolator -> fader -> FX to
+ * it, so this is the deck before any of that. Inputs 0 and 1 are the two decks
+ * (2 preview, 3 mic, 4 aux, 5/6 the USB/PC pair -- read off the live objects'
+ * vtables on .239 2026-10-10). */
+#define MIXER_ROUTE_PTR_OFF     4
 
 
 /* ---- meter hook: ui::Mixer::MonoLvMeter::getLedValue(unsigned char) -----

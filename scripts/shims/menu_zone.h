@@ -109,16 +109,34 @@
 #define MZ_PANEL_Y1   55     /* 56 rows: 8 border, 40 button, 8 border */
 #define MZ_BTN_Y0      8     /* buttons, inclusive */
 #define MZ_BTN_Y1     47     /* 40 rows tall */
-/* Seven, not six: the six browse/selector keys plus USB STOP, the safe eject
- * (rbp_abi.h's K_USBSTOP). It is here at the operator's own ask -- "add a USB STOP
- * button to the menu" -- because the FLX4 has no such button and the alternative,
- * pulling the stick, is the thing that risks the media. Nothing about the column
- * arithmetic below is six-specific; at 1280 logical px a column is 182 px and the
- * widest label, "USB STOP", is 76 px at the shipped atlas (menu_font.h), so the
- * seventh costs every label 42 px of a 182 px column and none of them notices. */
-#define MZ_COLS        7     /* SOURCE BROWSE TAG LIST PLAYLIST SEARCH MENU USB STOP */
+/* SEVEN: the six browse/selector keys and SETTINGS, the gear that raises the settings panel
+ * (settings_zone.h) -- the operator's ask of 2026-10-14: "i want to be able to switch from
+ * the internal mixer to the external mixer from the glass" ... "maybe a settings screen with
+ * stuff like USB stop and mixer mode" ... "and then it is just a gear icon".
+ *
+ * USB STOP WAS HERE AND IS GONE (2026-10-14), at the operator's own ask once he had used it:
+ * "you can also remove the USB STOP item next to the settings icon". It was rbp's safe eject
+ * (rbp_abi.h's K_USBSTOP), which this rig could reach from nowhere else when it was added on
+ * 2026-10-05; the settings panel's USB1 STOP/USB2 STOP rows do that job now -- one row per
+ * device, each ejecting only its own stick -- so the column was a second door onto the same
+ * two devices, and the gear next to it is what the operator reaches for.
+ *
+ * WHAT THAT GIVES BACK, and it is the same six pixels the web cell gave back once before:
+ * seven columns divide 1280 into 182 px again (183 for the last), where eight divided it into
+ * exactly 160 -- and a WIDER column is what the band's narrowest supported picture needs. The
+ * floor was 688 px wide with eight columns and is ~560 with seven, so a 640x480 or 640x800
+ * panel draws the band again (menu_paint.c's menu_labels_fit() has the arithmetic). The cost
+ * is that the columns are no longer equal: 1280 does not divide by 7.
+ *
+ * THE LAST ONE IS AN ICON AND NOT A LABEL, and the label table still carries the word
+ * "SETTINGS" for it (menu_zone.c) because the label is what the log line, menu_labels_fit()
+ * and the tests use. The painter is the only thing that knows the column is a gear -- see
+ * menu_paint.c's menu_gear_cov(), which blits a baked table because neither the 19 px Decker
+ * atlas nor the font it is baked from carries such a glyph. */
+#define MZ_COLS        7     /* SOURCE BROWSE TAG LIST PLAYLIST SEARCH MENU (gear) */
 
-/* THE EIGHTH CELL IS GONE, AND WHY IT WENT RATHER THAN CHANGED ITS MARK.
+/* THE WEB CELL THAT USED TO BE THE EIGHTH IS GONE, AND WHY IT WENT RATHER THAN CHANGED
+ * ITS MARK.
  *
  * It was the web cell: a mark in the panel's last 48 px that opened the deck's browser
  * window -- the operator's own asks, "a > button for an extended menu and have it open
@@ -129,21 +147,23 @@
  * REMOVED, not re-marked -- restoring the ">" would only make a dead button look like
  * the one that used to work.
  *
- * WHAT THAT GIVES BACK. The seven were narrowed 182 -> 176 px to make the cell's 48,
- * and removing it returns all six pixels to each of them. 1280 does NOT divide by 7
- * (182.857 a column), so the columns are no longer equal -- menu_button_x0/x1 tile
- * them exactly regardless, with no gap and no overlap, and that is the property
- * menu_button_at() and menu_paint_cols() rest on; test_menu.c asserts it at every
- * column rather than asserting a width. The widest label, "USB STOP" at 76 px, has
- * more than 100 px of slack in a 1280-px column either way, so no label moves; it is
- * a NARROW picture, not the seventh column, that the atlas size is measured against
- * -- menu_paint.c refuses one whose narrowest column cannot hold its own label whole,
- * and at 19 px that floor is a 535-px-wide picture.
+ * WHAT THAT GAVE BACK, AND WHAT THE GEAR THEN TOOK. The seven were narrowed 182 -> 176 px
+ * to make the cell's 48, and removing it returned all six pixels to each of them; the
+ * columns were then UNEQUAL, because 1280 does not divide by 7 (182.857 a column). With
+ * eight it divides exactly -- 160 px each -- so they are equal again for the first time
+ * since the seventh arrived. menu_button_x0/x1 tile them exactly either way, with no gap
+ * and no overlap, and that is the property menu_button_at() and menu_paint_cols() rest on;
+ * test_menu.c asserts it at every column rather than asserting a width. The widest label,
+ * "USB STOP" at 76 px, has 84 px of slack in a 160-px column and the gear is narrower than
+ * that, so nothing is squeezed; it is a NARROW picture, not the eighth column, that the
+ * atlas size is measured against -- menu_paint.c refuses one whose narrowest column cannot
+ * hold its own label whole, and at 19 px that floor is a 535-px-wide picture.
  *
- * WHAT IS NOT GONE: the window module itself still ships and still works
- * (menu_window.c, menu_window_paint.c, browser_link.c) -- the operator abandoned the
- * browser, not the code -- and menu_draw.c's MENU_WINDOW=1 opener still opens it. What
- * is gone is the menu's door to it, because a door to nowhere is worse than no door. */
+ * WHAT IS NOT GONE, AND THEN WAS: the window module itself kept shipping for a week
+ * after the cell went -- the operator abandoned the browser, not the code
+ * (menu_window.c, menu_window_paint.c, browser_link.c, reachable only through
+ * menu_draw.c's MENU_WINDOW=1). It has now followed the browser out (2026-10-12), so
+ * the menu and the module agree: there is no door and there is nothing behind it. */
 #define MZ_BTN_W        MZ_LOGICAL_W   /* 1280: what the seven tile on their own */
 
 /* The touch space, in logical px. 1280x800 on every panel this port runs on --
@@ -250,6 +270,13 @@ int menu_button_x1(int i);
 /* Label for button 1..MZ_COLS, or NULL. The painter centres these; the width
  * comes from menu_text_width(). */
 const char *menu_label(int button);
+
+/* IS THIS COLUMN DRAWN AS AN ICON RATHER THAN AS ITS LABEL? True for the last one -- the
+ * settings gear -- and it exists so that "which column is the gear" is answered HERE,
+ * beside the label table, rather than by menu_paint.c writing MZ_COLS - 1 and the two
+ * drifting apart. The label is still a real one (menu_label() answers "SETTINGS"), and it
+ * is what the log line and the width test use; the painter is the only caller. */
+int menu_column_is_gear(int button);
 
 /* Which cell a logical point is over: 1..MZ_COLS for a labelled button, or 0 for
  * none. A point in the panel but in the border, or in the strip above the buttons,

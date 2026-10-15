@@ -77,6 +77,12 @@
 
 static int checks, failures;
 
+/* THE CENTRE OF SYNC'S OWN CELL, now that SYNC shares its row with MASTER. A press at the
+ * old full-width centre (x 89) lands in the 8 px seam between the two and is nobody's --
+ * which is exactly what test_hit() asserts, and why this is a name and not a 90. */
+#define SYNC_CX ((SZ_SYNC_X0 + SZ_SYNC_X1) / 2)
+#define MASTER_CX ((SZ_MASTER_X0 + SZ_MASTER_X1) / 2)
+
 #define CHECK(cond, ...) do {                                       \
         checks++;                                                   \
         if (!(cond)) {                                              \
@@ -190,7 +196,10 @@ static void test_geometry(void)
     CHECK(SZ_BTN_X0 == SZ_PAD && SZ_BTN_X1 == SZ_W - 1 - SZ_PAD,
           "the button boxes are not the panel's inner width");
     CHECK(SZ_SYNC_Y1 == SZ_SYNC_Y0 + SZ_BTN_H - 1, "the SYNC box is not SZ_BTN_H tall");
-    CHECK(SZ_NUDGE_Y1 == SZ_NUDGE_Y0 + SZ_BTN_H - 1, "a nudge box is not SZ_BTN_H tall");
+    CHECK(SZ_NUDGE_Y1 == SZ_NUDGE_Y0 + SZ_NUDGE_H - 1, "a nudge box is not SZ_NUDGE_H tall");
+    CHECK(SZ_NUDGE_H * 2 == SZ_BTN_H,
+          "the nudge pair is %d rows where the operator asked for half of SZ_BTN_H's %d",
+          SZ_NUDGE_H, SZ_BTN_H / 2);
     CHECK(SZ_CUE_Y1 == SZ_CUE_Y0 + SZ_BTN_H - 1, "the CUE box is not SZ_BTN_H tall");
     CHECK(SZ_PLAY_Y1 == SZ_PLAY_Y0 + SZ_BTN_H - 1, "the PLAY box is not SZ_BTN_H tall");
     CHECK(SZ_READ_Y1 == SZ_READ_Y0 + SZ_LINE - 1, "the readout is not one line tall");
@@ -270,6 +279,18 @@ static void hit_both(int lx, int y, int expect, const char *what)
           "right drawer: lx %d y %d is not %s -- the mirror is wrong", lx, y, what);
 }
 
+/* ONE drawer's answer, for the rows that deliberately do NOT mirror -- the SYNC|MASTER
+ * pair, the two discs and the pitch scale's labels. `hit_both` above asserts that the same
+ * local point gives the same hit on both drawers, which IS the mirrored layout and exactly
+ * what those rows are not: they keep SCREEN order (side_zone.h's side_screen_x()), so the
+ * local range that answers a control differs between the two decks and each has to be
+ * asked on its own. */
+static void hit_one(int side, int lx, int y, int expect, const char *what)
+{
+    CHECK(side_hit(side, absx(side, lx), y) == expect,
+          "%s drawer: lx %d y %d is not %s", side ? "right" : "left", lx, y, what);
+}
+
 static void test_hit(void)
 {
     /* Outside the panel is NONE, inside it and off every control is BG -- two
@@ -282,27 +303,72 @@ static void test_hit(void)
           "the right drawer reaches into the left one's side of the glass");
 
     /* SYNC, at the top, with its own row above and below. */
-    hit_both(SZ_BTN_X0, SZ_SYNC_Y0, SZ_HIT_SYNC, "SYNC (its own top-left corner)");
-    hit_both(SZ_BTN_X1, SZ_SYNC_Y1, SZ_HIT_SYNC, "SYNC (its own bottom-right corner)");
-    hit_both(SZ_BTN_X0, SZ_SYNC_Y0 - 1, SZ_HIT_BG, "background (one row above SYNC)");
-    hit_both(SZ_BTN_X0, SZ_SYNC_Y1 + 1, SZ_HIT_BG, "background (one row below SYNC)");
-    hit_both(SZ_BTN_X0 - 1, SZ_SYNC_Y0 + 10, SZ_HIT_BG, "background (one px left of SYNC)");
-    hit_both(SZ_BTN_X1 + 1, SZ_SYNC_Y0 + 10, SZ_HIT_BG, "background (one px right of SYNC)");
+    /* THE BEAT-MATCH PAIR, AND IT KEEPS ITS SCREEN ORDER -- *"channel 2 should be sync and
+     * then master not master and then sync order"*. So the pair is written in SCREEN terms
+     * here: the cell on the SCREEN'S LEFT is SYNC on BOTH decks, and because the right
+     * drawer's mirror would otherwise reverse the two, the LOCAL range that answers SYNC is
+     * the low one on the left panel and the HIGH one on the right. That swap is the whole
+     * of side_screen_x(), and these four lines are what would catch it being dropped. */
+    hit_one(SZ_LEFT,  SZ_SYNC_X0,   SZ_SYNC_Y0, SZ_HIT_SYNC,   "SYNC, screen-left");
+    hit_one(SZ_RIGHT, SZ_MASTER_X0, SZ_SYNC_Y0, SZ_HIT_SYNC,   "SYNC, screen-left");
+    hit_one(SZ_LEFT,  SZ_MASTER_X0, SZ_SYNC_Y0, SZ_HIT_MASTER, "MASTER, screen-right");
+    hit_one(SZ_RIGHT, SZ_SYNC_X0,   SZ_SYNC_Y0, SZ_HIT_MASTER, "MASTER, screen-right");
+    hit_one(SZ_LEFT,  SZ_SYNC_X1,   SZ_SYNC_Y1, SZ_HIT_SYNC,   "SYNC's far corner");
+    hit_one(SZ_LEFT,  SZ_MASTER_X1, SZ_SYNC_Y1, SZ_HIT_MASTER, "MASTER's far corner");
+    hit_one(SZ_LEFT,  SZ_SYNC_X1 + 1, SZ_SYNC_Y0 + 10, SZ_HIT_BG, "the seam inside the pair");
+    hit_one(SZ_LEFT,  SZ_SYNC_X0 - 1, SZ_SYNC_Y0 + 10, SZ_HIT_BG, "one px left of the pair");
+    hit_one(SZ_LEFT,  SZ_MASTER_X1 + 1, SZ_SYNC_Y0 + 10, SZ_HIT_BG, "one px right of it");
+    hit_both(SZ_SYNC_X0, SZ_SYNC_Y0 - 1, SZ_HIT_BG, "background (one row above the pair)");
+    hit_both(SZ_SYNC_X0, SZ_SYNC_Y1 + 1, SZ_HIT_BG, "background (one row below the pair)");
+
+    /* THE TWO DISCS ARE ON THE PITCH CONTROL, so they answer only while the fader IS the
+     * pitch fader -- the operator's own correction, *"TR and MT should be on the pitch
+     * control"*. The mode is set here rather than assumed, and put back afterwards, because
+     * everything below this block wants the default. The row above them is still the NUDGE
+     * pair's, which is what keeps the two blocks from eating into each other. */
+    side_set_mode(SZ_LEFT, SZ_MODE_PITCH);
+    side_set_mode(SZ_RIGHT, SZ_MODE_PITCH);
+    hit_one(SZ_LEFT,  SZ_RNG_X0, SZ_RND_Y0, SZ_HIT_RANGE, "the RANGE disc, screen-left");
+    hit_one(SZ_RIGHT, SZ_MT_X0,  SZ_RND_Y0, SZ_HIT_RANGE, "the RANGE disc, screen-left");
+    hit_one(SZ_LEFT,  SZ_MT_X0,  SZ_RND_Y0, SZ_HIT_MT,    "the MT disc, screen-right");
+    hit_one(SZ_RIGHT, SZ_RNG_X0, SZ_RND_Y0, SZ_HIT_MT,    "the MT disc, screen-right");
+    hit_one(SZ_LEFT,  SZ_RNG_X1, SZ_RND_Y1, SZ_HIT_RANGE, "the RANGE disc's far corner");
+    hit_one(SZ_LEFT,  SZ_MT_X1,  SZ_RND_Y1, SZ_HIT_MT,    "the MT disc's far corner");
+    hit_one(SZ_LEFT,  SZ_RNG_X1 + 1, SZ_RND_Y0 + 10, SZ_HIT_BG, "the gap between the discs");
+    hit_one(SZ_LEFT,  SZ_MT_X1 + 1,  SZ_RND_Y0 + 10, SZ_HIT_BG, "right of the discs");
+    hit_both(SZ_RNG_X0, SZ_RND_Y0 - 1, SZ_HIT_BG, "the padding above the discs");
+    hit_both(SZ_RNG_X0, SZ_RND_Y1 + 1, SZ_HIT_FADER,
+             "the fader's grab lane, one row below the discs");
+    hit_one(SZ_LEFT, SZ_RNG_X0, SZ_NUDGE_Y1, SZ_HIT_NUDGE_M,
+            "the nudge row, which the discs' padding leaves alone");
+    hit_one(SZ_RIGHT, SZ_RNG_X0, SZ_NUDGE_Y1, SZ_HIT_NUDGE_P,
+            "the nudge row on deck 2, which the same padding leaves alone");
+    side_set_mode(SZ_LEFT, SZ_MODE_VOL);
+    side_set_mode(SZ_RIGHT, SZ_MODE_VOL);
+    hit_one(SZ_LEFT, SZ_RNG_X0, SZ_RND_Y0, SZ_HIT_BG,
+            "the disc's own box on the VOLUME control, where no disc is drawn");
+    hit_one(SZ_LEFT, SZ_MT_X1, SZ_RND_Y1, SZ_HIT_BG,
+            "the MASTER TEMPO box on the VOLUME control");
 
     /* THE NUDGE PAIR, and the seam between the cells is the interesting one: it is
-     * the only place in the panel where a press is deliberately nobody's. */
-    hit_both(SZ_NUDGE_M_X0, SZ_NUDGE_Y0, SZ_HIT_NUDGE_M, "'-' (its own top-left corner)");
-    hit_both(SZ_NUDGE_M_X1, SZ_NUDGE_Y1, SZ_HIT_NUDGE_M, "'-' (its own bottom-right)");
-    hit_both(SZ_NUDGE_P_X0, SZ_NUDGE_Y0, SZ_HIT_NUDGE_P, "'+' (its own top-left corner)");
-    hit_both(SZ_NUDGE_P_X1, SZ_NUDGE_Y1, SZ_HIT_NUDGE_P, "'+' (its own bottom-right)");
+     * the only place in the panel where a press is deliberately nobody's.
+     *
+     * IT ALSO KEEPS ITS SCREEN ORDER -- '-' on the screen's left and '+' on its right on
+     * BOTH decks, *"the +/- on the pitch strip should always be in that order"* -- so it is
+     * written in screen terms like the pair above, and the local range that answers '-' is
+     * the low one on the left panel and the high one on the right. */
+    hit_one(SZ_LEFT,  SZ_NUDGE_M_X0, SZ_NUDGE_Y0, SZ_HIT_NUDGE_M, "'-', screen-left");
+    hit_one(SZ_RIGHT, SZ_NUDGE_P_X0, SZ_NUDGE_Y0, SZ_HIT_NUDGE_M, "'-', screen-left");
+    hit_one(SZ_LEFT,  SZ_NUDGE_P_X0, SZ_NUDGE_Y0, SZ_HIT_NUDGE_P, "'+', screen-right");
+    hit_one(SZ_RIGHT, SZ_NUDGE_M_X0, SZ_NUDGE_Y0, SZ_HIT_NUDGE_P, "'+', screen-right");
+    hit_one(SZ_LEFT,  SZ_NUDGE_M_X1, SZ_NUDGE_Y1, SZ_HIT_NUDGE_M, "'-' far corner");
+    hit_one(SZ_LEFT,  SZ_NUDGE_P_X1, SZ_NUDGE_Y1, SZ_HIT_NUDGE_P, "'+' far corner");
     hit_both(SZ_NUDGE_M_X1 + 1, SZ_NUDGE_Y0 + 10, SZ_HIT_BG,
              "background (the seam between the nudge cells)");
-    hit_both(SZ_NUDGE_P_X0 - 1, SZ_NUDGE_Y0 + 10, SZ_HIT_BG,
-             "background (the other side of the seam)");
     hit_both(SZ_NUDGE_M_X0 - 1, SZ_NUDGE_Y0 + 10, SZ_HIT_BG,
-             "background (one px left of the '-' cell)");
+             "background (one px left of the pair)");
     hit_both(SZ_NUDGE_P_X1 + 1, SZ_NUDGE_Y0 + 10, SZ_HIT_BG,
-             "background (one px right of the '+' cell)");
+             "background (one px right of the pair)");
     hit_both(90, SZ_NUDGE_Y1 + 1, SZ_HIT_BG, "background (one row below the nudge pair)");
 
     /* ...and the two cells never answer for each other, at any lx in the row. */
@@ -506,11 +572,11 @@ static void test_gesture_open(void)
     open_by_swipe(SZ_LEFT);
     lift(SZ_LEFT, SZ_SWIPE_PX, 600, &act, &val);
     act = val = -1;
-    CHECK(press(SZ_LEFT, 90, SZ_SYNC_Y0 + 10, &act, &val) == MZ_FEED_TAKEN,
+    CHECK(press(SZ_LEFT, SYNC_CX, SZ_SYNC_Y0 + 10, &act, &val) == MZ_FEED_TAKEN,
           "a press on SYNC was not swallowed");
     CHECK(act == SZ_ACT_NONE, "SYNC fired on the press and not the lift");
     CHECK(side_pressed(SZ_LEFT) == SZ_HIT_SYNC, "SYNC is not highlighted while held");
-    CHECK(lift(SZ_LEFT, 90, SZ_SYNC_Y0 + 10, &act, &val) == MZ_FEED_TAKEN,
+    CHECK(lift(SZ_LEFT, SYNC_CX, SZ_SYNC_Y0 + 10, &act, &val) == MZ_FEED_TAKEN,
           "SYNC's lift was not swallowed");
     CHECK(act == SZ_ACT_SYNC, "SYNC did not fire on the lift");
     CHECK(side_pressed(SZ_LEFT) == SZ_HIT_NONE, "a highlight outlived the press");
@@ -538,15 +604,15 @@ static void test_gesture_open(void)
     reset_all();
     open_by_swipe(SZ_LEFT);
     lift(SZ_LEFT, SZ_SWIPE_PX, 600, &act, &val);
-    press(SZ_LEFT, 90, SZ_SYNC_Y0 + 10, &act, &val);
-    lift(SZ_LEFT, 90, SZ_SYNC_Y0 + 10, &act, &val);
+    press(SZ_LEFT, SYNC_CX, SZ_SYNC_Y0 + 10, &act, &val);
+    lift(SZ_LEFT, SYNC_CX, SZ_SYNC_Y0 + 10, &act, &val);
     CHECK(act == SZ_ACT_SYNC, "SYNC did not fire in the pass");
     press(SZ_LEFT, (SZ_NUDGE_P_X0 + SZ_NUDGE_P_X1) / 2, SZ_NUDGE_Y0 + 10, &act, &val);
-    CHECK(act == SZ_ACT_NUDGE_FWD, "the '+' cell did not start a forward bend");
-    CHECK(side_nudging(SZ_LEFT) == 1, "side_nudging() does not see the forward bend");
+    CHECK(act == SZ_ACT_NUDGE_FWD, "the '+' cell did not move the tempo forward");
+    CHECK(side_nudging(SZ_LEFT) == 1, "side_nudging() does not see the forward nudge");
     lift(SZ_LEFT, (SZ_NUDGE_P_X0 + SZ_NUDGE_P_X1) / 2, SZ_NUDGE_Y0 + 10, &act, &val);
-    CHECK(act == SZ_ACT_NUDGE_STOP, "the bend did not stop on the lift");
-    CHECK(side_nudging(SZ_LEFT) == 0, "side_nudging() still reports a bend after the lift");
+    CHECK(act == SZ_ACT_NUDGE_STOP, "the restore did not fire on the lift");
+    CHECK(side_nudging(SZ_LEFT) == 0, "side_nudging() still reports a nudge after the lift");
     press(SZ_LEFT, 90, SZ_PLAY_Y0 + 10, &act, &val);
     lift(SZ_LEFT, 90, SZ_PLAY_Y0 + 10, &act, &val);
     CHECK(act == SZ_ACT_PLAY, "PLAY did not fire at the end of the pass");
@@ -567,20 +633,21 @@ static void test_gesture_open(void)
     CHECK(side_is_open(SZ_LEFT), "a rolled-off press closed the drawer");
     side_reset_all();
 
-    /* A ROLL-OFF OFF A NUDGE CELL IS NOT A BUTTON PRESS, but it does stop the bend --
-     * which is the important half: rbp keeps bending until it is told otherwise, so a
-     * bend that outlived its press would slide the track with nothing able to stop it. */
+    /* A ROLL-OFF OFF A NUDGE CELL IS NOT A BUTTON PRESS, but it does put the tempo
+     * back -- which is the important half: the press moved the tempo and only the lift
+     * restores it, so a nudge that outlived its press would leave the tempo moved with
+     * nothing on the glass saying why. */
     reset_all();
     open_by_swipe(SZ_LEFT);
     lift(SZ_LEFT, SZ_SWIPE_PX, 600, &act, &val);
     press(SZ_LEFT, (SZ_NUDGE_M_X0 + SZ_NUDGE_M_X1) / 2, SZ_NUDGE_Y0 + 10, &act, &val);
-    CHECK(act == SZ_ACT_NUDGE_REV, "the '-' cell did not start a backward bend");
-    CHECK(side_nudging(SZ_LEFT) == -1, "side_nudging() does not see the backward bend");
+    CHECK(act == SZ_ACT_NUDGE_REV, "the '-' cell did not move the tempo back");
+    CHECK(side_nudging(SZ_LEFT) == -1, "side_nudging() does not see the backward nudge");
     move(SZ_LEFT, 90, SZ_PLAY_Y0 + 10, &act, &val);     /* wandered down to PLAY */
     lift(SZ_LEFT, 90, SZ_PLAY_Y0 + 10, &act, &val);
-    CHECK(act == SZ_ACT_NUDGE_STOP, "a wander off the nudge cell did not stop the bend");
-    CHECK(act != SZ_ACT_PLAY, "a bend that wandered onto PLAY fired the transport");
-    CHECK(side_nudging(SZ_LEFT) == 0, "side_nudging() still reports a bend after a wander");
+    CHECK(act == SZ_ACT_NUDGE_STOP, "a wander off the nudge cell did not restore the tempo");
+    CHECK(act != SZ_ACT_PLAY, "a nudge that wandered onto PLAY fired the transport");
+    CHECK(side_nudging(SZ_LEFT) == 0, "side_nudging() still reports a nudge after a wander");
     side_reset_all();
 
     /* THE OUTWARD SWEEP dismisses mid-press, without waiting for the lift. */
@@ -717,36 +784,43 @@ static void test_both_open(void)
     CHECK(which == SZ_LEFT, "a press on the left panel was routed to the right drawer");
     side_feed_any(SZ_PTR_MAIN, 0, absx(SZ_LEFT, 90), SZ_SYNC_Y0 + 10, &which, &act, &val);
 
-    /* A PRESS ON THE GLASS IS NOT OURS ANY MORE. The operator reversed the earlier
-     * "tap away to close" -- "the side bar should stay up until i swipe them away" --
-     * so a press between two open panels is handed back untouched on BOTH edges: it
-     * belongs to no drawer and to no dismissal. That is what keeps rbp's own centre
-     * screen alive while a drawer is out, and it is why nothing here latches. */
+    /* A PRESS ON THE GLASS BETWEEN TWO OPEN PANELS IS THE "AWAY" DISMISSAL, and it is
+     * BACK at the operator's ask of 2026-10-12: *"if i have the side panels up and i tap
+     * outside of it you can hide them"*. It was withdrawn once -- *"the side bar should
+     * stay up until i swipe them away"* -- so this block is the one that pins WHICH SIDE
+     * OF THAT REVERSAL the code is on, and it is the block to change if it ever reverses
+     * again. Swallowed on BOTH edges, no action asked of the caller, and BOTH drawers go
+     * on the LIFT rather than on the press. */
     which = -2; act = SZ_ACT_CUE; val = -1;
-    CHECK(side_feed_any(SZ_PTR_MAIN, 1, 600, 400, &which, &act, &val) == MZ_FEED_NONE,
-          "a press on the glass between the two drawers was swallowed");
-    CHECK(which == -1, "a press on the glass named a drawer");
-    CHECK(act == SZ_ACT_NONE && val == 0, "a press on the glass fired an action");
-    CHECK(side_feed_any(SZ_PTR_MAIN, 0, 600, 400, &which, &act, &val) == MZ_FEED_NONE,
-          "the lift of a press on the glass was swallowed");
+    CHECK(side_feed_any(SZ_PTR_MAIN, 1, 600, 400, &which, &act, &val) == MZ_FEED_TAKEN,
+          "the away press between the two drawers was not swallowed");
+    CHECK(which == -1, "the away press named a drawer");
+    CHECK(act == SZ_ACT_NONE && val == 0, "the away press fired an action");
     CHECK(side_is_open(SZ_LEFT) && side_is_open(SZ_RIGHT),
-          "a tap on the glass put a drawer away -- only the outward sweep may");
+          "the away closed the drawers on the PRESS, not on the lift");
+    CHECK(side_feed_any(SZ_PTR_MAIN, 0, 600, 400, &which, &act, &val) == MZ_FEED_TAKEN,
+          "the lift of the away press was not swallowed");
+    CHECK(!side_is_open(SZ_LEFT) && !side_is_open(SZ_RIGHT),
+          "the away tap left a drawer up -- \"hide them\" is both of them");
     side_reset_all();
 
-    /* ...and a press that began on the glass cannot become a drawer's by wandering
-     * onto it. It was offered to the shut right drawer's entry column at its down
-     * edge and declined (the latch rule), so the motion arriving at the right edge is
-     * a motion of a press that drawer never took. */
+    /* ...and a press that began on the glass cannot become a DRAWER'S by wandering onto
+     * one. It is latched by the "away" dismissal (step 3) at its down edge, so the motion
+     * arriving at the right edge is the away's own motion and not an entry-column swipe:
+     * the right drawer must not arm, and the lift puts the LEFT panel away rather than
+     * opening the right one. That second half is the whole point of the latch -- without
+     * it the lift would come back a TAP and replay a press to rbp that rbp never saw a
+     * down for. */
     reset_all();
     open_by_funnel(SZ_LEFT);
     which = -2;
     side_feed_any(SZ_PTR_MAIN, 1, 600, 400, &which, &act, &val);
-    CHECK(side_feed_any(SZ_PTR_MAIN, 1, absx(SZ_RIGHT, 5), 400, &which, &act, &val) == MZ_FEED_NONE,
-          "a motion from the glass onto the right edge was claimed");
+    CHECK(side_feed_any(SZ_PTR_MAIN, 1, absx(SZ_RIGHT, 5), 400, &which, &act, &val) == MZ_FEED_TAKEN,
+          "the away's own motion onto the right edge was handed back");
     CHECK(!side_is_open(SZ_RIGHT),
           "a press that began on the glass armed the right drawer on the way past");
     side_feed_any(SZ_PTR_MAIN, 0, absx(SZ_RIGHT, 5), 400, &which, &act, &val);
-    CHECK(side_is_open(SZ_LEFT), "the lift of a glass press put the left drawer away");
+    CHECK(!side_is_open(SZ_LEFT), "the away's lift left the left drawer up");
     CHECK(!side_is_open(SZ_RIGHT), "a glass press opened the right drawer at its lift");
     side_reset_all();
 }
@@ -823,35 +897,35 @@ static void test_nudging(void)
 {
     int act = 0, val = 0;
 
-    /* Nothing is bending on a quiet system, on either side. */
+    /* Nothing is nudging on a quiet system, on either side. */
     reset_all();
     CHECK(side_nudging(SZ_LEFT) == 0 && side_nudging(SZ_RIGHT) == 0,
-          "side_nudging() reports a bend with nothing down");
+          "side_nudging() reports a nudge with nothing down");
 
-    /* Only a SHUT drawer's entry column has no bend: the state is a function of a
+    /* Only a SHUT drawer's entry column has no nudge: the state is a function of a
      * press ON a nudge cell, and a press in the entry column is not one. */
     press(SZ_LEFT, 10, 400, &act, &val);
-    CHECK(side_nudging(SZ_LEFT) == 0, "an entry-column press reported a bend");
+    CHECK(side_nudging(SZ_LEFT) == 0, "an entry-column press reported a nudge");
     lift(SZ_LEFT, 10, 400, &act, &val);
     side_reset_all();
 
-    /* Held: the bend is visible for the whole press, not just at its edges -- which is
+    /* Held: the nudge is visible for the whole press, not just at its edges -- which is
      * exactly what the caller's reconciler reads in the device-loss path. */
     reset_all();
     open_by_swipe(SZ_LEFT);
     lift(SZ_LEFT, SZ_SWIPE_PX, 600, &act, &val);
     press(SZ_LEFT, (SZ_NUDGE_P_X0 + SZ_NUDGE_P_X1) / 2, SZ_NUDGE_Y0 + 10, &act, &val);
-    CHECK(side_nudging(SZ_LEFT) == 1, "a held '+' does not read as a forward bend");
-    CHECK(side_nudging(SZ_RIGHT) == 0, "the left drawer's bend showed on the right");
+    CHECK(side_nudging(SZ_LEFT) == 1, "a held '+' does not read as a forward nudge");
+    CHECK(side_nudging(SZ_RIGHT) == 0, "the left drawer's nudge showed on the right");
     move(SZ_LEFT, (SZ_NUDGE_P_X0 + SZ_NUDGE_P_X1) / 2, SZ_NUDGE_Y0 + 40, &act, &val);
-    CHECK(side_nudging(SZ_LEFT) == 1, "the bend was lost on a later motion report");
+    CHECK(side_nudging(SZ_LEFT) == 1, "the nudge was lost on a later motion report");
 
     /* THE SAFETY NET: side_reset_all() is what the touch device going away calls, and
-     * the caller's side_bend_sync() reads this to decide what to send. A reset must
-     * therefore report "no bend" or a vanished finger would leave the track sliding. */
+     * the caller's side_nudge_sync() reads this to decide what to send. A reset must
+     * therefore report "no nudge" or a vanished finger would leave the tempo moved. */
     side_reset_all();
     CHECK(side_nudging(SZ_LEFT) == 0,
-          "side_reset_all() left a bend on -- a lost touch device would slide the track");
+          "side_reset_all() left a nudge on -- a lost touch device would leave the tempo moved");
     CHECK(!side_any_open(), "side_reset_all() left the drawer out");
 }
 
@@ -921,6 +995,18 @@ static int devy(int ph, int y)
     return (y * ph) / SZ_H;
 }
 
+/* The same as cell_rect(), for a row that KEEPS ITS SCREEN ORDER (side_zone.h's
+ * side_screen_x()). Those rows land at the SAME buffer columns on both drawers -- the
+ * reflection undoes the mirror -- so there is nothing to mirror here, and cell_rect()
+ * above would look at the other half of deck 2. */
+static void cell_rect_screen(int pw, int lx0, int lx1, int *fx0, int *fx1)
+{
+    int a = devx(pw, lx0), b = devx(pw, lx1);
+
+    *fx0 = a < b ? a : b;
+    *fx1 = (a < b ? b : a) + 1;
+}
+
 static void test_paint_refusals(void)
 {
     struct menu_view v;
@@ -943,15 +1029,19 @@ static void test_paint_refusals(void)
     v = mkview(20, 800);
     CHECK(!side_paint_ok(&v), "a drawer 20 device px wide was accepted: it cannot host"
           " its own labels");
-    v = mkview(60, 800);
-    CHECK(!side_paint_ok(&v), "a drawer 60 device px wide was accepted: a nudge cell"
-          " in it is %d px and the cross is %d",
-          (SZ_NUDGE_M_X1 - SZ_NUDGE_M_X0 + 1) * 60 / SZ_W, 2 * SP_SIGN_ARM + 1);
+    /* This is the refusal the HALF-HEIGHT nudge pair moved. 400 device rows still hosts
+     * the CUE box's line box (36 >= MENU_FONT_LINE) and the cells are still wide enough
+     * for the mark, so the mark's own HEIGHT -- the one bound that shrank with the cell
+     * (side_paint.h's SP_SIGN_ARM) -- is the only check left standing. */
+    v = mkview(180, 400);
+    CHECK(!side_paint_ok(&v), "a drawer 400 device rows tall was accepted: a nudge cell"
+          " in it is %d px tall and the cross is %d",
+          (SZ_NUDGE_Y1 - SZ_NUDGE_Y0 + 1) * 400 / SZ_H, 2 * SP_SIGN_ARM + 1);
 
     /* And nothing draws into one that was refused. */
     fill(0xa5a5u, 180, 100);
     v = mkview(180, 100);
-    side_paint(&v, SZ_LEFT, 0, 512, 0, 0, 0);
+    side_paint(&v, SZ_LEFT, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
     {
         int i, touched = 0;
 
@@ -974,7 +1064,7 @@ static void test_paint_covers(void)
 
     fill(0xa5a5u, 180, 800);
     v = mkview(180, 800);
-    side_paint(&v, SZ_LEFT, 0, 512, 0, 0, 0);
+    side_paint(&v, SZ_LEFT, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
 
     for (y = 0; y < 800; y++)
         for (x = 0; x < 180; x++)
@@ -994,41 +1084,41 @@ static void test_paint_idempotent(void)
      * can be a comparison of three ints instead of a counter: if a repeat paint were
      * not a no-op, the gate would be holding back work that was needed. */
     fill(0xa5a5u, 180, 800);
-    side_paint(&v, SZ_LEFT, 0, 512, 0, 0, 0);
+    side_paint(&v, SZ_LEFT, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
     memcpy(first, fb, sizeof first);
-    side_paint(&v, SZ_LEFT, 0, 512, 0, 0, 0);
+    side_paint(&v, SZ_LEFT, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
     CHECK(memcmp(first, fb, sizeof first) == 0,
           "a second identical paint changed the image");
 
     /* And a DIFFERENT state changes it, so the gate cannot be satisfied by a painter
      * that draws the same thing whatever it is told. */
     fill(0xa5a5u, 180, 800);
-    side_paint(&v, SZ_LEFT, 0, 512, 0, 0, 0);
-    side_paint(&v, SZ_LEFT, 0, 0, 0, 0, 0);
+    side_paint(&v, SZ_LEFT, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
+    side_paint(&v, SZ_LEFT, 0, 0, SZ_MODE_VOL, 0, 0, 0, 0, 0);
     CHECK(memcmp(first, fb, sizeof first) != 0,
           "moving the fader to zero did not change the image");
 
     fill(0xa5a5u, 180, 800);
-    side_paint(&v, SZ_LEFT, 0, 512, 0, 0, 0);
-    side_paint(&v, SZ_LEFT, SZ_HIT_SYNC, 512, 0, 0, 0);
+    side_paint(&v, SZ_LEFT, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
+    side_paint(&v, SZ_LEFT, SZ_HIT_SYNC, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
     CHECK(memcmp(first, fb, sizeof first) != 0,
           "pressing SYNC did not change the image");
 
     fill(0xa5a5u, 180, 800);
-    side_paint(&v, SZ_LEFT, 0, 512, 0, 0, 0);
-    side_paint(&v, SZ_LEFT, SZ_HIT_CUE, 512, 0, 0, 0);
+    side_paint(&v, SZ_LEFT, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
+    side_paint(&v, SZ_LEFT, SZ_HIT_CUE, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
     CHECK(memcmp(first, fb, sizeof first) != 0,
           "pressing CUE did not change the image");
 
     fill(0xa5a5u, 180, 800);
-    side_paint(&v, SZ_LEFT, 0, 512, 0, 0, 0);
-    side_paint(&v, SZ_LEFT, SZ_HIT_NUDGE_M, 512, 0, 0, 0);
+    side_paint(&v, SZ_LEFT, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
+    side_paint(&v, SZ_LEFT, SZ_HIT_NUDGE_M, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
     CHECK(memcmp(first, fb, sizeof first) != 0,
           "pressing the '-' nudge cell did not change the image");
 
     fill(0xa5a5u, 180, 800);
-    side_paint(&v, SZ_LEFT, 0, 512, 0, 0, 0);
-    side_paint(&v, SZ_RIGHT, 0, 512, 0, 0, 0);
+    side_paint(&v, SZ_LEFT, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
+    side_paint(&v, SZ_RIGHT, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
     CHECK(memcmp(first, fb, sizeof first) != 0,
           "the two drawers paint the same image -- the mirror is not in the pixels");
 
@@ -1048,9 +1138,9 @@ static void test_paint_idempotent(void)
         lit[i] = 1;
 
         fill(0xa5a5u, 180, 800);
-        side_paint(&v, SZ_LEFT, 0, 512, 0, 0, 0);
+        side_paint(&v, SZ_LEFT, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
         memcpy(dark, fb, sizeof dark);
-        side_paint(&v, SZ_LEFT, 0, 512, lit[0], lit[1], lit[2]);
+        side_paint(&v, SZ_LEFT, 0, 512, SZ_MODE_VOL, lit[0], lit[1], lit[2], 0, 0);
         CHECK(memcmp(dark, fb, sizeof dark) != 0,
               "button %d lit did not change the image", i);
 
@@ -1070,11 +1160,11 @@ static void test_paint_idempotent(void)
          * thing on this panel that must never be swallowed by a state. */
         fill(0xa5a5u, 180, 800);
         side_paint(&v, SZ_LEFT, i == 0 ? SZ_HIT_SYNC
-                              : i == 1 ? SZ_HIT_CUE : SZ_HIT_PLAY, 512, 0, 0, 0);
+                              : i == 1 ? SZ_HIT_CUE : SZ_HIT_PLAY, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
         memcpy(pressed, fb, sizeof pressed);
         side_paint(&v, SZ_LEFT, i == 0 ? SZ_HIT_SYNC
-                              : i == 1 ? SZ_HIT_CUE : SZ_HIT_PLAY, 512,
-                   lit[0], lit[1], lit[2]);
+                              : i == 1 ? SZ_HIT_CUE : SZ_HIT_PLAY, 512, SZ_MODE_VOL,
+                   lit[0], lit[1], lit[2], 0, 0);
         CHECK(memcmp(pressed, fb, sizeof pressed) == 0,
               "lighting button %d changed the image while a finger was on it", i);
     }
@@ -1092,9 +1182,9 @@ static void test_paint_pressed_is_local(void)
     int cy0 = devy(800, SZ_CUE_Y0), cy1 = devy(800, SZ_CUE_Y1);
 
     fill(0xa5a5u, 180, 800);
-    side_paint(&v, SZ_LEFT, 0, 512, 0, 0, 0);
+    side_paint(&v, SZ_LEFT, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
     memcpy(plain, fb, sizeof plain);
-    side_paint(&v, SZ_LEFT, SZ_HIT_CUE, 512, 0, 0, 0);
+    side_paint(&v, SZ_LEFT, SZ_HIT_CUE, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
 
     for (y = 0; y < 800; y++)
         for (x = 0; x < 180; x++) {
@@ -1109,8 +1199,71 @@ static void test_paint_pressed_is_local(void)
     CHECK(memcmp(plain, fb, sizeof plain) != 0, "pressing CUE changed nothing at all");
 }
 
+/* WHAT A LIT TRANSPORT LOOKS LIKE, which is the operator's ask of 2026-10-09 and the
+ * one part of it a picture can settle: *"the orange shade for a cue button and ... the
+ * correct green shade ... the sync frame should also be 1pixel thicker"*. The three
+ * lit controls are three different colours -- SYNC keeps the panel's blue accent, CUE
+ * takes MENU_CUE and PLAY MENU_PLAY -- and the highlight RING is SP_FRAME_LIT px thick
+ * where the dark ring is one.
+ *
+ * The column sampled is the box's centre, at the FIRST THREE ROWS of the box. Nothing
+ * but the frame is drawn there: the labels sit on a line box centred in a 72-row cell,
+ * so their first row is 24 rows down, and the nudge marks are not in these cells at
+ * all. So a row of the accent says "the ring reaches here" and a row of the face says
+ * "the ring stops", which is exactly the thickness.
+ *
+ * The DARK case is asserted in the same loop because the interesting failure is not
+ * "lit is the wrong colour" but "lit changed the ring's weight for the wrong reason" --
+ * a frame that was always 2 px would pass a lit-only check and would have quietly moved
+ * every unlit button's edge. */
+static void test_paint_lit_accents(void)
+{
+    static const struct { int hit, ly0, accent, x0, x1; const char *name; } btns[] = {
+        { SZ_HIT_SYNC, SZ_SYNC_Y0, MENU_BTN_PRESSED, SZ_SYNC_X0, SZ_SYNC_X1, "SYNC" },
+        { SZ_HIT_CUE,  SZ_CUE_Y0,  MENU_CUE,         SZ_BTN_X0,  SZ_BTN_X1,  "CUE"  },
+        { SZ_HIT_PLAY, SZ_PLAY_Y0, MENU_PLAY,        SZ_BTN_X0,  SZ_BTN_X1,  "PLAY" }
+    };
+    struct menu_view v = mkview(180, 800);
+    unsigned int face = menu_pixel(16, MENU_BTN);
+    unsigned int lab  = menu_pixel(16, MENU_LABEL);
+    int i, k;
+
+    CHECK(menu_pixel(16, MENU_CUE) != menu_pixel(16, MENU_PLAY),
+          "the CUE and PLAY accents are the same pixel value -- the two controls would"
+          " light identically");
+    CHECK(menu_pixel(16, MENU_CUE) != menu_pixel(16, MENU_BTN_PRESSED) &&
+          menu_pixel(16, MENU_PLAY) != menu_pixel(16, MENU_BTN_PRESSED),
+          "a transport accent is the panel's own blue -- the operator asked for a"
+          " different shade for CUE and for PLAY");
+    CHECK(SP_FRAME_LIT > 1, "SP_FRAME_LIT is not thicker than the dark ring");
+
+    for (i = 0; i < 3; i++) {
+        unsigned int acc = menu_pixel(16, btns[i].accent);
+        int y0 = btns[i].ly0;
+        int x  = (btns[i].x0 + btns[i].x1) / 2;   /* SYNC is half width now */
+
+        fill(0xa5a5u, 180, 800);
+        side_paint(&v, SZ_LEFT, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
+        CHECK(fb[y0 * 180 + x] == lab, "%s dark: its ring is not MENU_LABEL", btns[i].name);
+        CHECK(fb[(y0 + 1) * 180 + x] == face,
+              "%s dark: its ring is thicker than the one pixel every other button has",
+              btns[i].name);
+
+        fill(0xa5a5u, 180, 800);
+        side_paint(&v, SZ_LEFT, 0, 512, SZ_MODE_VOL, btns[i].hit == SZ_HIT_SYNC,
+                   btns[i].hit == SZ_HIT_CUE, btns[i].hit == SZ_HIT_PLAY, 0, 0);
+        for (k = 0; k < SP_FRAME_LIT; k++)
+            CHECK(fb[(y0 + k) * 180 + x] == acc,
+                  "%s lit: row %d of its ring is %#06x, not the accent %#06x -- the"
+                  " highlight is not SP_FRAME_LIT px thick",
+                  btns[i].name, k, fb[(y0 + k) * 180 + x], acc);
+        CHECK(fb[(y0 + SP_FRAME_LIT) * 180 + x] == face,
+              "%s lit: its ring runs past SP_FRAME_LIT px", btns[i].name);
+    }
+}
+
 /* The mirror, and the absent frame. The mirror is the one thing this panel's drawing
- * can get wrong without any hit test noticing -- side_paint() works in PANEL-LOCAL x
+ * can get wrong without any hit test noticing -- side_paint(, 0) works in PANEL-LOCAL x
  * and the plane is in SCREEN order -- and until 2026-10-06 the frame's thin bands were
  * what proved it, because they were the only asymmetric mark in the picture. The frame
  * is gone (*"you don't need a white border on the side swipe menus"*), so the proof
@@ -1134,7 +1287,7 @@ static void test_paint_mirror(void)
         int y     = SZ_SYNC_Y0 + SZ_BTN_H / 2;
 
         fill(0xa5a5u, 180, 800);
-        side_paint(&v, side, 0, 512, 0, 0, 0);
+        side_paint(&v, side, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
 
         CHECK(fb[y * 180 + outer] == ink,
               "side %d: SYNC's outer edge is not outlined", side);
@@ -1160,45 +1313,118 @@ static void test_paint_fader_cap(void)
 {
     struct menu_view v = mkview(180, 800);
     unsigned int face = menu_pixel(16, MENU_BTN);
-    unsigned int well = menu_pixel(16, MENU_DIV);
-    /* The cap's own centre at each end: sampling its top edge would sample the one-px
-     * frame the cap is outlined with, which is ink and not the face. The centre column
-     * is well clear of that frame's left and right edges. */
-    int cx  = devx(180, (SZ_FADER_X0 + SZ_FADER_X1) / 2);
-    int top = devy(800, SZ_FADER_Y0 + SP_HANDLE_H / 2);
-    int bot = devy(800, SZ_FADER_Y1 - SP_HANDLE_H / 2);
+    unsigned int rail = menu_pixel(16, MENU_DIV);
+    unsigned int grip = menu_pixel(16, MENU_LABEL);
+    /* The cap's own centre row at each end, and a row 6 above it: the centre row carries
+     * the GRIP the cap is grabbed by, so the face is sampled clear of it. Both are well
+     * inside the cap -- its half-height is SP_HANDLE_H/2 and its frame is one pixel on
+     * the edge, so 6 is clear of everything that is not the face. */
+    int cx   = devx(180, SP_MID_X);
+    int top  = devy(800, SZ_FADER_Y0 + SP_HANDLE_H / 2);
+    int bot  = devy(800, SZ_FADER_Y1 - SP_HANDLE_H / 2);
+    int topf = devy(800, SZ_FADER_Y0 + SP_HANDLE_H / 2 - 6);
+    int botf = devy(800, SZ_FADER_Y1 - SP_HANDLE_H / 2 - 6);
 
-    /* If the cap and the well were the same colour this whole test would be vacuous. */
-    CHECK(face != well, "the cap and the well are the same pixel value");
-    /* The cap has to fit inside the well, or the clamp in sp_fader() is hiding a track
-     * shorter than the handle it draws. */
+    /* If any two of these were the same colour the test below would be vacuous. */
+    CHECK(face != rail && grip != face && grip != rail,
+          "the cap, the rail and the grip must be three different pixel values");
+    /* The cap has to fit inside the travel, or the clamp in sp_fader() is hiding a scale
+     * shorter than the cap it draws. */
     CHECK(SP_HANDLE_H < SZ_FADER_TRAVEL,
-          "the fader's cap is %d rows and its track is %d: the cap cannot travel",
+          "the fader's cap is %d rows and its travel is %d: the cap cannot move",
           SP_HANDLE_H, SZ_FADER_TRAVEL);
 
     fill(0xa5a5u, 180, 800);
-    side_paint(&v, SZ_LEFT, 0, 1023, 0, 0, 0);
-    CHECK(fb[top * 180 + cx] == face,
-          "at full the top of the well is not the cap: the handle is not at the top");
-    CHECK(fb[bot * 180 + cx] == well,
-          "at full the bottom of the well is the cap: the handle has not moved");
+    side_paint(&v, SZ_LEFT, 0, 1023, SZ_MODE_VOL, 0, 0, 0, 0, 0);
+    CHECK(fb[topf * 180 + cx] == face,
+          "at full the cap's face is not at the top: the handle has not moved");
+    CHECK(fb[top * 180 + cx] == grip,
+          "at full the cap has no grip line across it");
+    CHECK(fb[bot * 180 + cx] == rail,
+          "at full the rail is not left bare below the cap");
 
-    side_paint(&v, SZ_LEFT, 0, 0, 0, 0, 0);
-    CHECK(fb[bot * 180 + cx] == face,
-          "at zero the bottom of the well is not the cap");
-    CHECK(fb[top * 180 + cx] == well, "at zero the top of the well is still the cap");
+    side_paint(&v, SZ_LEFT, 0, 0, SZ_MODE_VOL, 0, 0, 0, 0, 0);
+    CHECK(fb[botf * 180 + cx] == face, "at zero the cap's face is not at the bottom");
+    CHECK(fb[bot * 180 + cx] == grip, "at zero the cap has no grip line across it");
+    CHECK(fb[top * 180 + cx] == rail, "at zero the rail is not left bare above the cap");
 
-    /* The readout above the well is drawn at every value, and it is ink and not the
-     * bed -- a blank readout is the failure this is standing in front of. */
+    /* AND THE CENTRE LINE LANDS ON THE END MARKS, IN BOTH MODES -- the operator's own
+     * correction (2026-10-12): *"the middle marker of the knob 100% should match up with
+     * the top hash mark and the bottom hash mark for 0%"*, and then *"similar for the
+     * pitch control as well"*. Measured off the glass, because the whole point is a
+     * registration between two things drawn separately: the mark rows come from
+     * SP_SCALE_Y0/Y1 and the grip's row from side_fader_y() through the clamp.
+     *
+     * The grip is found at the fader's own centre column, scanned from INSIDE the scale --
+     * so the READOUT, which is also ink and sits above the fader, cannot be what is found.
+     * Column SP_MID_X carries the rail (MENU_DIV), the marks are further out, and the
+     * pitch scale's own '-', '0' and '+' labels are further out still, so the only
+     * MENU_LABEL pixel in that column within the fader is the grip. */
+    {
+        int mode, end;
+
+        for (mode = 0; mode < 2; mode++)
+            for (end = 0; end < 2; end++) {
+                int fv    = end == 0 ? 1023 : 0;
+                int want  = end == 0 ? SP_SCALE_Y0 : SP_SCALE_Y1;
+                int y, top = -1, centre;
+
+                fill(0xa5a5u, 180, 800);
+                side_paint(&v, SZ_LEFT, 0, fv, mode, 0, 0, 0, 0, 0);
+                for (y = SP_SCALE_Y0 - 4; y <= SP_SCALE_Y1 + 4 && top < 0; y++)
+                    if (fb[y * 180 + SP_MID_X] == grip)
+                        top = y;
+                centre = top + SP_GRIP_H / 2;
+                CHECK(centre == want,
+                      "in %s at %d the cap's centre line is on row %d, not on the end"
+                      " mark at %d",
+                      mode == SZ_MODE_PITCH ? "pitch" : "volume", fv, centre, want);
+            }
+    }
+
+    /* THE SCALE'S LABELS ARE ON THE SCREEN'S LEFT ON BOTH PANELS, and this is the ONE mark
+     * on this drawer that is deliberately NOT mirrored -- the operator's own correction of
+     * 2026-10-12: *"the +/-/0 indicators on the right panel should also be on the left side
+     * not right"*. So the column is the OUTER side of the left panel and the INNER side of
+     * the right one, which is "the left of the fader" on the glass either way. Everything
+     * else here mirrors; this is the exception, so it gets its own check rather than being
+     * left to the mirror test. */
+    {
+        int side;
+
+        for (side = 0; side < 2; side++) {
+            int y = devy(800, SP_SCALE_Y0);     /* the '-' row */
+            int x, lo = -1, hi = -1;
+
+            fill(0xa5a5u, 180, 800);
+            side_paint(&v, side, 0, 512, SZ_MODE_PITCH, 0, 0, 0, 0, 0);
+            for (x = 0; x < 180; x++)
+                if (fb[y * 180 + x] == grip) {
+                    if (lo < 0)
+                        lo = x;
+                    hi = x;
+                }
+            CHECK(lo >= 0, "side %d: no scale label on the '-' row at all", side);
+            CHECK(hi < 90, "side %d: the scale labels are not on the screen's left -- they"
+                  " run to x %d of 180", side, hi);
+        }
+    }
+
+    /* The readout above the fader is drawn at every value, and it is ink and not the
+     * bed -- a blank readout is the failure this is standing in front of.
+     *
+     * REPAINTED HERE rather than left over from the checks above: those end with the
+     * buffer in PITCH, and PITCH deliberately draws no readout at all. */
     {
         int x, y, ink = 0;
-        unsigned int label = menu_pixel(16, MENU_LABEL);
         int rx0 = devx(180, SZ_READ_X0), rx1 = devx(180, SZ_READ_X1);
         int ry0 = devy(800, SZ_READ_Y0), ry1 = devy(800, SZ_READ_Y1);
 
+        fill(0xa5a5u, 180, 800);
+        side_paint(&v, SZ_LEFT, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
         for (y = ry0; y <= ry1; y++)
             for (x = rx0; x <= rx1; x++)
-                if (fb[y * 180 + x] == label)
+                if (fb[y * 180 + x] == grip)
                     ink++;
         CHECK(ink > 0, "the value readout is blank");
     }
@@ -1224,12 +1450,12 @@ static void test_paint_signs(void)
 
     for (side = 0; side < 2; side++) {
         fill(0xa5a5u, 180, 800);
-        side_paint(&v, side, 0, 512, 0, 0, 0);
+        side_paint(&v, side, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
 
         for (i = 0; i < 2; i++) {
             int fx0, fx1, cx, want = i ? ink : face;
 
-            cell_rect(180, side, cell[i][0], cell[i][1], &fx0, &fx1);
+            cell_rect_screen(180, cell[i][0], cell[i][1], &fx0, &fx1);
             cx = (fx0 + fx1) / 2;
 
             /* The horizontal bar itself is ink on BOTH cells, well inside the frame. */
@@ -1258,10 +1484,10 @@ static void test_paint_signs(void)
         }
     }
 
-    /* ...and on the page side_paint_ok() draws at its tightest: the mark still fits
-     * the scaled cells, on both drawers. 65 px is the first width that check passes
-     * (a nudge cell in it is 26 px, the mark 25), so this is the exact boundary the
-     * refusal is drawn at rather than an arbitrary small number. */
+    /* ...and on a page side_paint_ok() still draws, small enough to be worth checking:
+     * the mark still fits the scaled cells, on both drawers. (65 px is comfortably
+     * above the first width the guards accept -- MENU_FONT_LINE and "PLAY"'s 38 px make
+     * the label the binding check now, and the cell's own width the looser one.) */
     {
         struct menu_view small = mkview(65, 800);
         int fx0, fx1, cx;
@@ -1270,7 +1496,7 @@ static void test_paint_signs(void)
               " boundary assumption is wrong, so the checks below prove nothing");
 
         fill(0xa5a5u, 65, 800);
-        side_paint(&small, SZ_LEFT, 0, 512, 0, 0, 0);
+        side_paint(&small, SZ_LEFT, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
         cell_rect(65, SZ_LEFT, SZ_NUDGE_M_X0, SZ_NUDGE_M_X1, &fx0, &fx1);
         cx = (fx0 + fx1) / 2;
         CHECK(cx - SP_SIGN_ARM >= fx0 && cx + SP_SIGN_ARM <= fx1 - 1,
@@ -1278,7 +1504,7 @@ static void test_paint_signs(void)
               fx1 - fx0);
 
         fill(0xa5a5u, 65, 800);
-        side_paint(&small, SZ_RIGHT, 0, 512, 0, 0, 0);
+        side_paint(&small, SZ_RIGHT, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
         cell_rect(65, SZ_RIGHT, SZ_NUDGE_P_X0, SZ_NUDGE_P_X1, &fx0, &fx1);
         cx = (fx0 + fx1) / 2;
         CHECK(cx - SP_SIGN_ARM >= fx0 && cx + SP_SIGN_ARM <= fx1 - 1,
@@ -1317,16 +1543,16 @@ static void test_entry_survives_declined(void)
           "the right entry column was dead after a press it had declined");
     side_reset_all();
 
-    /* The same class of death, with a drawer OPEN: a press on the glass is refused by
-     * both open panels (step 1 needs a hit on a panel) and by the shut drawer's entry
-     * column, comes back NONE on both edges, and the drawer stays up. The right entry
-     * must live through it. */
+    /* The same class of death, with a drawer OPEN: a press on the glass is claimed by the
+     * "away" dismissal (step 3) rather than by any panel, and its lift closes the drawer.
+     * What matters here is unchanged -- the funnel must come back to life afterwards, so
+     * the right entry column is opened straight after. */
     CHECK(open_by_funnel(SZ_LEFT), "the left drawer did not open for the glass-press test");
-    CHECK(side_feed_any(SZ_PTR_MAIN, 1, 600, 400, &which, &act, &val) == MZ_FEED_NONE,
-          "a press on the glass with a drawer open was swallowed");
-    CHECK(side_feed_any(SZ_PTR_MAIN, 0, 600, 400, &which, &act, &val) == MZ_FEED_NONE,
-          "the release of a press on the glass with a drawer open was swallowed");
-    CHECK(side_is_open(SZ_LEFT), "a press on the glass closed the drawer");
+    CHECK(side_feed_any(SZ_PTR_MAIN, 1, 600, 400, &which, &act, &val) == MZ_FEED_TAKEN,
+          "the away press with a drawer open was not swallowed");
+    CHECK(side_feed_any(SZ_PTR_MAIN, 0, 600, 400, &which, &act, &val) == MZ_FEED_TAKEN,
+          "the away release with a drawer open was not swallowed");
+    CHECK(!side_is_open(SZ_LEFT), "the away tap left the drawer up");
     CHECK(open_by_funnel(SZ_RIGHT),
           "the right entry column was dead after a press on the glass");
     side_reset_all();
@@ -1482,7 +1708,7 @@ static void test_two_hands(void)
     side_reset_all();
 
     /* A HIGHLIGHT IS A FACT ABOUT THE PANEL, so the second hand's press must show on
-     * it -- otherwise a bend would run under a panel that looked untouched. */
+     * it -- otherwise a nudge would move the tempo under a panel that looked untouched. */
     reset_all();
     CHECK(open_by_funnel(SZ_LEFT), "the left drawer did not open for the highlight test");
     press2(SZ_LEFT, lx, yL, &act, &val);
@@ -1493,10 +1719,10 @@ static void test_two_hands(void)
     CHECK(side_pressed(SZ_LEFT) == SZ_HIT_NONE,
           "the second hand's highlight outlived its press");
 
-    /* ...and the same for a BEND, which is the one control where losing sight of a
-     * finger slides the track: the caller reconciles side_nudging() on every report
-     * and turns any change into a speed-0 send, so a bend the primary hand cannot see
-     * is a bend that gets cancelled by the next report either hand makes. */
+    /* ...and the same for a NUDGE, which is the one control where losing sight of a
+     * finger leaves the tempo moved: the caller reconciles side_nudging() on every
+     * report and turns any change into a restore, so a nudge the primary hand cannot
+     * see is a nudge that gets put back by the next report either hand makes. */
     {
         const int nx = (SZ_NUDGE_P_X0 + SZ_NUDGE_P_X1) / 2;
         const int ny = (SZ_NUDGE_Y0 + SZ_NUDGE_Y1) / 2;
@@ -1506,15 +1732,15 @@ static void test_two_hands(void)
         CHECK(act == SZ_ACT_NUDGE_FWD,
               "the second hand's '+' cell sent act=%d, expected SZ_ACT_NUDGE_FWD", act);
         CHECK(side_nudging(SZ_LEFT) == 1,
-              "the second hand's bend is invisible -- the next report would cancel it");
+              "the second hand's nudge is invisible -- the next report would put it back");
         /* The primary hand reports something else entirely on the same panel, which is
          * a BG press at local x 170 -- outside every control, so it fires nothing. */
         move(SZ_LEFT, 170, 400, &act, &val);
         CHECK(side_nudging(SZ_LEFT) == 1,
-              "the primary hand's report cancelled the second hand's bend");
+              "the primary hand's report put back the second hand's nudge");
         lift2(SZ_LEFT, nx, ny, &act, &val);
         CHECK(side_nudging(SZ_LEFT) == 0,
-              "the second hand's bend outlived its press -- the track would keep sliding");
+              "the second hand's nudge outlived its press -- the tempo would stay moved");
     }
 
     /* THE SAFETY NET COVERS BOTH HANDS. side_reset_all() is what the touch device
@@ -1529,7 +1755,7 @@ static void test_two_hands(void)
     CHECK(side_pressed(SZ_LEFT) == SZ_HIT_NONE,
           "side_reset_all() left a highlight on the primary hand");
     CHECK(side_nudging(SZ_LEFT) == 0 && side_nudging(SZ_RIGHT) == 0,
-          "side_reset_all() left a bend on");
+          "side_reset_all() left a nudge on");
     /* ...and neither pointer is still latched: a fresh press on either lane is a
      * fresh press. */
     CHECK(open_by_funnel(SZ_LEFT), "the drawer would not reopen after the reset");
@@ -1592,21 +1818,22 @@ static void ink_extent(const char *s, int pen, int *lo, int *hi)
  * pair; on the shipped Decker bake the table is all zero (MENU_FONT_KERNED 0), so what
  * it pins there is the pen arithmetic itself -- that a glyph is followed by its own
  * advance, and that the last glyph's ink is not counted as an advance. The scan stays
- * inside the frame (sp_frame is 2 px) so it measures the label and not the box, and the
- * button face is MENU_BTN, which is not the bed. */
+ * inside the outline AND clear of the rounded corners (SP_ROUND_PX) so it measures the
+ * label and not the box, and the button face is MENU_BTN, which is not the bed. */
 static void test_paint_label_pens(void)
 {
-    static const struct { int ly0, ly1; const char *s; } labels[] = {
-        { SZ_SYNC_Y0, SZ_SYNC_Y1, "SYNC" },
-        { SZ_CUE_Y0,  SZ_CUE_Y1,  "CUE"  },
-        { SZ_PLAY_Y0, SZ_PLAY_Y1, "PLAY" }
+    static const struct { int ly0, ly1, lx0, lx1; const char *s; } labels[] = {
+        { SZ_SYNC_Y0, SZ_SYNC_Y1, SZ_SYNC_X0,   SZ_SYNC_X1,   "SYNC"   },
+        { SZ_SYNC_Y0, SZ_SYNC_Y1, SZ_MASTER_X0, SZ_MASTER_X1, "MASTER" },
+        { SZ_CUE_Y0,  SZ_CUE_Y1,  SZ_BTN_X0,    SZ_BTN_X1,    "CUE"    },
+        { SZ_PLAY_Y0, SZ_PLAY_Y1, SZ_BTN_X0,    SZ_BTN_X1,    "PLAY"   }
     };
     int side, i;
 
     for (side = 0; side < 2; side++) {
         struct menu_view v = mkview(180, 800);
 
-        for (i = 0; i < 3; i++) {
+        for (i = 0; i < (int)(sizeof labels / sizeof labels[0]); i++) {
             const char *s = labels[i].s;
             unsigned int face = menu_pixel(16, MENU_BTN);
             int dx0, dx1, minx = 99999, maxx = -1, x, y, ix0, ix1, want;
@@ -1614,15 +1841,23 @@ static void test_paint_label_pens(void)
             ink_extent(s, 0, &ix0, &ix1);
             want = ix1 - ix0 + 1;
 
-            dx0 = devx(180, side == SZ_LEFT ? SZ_BTN_X0 : SZ_W - 1 - SZ_BTN_X1);
-            dx1 = devx(180, side == SZ_LEFT ? SZ_BTN_X1 : SZ_W - 1 - SZ_BTN_X0);
-            dx0 += 2;                       /* inside sp_frame's 2 px */
+            /* NO MIRROR HERE, and that is the tell that these rows keep their screen order:
+             * side_screen_x() undoes what sp_x() does, so a label lands at the SAME buffer
+             * column on both panels -- the same distance from the panel's screen-left edge.
+             * The old `SZ_W - 1 - ...` for the right drawer would scan the wrong half. */
+            dx0 = devx(180, labels[i].lx0);
+            dx1 = devx(180, labels[i].lx1);
+            dx0 += 2;                       /* inside the box's own outline */
             dx1 -= 2;
 
             fill(0xa5a5u, 180, 800);
-            side_paint(&v, side, 0, 512, 0, 0, 0);
+            side_paint(&v, side, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
 
-            for (y = labels[i].ly0 + 2; y <= labels[i].ly1 - 2; y++)
+            /* THE ROWS STOP SHORT OF THE ROUNDED CORNERS as well as the outline
+             * (SP_ROUND_PX): a row that reaches into a corner is looking at the BED,
+             * which is not the face, and the scan would then measure the box instead of
+             * the label it is here to measure. */
+            for (y = labels[i].ly0 + SP_ROUND_PX + 2; y <= labels[i].ly1 - SP_ROUND_PX - 2; y++)
                 for (x = dx0; x <= dx1; x++)
                     if (fb[y * 180 + x] != face) {
                         if (x < minx) minx = x;
@@ -1639,17 +1874,363 @@ static void test_paint_label_pens(void)
     }
 }
 
+/* THE HEADER IS A CONTROL NOW, and its rect is exact: the toggle must be reachable
+ * across the whole label and must not reach one pixel or one row into the background
+ * -- SYNC is the very next block down. */
+static void test_mode_hit(void)
+{
+    hit_both(SZ_TITLE_X0, SZ_TITLE_Y0, SZ_HIT_TITLE, "the header (its own top-left)");
+    hit_both(SZ_TITLE_X1, SZ_TITLE_Y1, SZ_HIT_TITLE, "the header (its own bottom-right)");
+    hit_both(SZ_TITLE_X0 - 1, SZ_TITLE_Y0 + 6, SZ_HIT_BG,
+             "background (one px left of the header)");
+    hit_both(SZ_TITLE_X1 + 1, SZ_TITLE_Y0 + 6, SZ_HIT_BG,
+             "background (one px right of the header)");
+    hit_both(SZ_TITLE_X0, SZ_TITLE_Y0 - 1, SZ_HIT_BG, "background (one row above it)");
+    hit_both(SZ_TITLE_X0, SZ_TITLE_Y1 + 1, SZ_HIT_BG, "background (one row below it)");
+    hit_one(SZ_LEFT, SZ_SYNC_X0, SZ_SYNC_Y0, SZ_HIT_SYNC, "SYNC, still its own under the header");
+    hit_one(SZ_RIGHT, SZ_MASTER_X0, SZ_SYNC_Y0, SZ_HIT_SYNC, "SYNC, screen-left on deck 2");
+}
+
+/* THE TOGGLE: a tap on the header flips THAT drawer's mode and reports it; a press
+ * that wandered does not; a sweep outward from the header still dismisses the drawer,
+ * which is the gesture it had before it was a control; and side_reset() -- which is
+ * about a finger, not a setting -- leaves the mode alone. */
+static void test_mode_toggle(void)
+{
+    int act = SZ_ACT_NONE, val = 0;
+    int tx = (SZ_TITLE_X0 + SZ_TITLE_X1) / 2;
+    int ty = (SZ_TITLE_Y0 + SZ_TITLE_Y1) / 2;
+
+    reset_all();
+    side_set_mode(SZ_LEFT, SZ_MODE_VOL);
+    side_set_mode(SZ_RIGHT, SZ_MODE_VOL);
+
+    open_by_swipe(SZ_LEFT);
+    CHECK(side_is_open(SZ_LEFT), "the drawer did not open");
+    lift(SZ_LEFT, SZ_SWIPE_PX, 600, &act, &val);
+
+    press(SZ_LEFT, tx, ty, &act, &val);
+    CHECK(side_mode(SZ_LEFT) == SZ_MODE_VOL, "the mode flipped on the PRESS, not the lift");
+    CHECK(lift(SZ_LEFT, tx, ty, &act, &val) == MZ_FEED_TAKEN, "the header tap was not taken");
+    CHECK(act == SZ_ACT_MODE, "the header tap did not report SZ_ACT_MODE (got %d)", act);
+    CHECK(side_mode(SZ_LEFT) == SZ_MODE_PITCH, "the header tap did not flip the mode");
+    CHECK(side_mode(SZ_RIGHT) == SZ_MODE_VOL, "the tap flipped the OTHER drawer as well");
+
+    press(SZ_LEFT, tx, ty, &act, &val);
+    lift(SZ_LEFT, tx, ty, &act, &val);
+    CHECK(side_mode(SZ_LEFT) == SZ_MODE_VOL, "the second tap did not flip it back");
+
+    /* A finger that rolls OFF the header before it lifts toggles nothing -- the same
+     * fire-on-release rule SYNC, CUE and PLAY already obey, so a wandered press is
+     * not a press. The move() is what a real panel sends on the way; without it the
+     * lift alone would leave cur_hit where the press began. */
+    act = SZ_ACT_NONE;
+    press(SZ_LEFT, tx, ty, &act, &val);
+    move(SZ_LEFT, tx, SZ_SYNC_Y0, &act, &val);
+    lift(SZ_LEFT, tx, SZ_SYNC_Y0, &act, &val);
+    CHECK(act != SZ_ACT_MODE, "a header press that slid off still toggled");
+    CHECK(side_mode(SZ_LEFT) == SZ_MODE_VOL, "the slide-off flipped the mode");
+
+    /* THE DISMISSAL SURVIVES. The header was SZ_HIT_BG before the toggle existed, so an
+     * outward sweep starting on it put the drawer away; turning it into a control must
+     * not take that gesture from the operator. The two rules cannot collide: this one
+     * needs SZ_CLOSE_PX of travel and the toggle needs a lift where the press began. */
+    open_by_swipe(SZ_LEFT);
+    CHECK(side_is_open(SZ_LEFT), "the drawer did not reopen");
+    lift(SZ_LEFT, SZ_SWIPE_PX, 600, &act, &val);
+    press(SZ_LEFT, SZ_TITLE_X0 + 40, ty, &act, &val);
+    move(SZ_LEFT, SZ_TITLE_X0 + 40 - SZ_CLOSE_PX, ty, &act, &val);
+    CHECK(!side_is_open(SZ_LEFT), "a sweep outward from the header no longer dismisses");
+    act = SZ_ACT_NONE;
+    lift(SZ_LEFT, SZ_TITLE_X0 + 40 - SZ_CLOSE_PX, ty, &act, &val);
+    CHECK(act != SZ_ACT_MODE, "the dismissing sweep toggled the mode on its way out");
+
+    /* THE MODE IS NOT A PRESS FACT: side_reset() forgets a finger and must not forget
+     * which control the operator asked for. */
+    side_set_mode(SZ_LEFT, SZ_MODE_PITCH);
+    side_reset_all();
+    CHECK(side_mode(SZ_LEFT) == SZ_MODE_PITCH, "side_reset_all() reset the mode");
+
+    side_set_mode(SZ_LEFT, SZ_MODE_VOL);
+    reset_all();
+}
+
+/* THE TWO MODES HAVE TO BE TELLABLE APART -- that is the whole of the operator's ask.
+ * The VOLUME cap is WIDER than the track and the PITCH cap is the track's own width,
+ * and the readout is drawn in one and not the other. */
+static void test_paint_modes(void)
+{
+    struct menu_view v = mkview(180, 800);
+    unsigned int face    = menu_pixel(16, MENU_BTN);
+    unsigned int edge    = menu_pixel(16, MENU_BORDER);
+    unsigned int label   = menu_pixel(16, MENU_LABEL);
+    /* The cap's row at full, and one a little above it: the exact centre carries the GRIP
+     * and the ends carry the rounded corners, so the width is measured clear of both. */
+    int cyf  = devy(800, SZ_FADER_Y0 + SP_HANDLE_H / 2 - SP_ROUND_PX - 2);
+    int rx0 = devx(180, SZ_READ_X0), rx1 = devx(180, SZ_READ_X1);
+    int ry0 = devy(800, SZ_READ_Y0), ry1 = devy(800, SZ_READ_Y1);
+    int x, y, ink;
+
+    /* THE CAP MUST STAY IN THE GRAB LANE, or the knob you can see would not be the knob
+     * the finger can reach (SZ_FADER_GX0..GX1). THE MARKS NEED NOT: they are marks and
+     * not controls, and they are sized to the panel instead. */
+    CHECK(SP_MID_X - SP_CAP_W / 2 >= SZ_FADER_GX0 &&
+          SP_MID_X + SP_CAP_W / 2 <= SZ_FADER_GX1,
+          "the cap leaves the grab lane");
+    CHECK(SP_MID_X - SP_MARK_RAIL >= 0 && SP_MID_X + SP_MARK_RAIL <= SZ_W - 1,
+          "the marks leave the panel");
+
+    /* THE CAP'S WIDTH, MEASURED OFF THE GLASS RATHER THAN ASSUMED -- the cap is the run
+     * through its own centre, walked outward until the face and its outline stop. The rect
+     * is inclusive at both ends, so a cap of SP_CAP_W measures SP_CAP_W + 1.
+     *
+     * AND IT IS THE SAME IN BOTH MODES, which is the point: the modes differ in the title,
+     * in whether the readout is drawn, and in the scale's labels -- not in the knob. This
+     * was two widths until the operator made them one (*"the knob should look the same as
+     * the fader knob"*), so the check is an equality rather than an ordering. */
+    {
+        int want, got[2], m;
+
+        want = SP_CAP_W;
+        for (m = 0; m < 2; m++) {
+            int lo = SP_MID_X, hi = SP_MID_X;
+
+            fill(0xa5a5u, 180, 800);
+            side_paint(&v, SZ_LEFT, 0, 1023, m, 0, 0, 0, 0, 0);
+            while (lo > 0 && (fb[cyf * 180 + lo - 1] == face ||
+                              fb[cyf * 180 + lo - 1] == edge))
+                lo--;
+            while (hi < SZ_W - 1 && (fb[cyf * 180 + hi + 1] == face ||
+                                     fb[cyf * 180 + hi + 1] == edge))
+                hi++;
+            got[m] = hi - lo + 1;
+            CHECK(got[m] == want, "the %s cap measures %d px, not %d",
+                  m == SZ_MODE_PITCH ? "pitch" : "volume", got[m], want);
+        }
+        CHECK(got[SZ_MODE_VOL] == got[SZ_MODE_PITCH],
+              "the two modes' caps measure %d and %d: they are meant to be one knob",
+              got[SZ_MODE_VOL], got[SZ_MODE_PITCH]);
+    }
+
+    /* AND THE TWO DECKS' FADERS SIT IDENTICALLY, which is what the whole SP_L/SP_R
+     * centring exists for. The panel is 180 px wide, so its centre is BETWEEN pixels 89
+     * and 90; a span placed as (SP_MID_X -+ d) is a pixel wider on one side than the
+     * other, so the left deck drew its cap at one column and the right deck at the next
+     * -- the operator's *"the pitch control alignment on the ch1 vs ch2 look a little
+     * different it should be the same and positioned the same for both pitch and fader"*.
+     * Measured off the glass: the two decks' caps must be each other's exact mirror. */
+    {
+        int md, s, lo[2], hi[2];
+
+        for (md = 0; md < 2; md++) {
+            for (s = 0; s < 2; s++) {
+                lo[s] = hi[s] = SP_MID_X;
+                fill(0xa5a5u, 180, 800);
+                side_paint(&v, s, 0, 1023, md, 0, 0, 0, 0, 0);
+                while (lo[s] > 0 && (fb[cyf * 180 + lo[s] - 1] == face ||
+                                     fb[cyf * 180 + lo[s] - 1] == edge))
+                    lo[s]--;
+                while (hi[s] < SZ_W - 1 && (fb[cyf * 180 + hi[s] + 1] == face ||
+                                            fb[cyf * 180 + hi[s] + 1] == edge))
+                    hi[s]++;
+            }
+            CHECK(lo[SZ_RIGHT] == SZ_W - 1 - hi[SZ_LEFT] &&
+                  hi[SZ_RIGHT] == SZ_W - 1 - lo[SZ_LEFT],
+                  "in %s the two decks' caps are not mirror images: deck 1 %d..%d,"
+                  " deck 2 %d..%d",
+                  md == SZ_MODE_PITCH ? "pitch" : "volume", lo[SZ_LEFT], hi[SZ_LEFT],
+                  lo[SZ_RIGHT], hi[SZ_RIGHT]);
+        }
+    }
+
+    /* VOLUME has the readout above the fader; PITCH does not -- the operator's choice,
+     * because the shim is never told rbp's tempo range and any number there would be a
+     * tempo it cannot know. */
+    fill(0xa5a5u, 180, 800);
+    side_paint(&v, SZ_LEFT, 0, 1023, SZ_MODE_VOL, 0, 0, 0, 0, 0);
+    ink = 0;
+    for (y = ry0; y <= ry1; y++)
+        for (x = rx0; x <= rx1; x++)
+            if (fb[y * 180 + x] == label)
+                ink++;
+    CHECK(ink > 0, "the volume readout is blank");
+
+    fill(0xa5a5u, 180, 800);
+    side_paint(&v, SZ_LEFT, 0, 1023, SZ_MODE_PITCH, 0, 0, 0, 0, 0);
+    ink = 0;
+    for (y = ry0; y <= ry1; y++)
+        for (x = rx0; x <= rx1; x++)
+            if (fb[y * 180 + x] == label)
+                ink++;
+    CHECK(ink == 0, "the pitch readout is drawn (%d ink pixels)", ink);
+
+    /* Both are still idempotent -- the drawer's plane is single-buffered, so a paint
+     * that is not is a paint that tears. */
+    {
+        static unsigned short snap[180 * 800];
+
+        fill(0xa5a5u, 180, 800);
+        side_paint(&v, SZ_LEFT, 0, 512, SZ_MODE_PITCH, 0, 0, 0, 0, 0);
+        memcpy(snap, fb, sizeof snap);
+        side_paint(&v, SZ_LEFT, 0, 512, SZ_MODE_PITCH, 0, 0, 0, 0, 0);
+        CHECK(memcmp(snap, fb, sizeof snap) == 0, "a pitch paint is not idempotent");
+
+        side_paint(&v, SZ_LEFT, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
+        memcpy(snap, fb, sizeof snap);
+        side_paint(&v, SZ_LEFT, 0, 512, SZ_MODE_VOL, 0, 0, 0, 0, 0);
+        CHECK(memcmp(snap, fb, sizeof snap) == 0, "a volume paint is not idempotent");
+    }
+}
+
+/* THE "AWAY" DISMISSAL: with a drawer out, a tap on the glass BETWEEN the panels puts
+ * them away -- the operator's ask of 2026-10-12, *"if i have the side panels up and i tap
+ * outside of it you can hide them"*.
+ *
+ * It was a step here once and was withdrawn, so the two things worth pinning are that it
+ * is BACK and that it did not come back too wide: with no drawer out the centre of the
+ * screen is still rbp's, the second contact never gets it, and a press that lands on an
+ * open panel is still that panel's. */
+static void test_away_dismissal(void)
+{
+    const int mid = MZ_LOGICAL_W / 2;      /* the glass between the panels */
+    const int bx  = (SZ_BTN_X0 + SZ_BTN_X1) / 2;
+    const int by  = SZ_SYNC_Y0 + 10;
+    int act, val, which;
+
+    reset_all();
+    side_set_mode(SZ_LEFT, SZ_MODE_VOL);
+    side_set_mode(SZ_RIGHT, SZ_MODE_VOL);
+
+    /* A TAP IN THE MIDDLE WITH NOTHING OUT IS NOT OURS, on both edges. */
+    which = -2; act = -1;
+    CHECK(side_feed_any(SZ_PTR_MAIN, 1, mid, 400, &which, &act, &val) == MZ_FEED_NONE,
+          "a press on the bare glass was claimed with nothing out");
+    CHECK(which == -1, "the bare-glass press was attributed to drawer %d", which);
+    CHECK(side_feed_any(SZ_PTR_MAIN, 0, mid, 400, &which, &act, &val) == MZ_FEED_NONE,
+          "the bare-glass release was claimed with nothing out");
+
+    /* WITH ONE OUT, THE SAME TAP IS THE AWAY: swallowed on BOTH edges, and the drawer
+     * goes on the LIFT rather than on the press. */
+    open_by_funnel(SZ_LEFT);
+    CHECK(side_is_open(SZ_LEFT), "the drawer did not open");
+
+    which = -2; act = -1;
+    CHECK(side_feed_any(SZ_PTR_MAIN, 1, mid, 400, &which, &act, &val) == MZ_FEED_TAKEN,
+          "the away press was not swallowed");
+    CHECK(which == -1, "the away press was attributed to drawer %d", which);
+    CHECK(act == SZ_ACT_NONE, "the away press asked the caller to send %d", act);
+    CHECK(side_is_open(SZ_LEFT), "the away closed the drawer on the PRESS, not the lift");
+    CHECK(side_feed_any(SZ_PTR_MAIN, 0, mid, 400, &which, &act, &val) == MZ_FEED_TAKEN,
+          "the away release was not swallowed");
+    CHECK(!side_is_open(SZ_LEFT), "the away tap left the drawer up");
+
+    /* AND IT TAKES BOTH PANELS AT ONCE, which is what "hide them" means. */
+    open_by_funnel(SZ_LEFT);
+    open_by_funnel(SZ_RIGHT);
+    CHECK(side_is_open(SZ_LEFT) && side_is_open(SZ_RIGHT), "both drawers did not open");
+    side_feed_any(SZ_PTR_MAIN, 1, mid, 400, &which, &act, &val);
+    side_feed_any(SZ_PTR_MAIN, 0, mid, 400, &which, &act, &val);
+    CHECK(!side_is_open(SZ_LEFT) && !side_is_open(SZ_RIGHT),
+          "the away tap left a drawer up: left %d right %d",
+          side_is_open(SZ_LEFT), side_is_open(SZ_RIGHT));
+
+    /* THE SECOND CONTACT IS NOT OFFERED IT -- side_zone.h's "the drawers and nothing
+     * else" -- so a second finger resting on the glass cannot clear the panel. */
+    open_by_funnel(SZ_LEFT);
+    which = -2;
+    CHECK(side_feed_any(SZ_PTR_ALT, 1, mid, 400, &which, &act, &val) == MZ_FEED_NONE,
+          "the alt pointer was given the away press");
+    CHECK(side_feed_any(SZ_PTR_ALT, 0, mid, 400, &which, &act, &val) == MZ_FEED_NONE,
+          "the alt pointer was given the away release");
+    CHECK(side_is_open(SZ_LEFT), "the second contact put the drawer away");
+
+    /* ...AND A PRESS ON AN OPEN PANEL IS STILL THAT PANEL'S, not an away. */
+    which = -2;
+    CHECK(side_feed_any(SZ_PTR_MAIN, 1, absx(SZ_LEFT, bx), by,
+                        &which, &act, &val) == MZ_FEED_TAKEN,
+          "a press on the open panel was not taken");
+    CHECK(which == SZ_LEFT, "an open panel's own press was attributed to %d", which);
+    side_feed_any(SZ_PTR_MAIN, 0, absx(SZ_LEFT, bx), by, &which, &act, &val);
+
+    /* ...and a finger lost with an away press down does not leave the next press
+     * swallowed by a drawer that has gone. */
+    open_by_funnel(SZ_LEFT);
+    side_feed_any(SZ_PTR_MAIN, 1, mid, 400, &which, &act, &val);
+    reset_all();
+    CHECK(side_feed_any(SZ_PTR_MAIN, 1, mid, 400, &which, &act, &val) == MZ_FEED_NONE,
+          "a lost away press left the next press swallowed");
+    side_feed_any(SZ_PTR_MAIN, 0, mid, 400, &which, &act, &val);
+
+    reset_all();
+}
+
+/* THE CONTROLS ADDED ON 2026-10-12: the MASTER half of the beat-match pair and the two
+ * discs above the fader. Each is one keycode and one act, and each fires on the LIFT by
+ * the same rule as SYNC/CUE/PLAY -- so what is worth pinning is that each produces its OWN
+ * act (six buttons off one rule is exactly where a copy-paste lands on the wrong one) and
+ * that a slide-off cancels it. */
+static void test_new_buttons(void)
+{
+    static const struct { int lx, ly, hit, act; const char *name; } btns[] = {
+        { MASTER_CX, SZ_SYNC_Y0 + 10, SZ_HIT_MASTER, SZ_ACT_MASTER, "MASTER" },
+        { (SZ_RNG_X0 + SZ_RNG_X1) / 2, (SZ_RND_Y0 + SZ_RND_Y1) / 2,
+          SZ_HIT_RANGE, SZ_ACT_RANGE, "the tempo range disc" },
+        { (SZ_MT_X0 + SZ_MT_X1) / 2, (SZ_RND_Y0 + SZ_RND_Y1) / 2,
+          SZ_HIT_MT, SZ_ACT_MT, "the master tempo disc" }
+    };
+    int act, val, i;
+
+    /* The six acts are distinct -- the check that would have caught a copy-paste, and it
+     * is a compile-time constant, so it costs nothing at run time. */
+    CHECK(SZ_ACT_SYNC != SZ_ACT_MASTER && SZ_ACT_MASTER != SZ_ACT_CUE &&
+          SZ_ACT_CUE != SZ_ACT_PLAY && SZ_ACT_PLAY != SZ_ACT_RANGE &&
+          SZ_ACT_RANGE != SZ_ACT_MT,
+          "two of the six plain buttons share an act");
+
+    for (i = 0; i < (int)(sizeof btns / sizeof btns[0]); i++) {
+        reset_all();
+        /* PITCH, because the two discs are on the pitch control and answer nowhere else;
+         * MASTER does not care, which is why the same loop drives all three. */
+        side_set_mode(SZ_LEFT, SZ_MODE_PITCH);
+        open_by_swipe(SZ_LEFT);
+        lift(SZ_LEFT, SZ_SWIPE_PX, 600, &act, &val);
+
+        act = SZ_ACT_NONE;
+        press(SZ_LEFT, btns[i].lx, btns[i].ly, &act, &val);
+        CHECK(act == SZ_ACT_NONE, "%s fired on the press", btns[i].name);
+        CHECK(side_pressed(SZ_LEFT) == btns[i].hit, "%s is not highlighted while held",
+              btns[i].name);
+        lift(SZ_LEFT, btns[i].lx, btns[i].ly, &act, &val);
+        CHECK(act == btns[i].act, "%s fired act %d, not %d", btns[i].name, act,
+              btns[i].act);
+
+        /* ...and a finger that rolls off fires nothing, like every other button here. */
+        act = SZ_ACT_NONE;
+        press(SZ_LEFT, btns[i].lx, btns[i].ly, &act, &val);
+        move(SZ_LEFT, SZ_BTN_X0 + 4, SZ_CUE_Y0, &act, &val);
+        lift(SZ_LEFT, SZ_BTN_X0 + 4, SZ_CUE_Y0, &act, &val);
+        CHECK(act == SZ_ACT_NONE, "%s fired after a slide-off", btns[i].name);
+        side_reset_all();
+        side_set_mode(SZ_LEFT, SZ_MODE_VOL);
+    }
+    reset_all();
+}
+
 int main(void)
 {
     test_geometry();
     test_hit();
     test_entry();
     test_fader_maths();
+    test_mode_hit();
+    test_mode_toggle();
     test_gesture_shut();
     test_gesture_open();
+    test_new_buttons();
     test_gesture_fader();
     test_both_open();
     test_one_surface();
+    test_away_dismissal();
     test_nudging();
     test_two_hands();
     test_entry_survives_declined();
@@ -1657,8 +2238,10 @@ int main(void)
     test_paint_covers();
     test_paint_idempotent();
     test_paint_pressed_is_local();
+    test_paint_lit_accents();
     test_paint_mirror();
     test_paint_fader_cap();
+    test_paint_modes();
     test_paint_signs();
     test_paint_label_pens();
 

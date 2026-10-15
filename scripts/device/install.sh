@@ -16,6 +16,19 @@
 # RB_AUTOSTART=0 (rb.conf, or rb.local.conf to override it per machine) installs
 # the unit but leaves it disabled, for a target being brought up by hand.
 #
+# vncserve is COMPILED HERE, ON THE UNIT, and the install aborts with the
+# compiler's own output if that fails -- there is no cross-toolchain in this tree
+# that can produce a hard-float armhf binary. RB_VNC=1 (rb.local.conf) installs and
+# enables the VNC viewer's unit; RB_VNC=0 (the default) installs it disabled.
+#
+# The boot-progress screen (bootscreen.py + rblive4-boot.service) is copied and
+# installed unconditionally but ENABLED with the player: RB_AUTOSTART=0 disables
+# it too, and RB_BOOTSCREEN=0 disables just it. It draws the launcher's stages on
+# /dev/fb0 from the moment the real framebuffer exists until rbp paints its first
+# frame, tailing /run/rblive4/boot.log -- which this script also makes exist at
+# sysinit with a tmpfiles.d entry. It needs python3 on the unit, and says so if it
+# is missing rather than failing.
+#
 # RB_DEPLOY_ROOT overrides the destination:
 #   sudo RB_DEPLOY_ROOT=/srv/rblive4 sh install.sh /tmp/rbpi4b-pi4.tgz
 
@@ -153,7 +166,12 @@ fi
 # reader standing at the machine finds the installer that made the tree, not a
 # gap where it used to be. Copying a running shell script is fine -- sh reads it
 # a line at a time and holds its own descriptor.
-for s in lib.sh fix-dev.sh start-rb.sh usb-watch.sh display-watch.sh doctor.sh healthwatch.sh boot-trim.sh install.sh uninstall.sh rb.conf; do
+#
+# novnc_patch.py travels for the healthwatch.sh reason: webvnc-run.sh runs it
+# from the deploy root on every start, and its guard is a plain file test, so
+# without the file here the noVNC edits are skipped in silence -- a missing
+# patcher and an already-patched page look the same from webvnc-run.sh's side.
+for s in lib.sh fix-dev.sh start-rb.sh usb-watch.sh display-watch.sh doctor.sh healthwatch.sh boot-trim.sh vnc-run.sh webvnc-run.sh novnc_patch.py bootscreen.py confscreen.py confedit.py install.sh uninstall.sh rb.conf; do
   if [ -f "$HERE/$s" ]; then
     cp "$HERE/$s" "$DEPLOY/$s"
     [ "$s" = "rb.conf" ] || chmod 755 "$DEPLOY/$s"
@@ -167,6 +185,14 @@ done
 # uninstall.sh identify the installed drop-in by comparing against it, and
 # uninstall in particular has to make that comparison ON the unit -- the moment
 # it runs is the moment a checkout of this repository may already be gone.
+if [ -f "$HERE/logrotate-rblive4.conf" ]; then
+  cp "$HERE/logrotate-rblive4.conf" "$DEPLOY/logrotate-rblive4.conf"
+  chmod 644 "$DEPLOY/logrotate-rblive4.conf"
+else
+  warn "logrotate-rblive4.conf not found in $HERE -- kept out of the deploy root,
+  where uninstall.sh looks for it to identify the installed drop-in"
+fi
+
 if [ -f "$HERE/journald-persistent.conf" ]; then
   cp "$HERE/journald-persistent.conf" "$DEPLOY/journald-persistent.conf"
   chmod 644 "$DEPLOY/journald-persistent.conf"
@@ -211,10 +237,12 @@ fi
 #
 # THE STALE DEPLOY TRAP, closed here rather than documented again.
 #
-# start-rb.sh's install_override() copies six files from the deploy root into the
-# chroot at EVERY launch, and skips each one in silence when its source is
-# absent. That is deliberate -- it is how you iterate on one shim without
-# rebuilding the tarball -- but it has a consequence this installer had never
+# start-rb.sh's install_override() installs the deploy-root artifacts into the
+# chroot at every launch, skipping each one in silence when its source is absent
+# or already identical (the latter is a `cmp -s` guard, so it stops copying 7.6 MB
+# of unchanged player per launch). That is deliberate -- it is how you iterate on
+# one shim without rebuilding the tarball -- but it has a consequence this
+# installer had never
 # dealt with: **the deploy-root copies are authoritative**. A file left there by
 # a hand scp overrides whatever the tarball put inside the chroot, forever, and
 # nothing in the tree said so. That is how a build can be correct, deployed, and
@@ -345,6 +373,66 @@ if [ -f "$DEPLOY/rbp-audio" ]; then
     sh $HERE/doctor.sh"
 fi
 
+# --- vncserve: compiled ON THE UNIT, in a staging directory ------------------
+#
+# WHY THERE IS A BUILD STEP IN AN INSTALLER AT ALL. vncserve cannot be shipped in
+# the tarball, because there is no toolchain in this tree that can produce it: the
+# cross-image is soft-float armel and the unit's userland is hard-float armhf. The
+# unit has its own gcc and make, so it builds its own. See
+# scripts/device/vncserve/Makefile for the long version and for why `make all`
+# exiting 0 there proves nothing.
+#
+# WHY IT DOES NOT BUILD IN PLACE, and this is the part that would bite silently.
+# install_artifact's "no source -> return 0, in silence" shape is how a deploy looks
+# clean and ships nothing, so a compile failure here aborts the install with the
+# compiler's own output rather than a summary of it. And the build does NOT run in
+# $DEPLOY/vncserve: `cc -o vncserve` truncates the output file in place, and if a
+# running rblive4-vnc has that binary mapped, the truncation is a SIGBUS in the
+# operator's live view (the same trap as replacing any mapped .so -- stage beside it
+# and rename). So it compiles into $DEPLOY/.vnc-build.$$, and only the finished
+# binary is renamed into place.
+VNC_SRC="$HERE/vncserve"
+VNC_DST="$DEPLOY/vncserve"
+
+if [ ! -d "$VNC_SRC" ]; then
+  warn "vncserve/ is not beside install.sh, so the VNC viewer was not built. If
+  rblive4-vnc.service is enabled it will restart-loop on a missing binary; either
+  install from a complete checkout, or set RB_VNC=0 in $DEPLOY/rb.local.conf."
+elif ! command -v make >/dev/null 2>&1; then
+  warn "make is not installed on this unit, so vncserve was not built. Install it
+  with 'apt-get install -y make gcc' and run install.sh again."
+elif ! command -v cc >/dev/null 2>&1; then
+  warn "cc is not installed on this unit, so vncserve was not built. Install it with
+  'apt-get install -y gcc' and run install.sh again."
+else
+  # A fresh staging directory every time, so a stale object from an earlier failed
+  # run can never be linked into this one.
+  VNC_STAGE="$DEPLOY/.vnc-build.$$"
+  rm -rf "$VNC_STAGE"
+  mkdir -p "$VNC_STAGE"
+  # shellcheck disable=SC2086
+  cp "$VNC_SRC"/*.c "$VNC_SRC"/*.h "$VNC_SRC"/Makefile "$VNC_STAGE/"
+
+  if make -C "$VNC_STAGE" >"$VNC_STAGE/build.log" 2>&1; then
+    # The sources are kept in the deploy root, like install.sh itself: a reader
+    # standing at the machine finds what built the binary, not a gap.
+    mkdir -p "$VNC_DST"
+    # shellcheck disable=SC2086
+    cp "$VNC_SRC"/*.c "$VNC_SRC"/*.h "$VNC_SRC"/Makefile "$VNC_DST/"
+    install -m 755 -o root -g root "$VNC_STAGE/vncserve" "$VNC_DST/vncserve.new.$$"
+    mv -f "$VNC_DST/vncserve.new.$$" "$VNC_DST/vncserve"
+    say "  vncserve: built on the unit and installed to $VNC_DST/vncserve"
+  else
+    cat "$VNC_STAGE/build.log" >&2
+    rm -rf "$VNC_STAGE"
+    die "vncserve did not compile -- the compiler's own output is above. The install
+  stopped here rather than continue with a viewer that is not on the unit. A
+  pre-existing $VNC_DST/vncserve, if any, is UNCHANGED and still runs; fix the
+  source and run install.sh again."
+  fi
+  rm -rf "$VNC_STAGE"
+fi
+
 # --- systemd autostart ------------------------------------------------------
 #
 # The unit is installed from here rather than shipped in the tarball, so the
@@ -383,6 +471,115 @@ else
   and its log is the only thing that survives the wedge it is there to describe."
 fi
 
+# The VNC viewer: a unit of its own, for the reason vnc-run.sh's header gives -- a
+# fault in the viewer must not take the player with it, and RB_VNC=0 has to mean the
+# process is not started at all. Unlike rblive4.service it is INSTALLED ONLY WHEN THE
+# BINARY EXISTS: vnc-run.sh exits 1 on a missing binary by design, and a unit with
+# Restart=always pointed at that would restart-loop every ten seconds and write the
+# same three lines to the journal forever. A stale unit from an earlier install is
+# removed in the same breath, so "no binary" leaves no way to loop.
+VNC_UNIT=/etc/systemd/system/rblive4-vnc.service
+if [ -f "$HERE/rblive4-vnc.service" ]; then
+  if [ -x "$DEPLOY/vncserve/vncserve" ]; then
+    install -m 644 -o root -g root "$HERE/rblive4-vnc.service" "$VNC_UNIT"
+    say "installed $VNC_UNIT"
+  else
+    rm -f "$VNC_UNIT" 2>/dev/null || true
+    warn "rblive4-vnc.service was NOT installed: $DEPLOY/vncserve/vncserve is not
+  there, so the unit would restart-loop on a missing binary. The reason the build
+  did not happen is in this script's output above."
+  fi
+else
+  warn "rblive4-vnc.service is not in $HERE -- the screen cannot be shared over VNC"
+fi
+
+# The boot-progress screen: a unit of its own, for the reason bootscreen.py's
+# header gives -- a fault in a diagnostic must not take the player with it -- and
+# it must be up before rblive4 to be worth having. Unlike rblive4-vnc.service it is
+# installed UNCONDITIONALLY: there is no binary to cross-build here, only a script
+# install.sh copied into the deploy root above. It is ENABLED only when
+# RB_BOOTSCREEN=1 (and the player autostarts), in the gate below.
+BOOT_UNIT=/etc/systemd/system/rblive4-boot.service
+if [ -f "$HERE/rblive4-boot.service" ]; then
+  install -m 644 -o root -g root "$HERE/rblive4-boot.service" "$BOOT_UNIT"
+  say "installed $BOOT_UNIT"
+else
+  warn "rblive4-boot.service is not in $HERE -- there will be no boot screen"
+fi
+
+# python3 is the screen's only dependency, and a missing one makes the unit SKIP
+# in silence (ConditionPathExists=/usr/bin/python3 in the unit). Said here so it
+# is not a mystery: "the screen did not appear" must name its reason, and this is
+# the one place that reason can be caught with an install-time voice.
+if [ -f "$BOOT_UNIT" ]; then
+  if command -v python3 >/dev/null 2>&1; then
+    say "  python3 present: $(command -v python3)"
+  else
+    warn "python3 is NOT installed -- rblive4-boot.service will skip its condition
+  and no boot screen will appear. The player is unaffected. To get the screen:
+  apt-get install python3, then systemctl restart rblive4-boot."
+  fi
+fi
+
+# The status page's unit. Installed UNCONDITIONALLY, like the boot screen's and for
+# the same reason -- there is no binary to cross-build, only a script copied into
+# the deploy root above. ENABLED only when RB_CONF=1, in the gate below.
+CONF_UNIT=/etc/systemd/system/rblive4-conf.service
+if [ -f "$HERE/rblive4-conf.service" ]; then
+  install -m 644 -o root -g root "$HERE/rblive4-conf.service" "$CONF_UNIT"
+  say "installed $CONF_UNIT"
+else
+  warn "rblive4-conf.service is not in $HERE -- there will be no status page"
+fi
+
+# The web client's unit, and the one unit here that needs something this tree does NOT
+# provide: websockify and the noVNC page come from the distribution. So it follows the
+# viewer's rule for its binary -- installed only when the program exists, and REMOVED
+# otherwise, because Restart=always on a missing program is a restart loop, not a service.
+WEB_UNIT=/etc/systemd/system/rblive4-webvnc.service
+if [ -f "$HERE/rblive4-webvnc.service" ]; then
+  if [ -x /usr/bin/websockify ] && [ -f "${RB_VNC_WEB_ROOT:-/usr/share/novnc}/vnc.html" ]; then
+    install -m 644 -o root -g root "$HERE/rblive4-webvnc.service" "$WEB_UNIT"
+    say "installed $WEB_UNIT"
+  else
+    rm -f "$WEB_UNIT"
+    warn "the web client's packages are missing, so rblive4-webvnc.service was NOT installed
+  (and any earlier one was removed). For rbp's screen in a browser:
+      apt-get install novnc websockify
+  then re-run install.sh."
+  fi
+fi
+
+# The rendezvous directory the launcher appends to (rb_bootmsg) and the screen
+# tails. A tmpfiles.d entry makes it exist at sysinit -- BEFORE basic.target, so
+# before either writer -- which is the only way it is a guarantee rather than a
+# race: nothing else creates /run/rblive4 at boot (only vnc-run.sh does, and only
+# when RB_VNC=1), and the gap between basic.target and the launcher is 70 ms.
+# rb_bootmsg() also does a defensive mkdir -p and the screen its own makedirs, so
+# this is belt to those rather than the only thing holding the directory up.
+install -d -m 755 /etc/tmpfiles.d
+cat > /etc/tmpfiles.d/rblive4.conf <<'TMPFILES'
+# Created by rbpi4b's install.sh. The boot-progress rendezvous: the launcher
+# appends its stages here (rb_bootmsg in lib.sh) and bootscreen.py tails it. Made
+# at sysinit, so it exists before basic.target -- before either writer can run.
+d /run/rblive4 0755 root root -
+TMPFILES
+chmod 644 /etc/tmpfiles.d/rblive4.conf
+# Apply it now as well, so an install on a running unit creates the directory
+# before the next boot rather than waiting for one.
+systemd-tmpfiles --create /etc/tmpfiles.d/rblive4.conf >/dev/null 2>&1 || true
+say "installed /etc/tmpfiles.d/rblive4.conf (/run/rblive4 created at sysinit)"
+
+# A CEILING ON OUR OWN LOGS -- the file's header says why: rbp's log reached 492 MB in two days with
+# nothing rotating it, and the config page used to read it whole on every poll, which is what took
+# that page from instant to never. copytruncate, because every one of these files is written by a
+# process that already holds it open (rbp's stdout is redirected into rbp.log by start-rb.sh).
+if [ -f "$HERE/logrotate-rblive4.conf" ]; then
+  install -d -m 755 /etc/logrotate.d
+  install -m 644 -o root -g root "$HERE/logrotate-rblive4.conf" /etc/logrotate.d/rblive4
+  say "installed /etc/logrotate.d/rblive4 (rbp.log and /tmp/*.log capped; stock daily timer)"
+fi
+
 # Persistent journal: the file's own header says why (a brownout's evidence is
 # otherwise in RAM). Installed unconditionally; it is capped at 200M and the way
 # to undo it is to delete the file.
@@ -392,6 +589,7 @@ if [ -f "$HERE/journald-persistent.conf" ]; then
   install -m 644 -o root -g root "$HERE/journald-persistent.conf" \
           /etc/systemd/journald.conf.d/persistent.conf
   say "journal is now persistent (/etc/systemd/journald.conf.d/persistent.conf)"
+
 
   # A second drop-in under an earlier name for the same file, which an install
   # that predates the rename left behind. journald reads the directory in
@@ -446,6 +644,99 @@ if command -v systemctl >/dev/null 2>&1; then
     else
       systemctl disable healthwatch.service >/dev/null 2>&1 || true
       say "healthwatch.service installed but DISABLED with the player (RB_AUTOSTART=${RB_AUTOSTART:-1})"
+    fi
+  fi
+
+  # The viewer is gated on RB_VNC and NOT on RB_AUTOSTART, deliberately. A unit
+  # brought up by hand for a show is exactly the unit someone wants to watch from
+  # the desk, and a unit that autostarts rbp is not made more or less safe by a
+  # read-only VNC listener either way. RB_VNC defaults to 0 in rb.conf, so this is
+  # opt-in and an install that never touches it changes nothing.
+  if [ -f "$VNC_UNIT" ]; then
+    # The two ports, resolved exactly the way vnc-run.sh resolves them, so this
+    # summary cannot name a port the server will not actually open. They are one
+    # number and one +1 unless rb.local.conf has said otherwise.
+    VNC_P="${RB_VNC_PORT:-5900}"
+    VNC_H="${RB_VNC_HTTP_PORT:-$((VNC_P + 1))}"
+    if [ "${RB_VNC:-0}" = "1" ]; then
+      if systemctl enable rblive4-vnc.service >/dev/null 2>&1; then
+        say "rblive4-vnc.service enabled -- the screen is served on port $VNC_P (RB_VNC=1)"
+        say "  control page http://<this host>:$VNC_H/   (opens full screen; tap the picture for the words)"
+      else
+        warn "could not enable rblive4-vnc.service; start it by hand with
+  systemctl enable --now rblive4-vnc.service"
+      fi
+    else
+      systemctl disable rblive4-vnc.service >/dev/null 2>&1 || true
+      say "rblive4-vnc.service installed but DISABLED (RB_VNC=${RB_VNC:-0})"
+      say "  to share the screen: set RB_VNC=1 in $DEPLOY/rb.local.conf, then"
+      say "  systemctl enable --now rblive4-vnc"
+    fi
+  fi
+
+  # The boot screen, gated the way the PLAYER is rather than the way the viewer
+  # is: it is a screen FOR the player, so a unit that does not autostart rbp gets
+  # no screen either -- RB_AUTOSTART=0 turns both off together. RB_BOOTSCREEN=0 is
+  # the escape hatch for a unit that runs the player but wants the early
+  # framebuffer left alone, and the next install honours it.
+  if [ -f "$BOOT_UNIT" ]; then
+    if [ "${RB_AUTOSTART:-1}" = "1" ] && [ "${RB_BOOTSCREEN:-1}" = "1" ]; then
+      if systemctl enable rblive4-boot.service >/dev/null 2>&1; then
+        say "rblive4-boot.service enabled -- the boot screen draws from first light (RB_BOOTSCREEN=1)"
+      else
+        warn "could not enable rblive4-boot.service; start it by hand with
+  systemctl enable --now rblive4-boot"
+      fi
+    else
+      systemctl disable rblive4-boot.service >/dev/null 2>&1 || true
+      if [ "${RB_AUTOSTART:-1}" != "1" ]; then
+        say "rblive4-boot.service installed but DISABLED with the player (RB_AUTOSTART=${RB_AUTOSTART:-1})"
+      else
+        say "rblive4-boot.service installed but DISABLED (RB_BOOTSCREEN=${RB_BOOTSCREEN:-1})"
+      fi
+    fi
+  fi
+fi
+
+# The status page, gated ONLY on RB_CONF -- deliberately not on the player and not
+# on the viewer, and this is the one place in this script that says so. The page has
+# to be up on a unit whose player is disabled and whose viewer was never installed,
+# because switching those on is what it is for; and it shares nothing with them, so
+# enabling it cannot affect either. It is served on RB_CONF_HTTP_PORT.
+if [ -f "$CONF_UNIT" ]; then
+  if [ "${RB_CONF:-1}" = "1" ]; then
+    if systemctl enable rblive4-conf.service >/dev/null 2>&1; then
+      say "rblive4-conf.service enabled -- status page http://<this host>:${RB_CONF_HTTP_PORT:-5904}/ (RB_CONF=1)"
+    else
+      warn "could not enable rblive4-conf.service; start it by hand with
+  systemctl enable --now rblive4-conf"
+    fi
+  else
+    systemctl disable rblive4-conf.service >/dev/null 2>&1 || true
+    say "rblive4-conf.service installed but DISABLED (RB_CONF=${RB_CONF:-1})"
+  fi
+fi
+
+# The web client, gated on the viewer as well as on its own switch -- and the viewer gate is
+# not decoration: the bridge reaches the RFB port, and that port only exists while the viewer
+# is running AND sharing is on. Enabling a browser client against a viewer that is off would
+# be a page that always fails.
+if [ -f "$WEB_UNIT" ]; then
+  if [ "${RB_VNC:-0}" = "1" ] && [ "${RB_VNC_WEB:-1}" = "1" ]; then
+    if systemctl enable rblive4-webvnc.service >/dev/null 2>&1; then
+      say "rblive4-webvnc.service enabled -- rbp's screen in a browser (RB_VNC_WEB=1)"
+      say "  http://<this host>:${RB_VNC_WEB_PORT:-5903}/"
+      say "  the password is the viewer's, and sharing must be ON before it can connect"
+    else
+      warn "could not enable rblive4-webvnc.service; start it by hand with
+  systemctl enable --now rblive4-webvnc"
+    fi
+  else
+    systemctl disable rblive4-webvnc.service >/dev/null 2>&1 || true
+    if [ "${RB_VNC_WEB:-1}" != "1" ]; then
+      say "rblive4-webvnc.service installed but DISABLED (RB_VNC_WEB=${RB_VNC_WEB:-1})"
+    else
+      say "rblive4-webvnc.service installed but DISABLED with the viewer (RB_VNC=${RB_VNC:-0})"
     fi
   fi
 fi

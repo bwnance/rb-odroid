@@ -2,7 +2,7 @@
  * test_hc.c -- the HOT CUE pad row, with no Pi, no panel and no rbp anywhere in this
  * file.
  *
- * It links the PRODUCTION hc_zone.c, for the reason test_fx.c, test_prompt.c,
+ * It links the PRODUCTION hc_zone.c, for the reason test_fx.c,
  * test_wave.c, test_util.c, test_side.c and test_menu.c link theirs: a rectangle
  * boundary, an anchored press and a comparison against a threshold are exactly the
  * kind of thing that gets quietly rewritten in a copy.
@@ -81,19 +81,37 @@ static void test_gate(void)
     CHECK(hc_may_fire(BROWSE_MODE_PLAY, HC_PAD_MODE_HOT, -1000) == 0,
           "a negative registration fired");
 
-    /* rbp's pad keycodes mean whatever the CURRENT pad mode makes them mean, so a
-     * deck in any other mode -- or one whose mode could not be read -- must not be
-     * sent one. AUTO BEAT LOOP would engage a loop. */
-    CHECK(hc_may_fire(BROWSE_MODE_PLAY, 1, 1) == 0,
-          "a deck in AUTO BEAT LOOP mode fired -- this engages a loop");
-    CHECK(hc_may_fire(BROWSE_MODE_PLAY, 2, 1) == 0, "a deck in SLIP BEAT LOOP fired");
-    CHECK(hc_may_fire(BROWSE_MODE_PLAY, 3, 1) == 0, "a deck in BEAT JUMP fired");
+    /* THE OTHER THREE MODES FIRE ON EVERY PAD (operator, 2026-10-10). There a pad is a beat loop,
+     * a slip loop or a beat jump -- what the operator asked for by tapping a cell rbp itself
+     * drew, and reversible from that same pad -- so the registration is not consulted at all and
+     * an EMPTY cell fires too. The eight keycodes are the same in every mode; it is the mode that
+     * gives them their meaning. */
+    CHECK(hc_may_fire(BROWSE_MODE_PLAY, HC_PAD_MODE_ALOOP, 0) == 1,
+          "an empty pad in AUTO BEAT LOOP must fire -- it engages a loop and creates nothing");
+    CHECK(hc_may_fire(BROWSE_MODE_PLAY, HC_PAD_MODE_SLIPLOOP, 0) == 1,
+          "an empty pad in SLIP BEAT LOOP must fire");
+    CHECK(hc_may_fire(BROWSE_MODE_PLAY, HC_PAD_MODE_BEATJUMP, 0) == 1,
+          "an empty pad in BEAT JUMP must fire");
+    CHECK(hc_may_fire(BROWSE_MODE_PLAY, HC_PAD_MODE_ALOOP, 1) == 1,
+          "and a cell whose cue is registered fires in those modes too");
+    CHECK(hc_may_fire(BROWSE_MODE_PLAY, HC_PAD_MODE_ALOOP, -1) == 1,
+          "a registration that could not be read does not stop a mode that never asks for one");
+
+    /* ...BUT A MODE THAT CANNOT BE READ STILL FIRES NOTHING, in either kind of mode: there is no
+     * mode it is safe to guess at, because these eight keycodes take whatever meaning the real
+     * mode gives them. */
     CHECK(hc_may_fire(BROWSE_MODE_PLAY, -1, 1) == 0,
           "an unreadable pad mode fired -- must fail towards doing nothing");
+    CHECK(hc_may_fire(BROWSE_MODE_PLAY, -1, 0) == 0, "and with no cue on the pad either");
+    CHECK(hc_may_fire(BROWSE_MODE_PLAY, HC_PAD_MODES, 1) == 0,
+          "a mode past the fourth fired");
+    CHECK(hc_may_fire(BROWSE_MODE_PLAY, 99, 1) == 0, "and so did nonsense");
 
     /* And off the performance screen the grid is not even drawn at those rows. */
     CHECK(hc_may_fire(BROWSE_MODE_UTILITY, HC_PAD_MODE_HOT, 1) == 0,
           "the UTILITY screen fired a pad");
+    CHECK(hc_may_fire(BROWSE_MODE_UTILITY, HC_PAD_MODE_ALOOP, 1) == 0,
+          "in any mode");
     CHECK(hc_may_fire(0, HC_PAD_MODE_HOT, 1) == 0, "browse mode 0 fired a pad");
     CHECK(hc_may_fire(-1, HC_PAD_MODE_HOT, 1) == 0, "an unreadable browse mode fired");
 }

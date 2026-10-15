@@ -458,7 +458,7 @@ was wrong; the code was fine.
 
 **Now enabled by default**, because the card is the card the port is aimed at:
 `RB_STARTUP_MUTE_MS=1500` and `RB_STARTUP_FADE_MS=300`
-([rb.conf:201-202](../scripts/device/rb.conf)) — the values
+([rb.conf:569-570](../scripts/device/rb.conf)) — the values
 [09 — Audio](09-audio.md) already gave, with the false comment replaced by one
 that records the thump. The cost when a card does not need it is 1.5 s of
 silence at startup; a card that is *late* rather than noisy wants them back at 0
@@ -608,6 +608,14 @@ fix. As of 2026-09-27 the file holds:
   list alone — and the dump caught both of theirs on the wire too (`note=104` and
   `note=122`, ch 6, vel 127, with no `vel=100` injected event anywhere in the
   file), so nothing here rests on the screen alone.
+* `RB_KEY_DUMP=/tmp/keys.log` — records every command the shim hands **rbp**
+  (not the surface), with microsecond timing and the source that sent it. It is
+  the recording `MIDI_DUMP` cannot make: it holds the keycodes rbp actually
+  received, so it covers the screen touches the shim turns into commands, it
+  survives a remap, and `RB_KEY_REPLAY=` plays it back into rbp with no
+  controller, no map and no sequencer at all. Its header names the media the
+  recording was made against, which is what a replay has to match
+  ([08](08-controls.md#the-key-dump-the-other-end-of-the-same-wire)).
 * `RB_POINT_DEBUG=1` — **removed again on 2026-09-27, after the pass it was kept
   for**, so expect to re-add it rather than find it on. It is the pointer path's
   per-event line, which since this date prints **both ends of the transform**

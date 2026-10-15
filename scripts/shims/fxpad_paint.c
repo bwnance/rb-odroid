@@ -135,21 +135,19 @@ static int fxp_dot_r(const struct menu_view *v)
 static void fxp_dot(const struct menu_view *v, int mx, int my)
 {
     unsigned int face = menu_pixel(v->bpp, MENU_FX_SEL);
-    unsigned int ring = menu_pixel(v->bpp, MENU_BORDER);
     int cx = fxp_fx(v, mx), cy = fxp_fy(v, my);
-    int r  = fxp_dot_r(v);
-    int ro = r + 1, x, y;
+    int r  = fxp_dot_r(v), x, y;
 
-    for (y = -ro; y <= ro; y++) {
-        for (x = -ro; x <= ro; x++) {
-            int d2 = x * x + y * y;
-
-            if (d2 <= r * r)
+    /* A PLAIN DISC, NO RING -- the operator's ask of 2026-10-12: *"can you get rid of the
+     * border"*. The ring was MENU_BORDER, and its own justification was that the blue
+     * alone would vanish against rbp's white ink, which is what the middle of this cell is
+     * full of. That is a real risk and it is written down rather than lost: if the dot
+     * reads poorly over the BPM digits, the answer is a DARK ring, not this pale one --
+     * dark on white, where the old ring was white on white and did its strobe. */
+    for (y = -r; y <= r; y++)
+        for (x = -r; x <= r; x++)
+            if (x * x + y * y <= r * r)
                 fxp_set(v, cx + x, cy + y, face);
-            else if (d2 <= ro * ro)
-                fxp_set(v, cx + x, cy + y, ring);
-        }
-    }
 }
 
 /* --- the public surface ----------------------------------------------------- */

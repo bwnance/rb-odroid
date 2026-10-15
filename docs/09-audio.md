@@ -991,3 +991,217 @@ speakers, so `g_speaker_gain`/`g_speaker_on` have no consumer here.
 * `/tmp/audioshim.log` records the device candidates tried, the result of each,
   the negotiated parameters and the stream→pair map. It is the first place to
   look when there is no sound.
+
+## External mixer mode: sending each deck raw
+
+`RB_MIXER_MODE=external` hands the mixing to whatever is on the other end of USB
+and takes rbp's mixer out of the path. Each deck goes out **on its own pair**
+(`RB_AUDIO_MAP`'s `deck1`/`deck2`, default **2,3** and **4,5**), and **rbp's mix
+is not sent at all** — sending both would play every deck twice.
+
+| | `internal` (default) | `external` |
+|---|---|---|
+| what the card gets | rbp's mix, post Main Vol, on `master` | the two decks, raw, on `deck1`/`deck2` |
+| cue/booth pairs | folded from rbp's own streams | not sent |
+| rbp's trim, EQ, isolator, fader, crossfader | in the path | **out of the path** |
+| rbp's Sound Color FX and Beat FX | in the path | **not on the deck feeds** (see below) |
+| HDMI mirror | rbp's mix | unchanged — still rbp's mix |
+
+**The tap is the deck before its channel strip**, which is the only place that
+makes "external" mean what it says. rbp's own `mixerengine::MixerChannel::update`
+(`0x9e890`) fetches the deck's audio with
+`djengine::MixerRouteMngr::getPlayerDataPointer(EnMixerInput)` (`0x85898`) and
+*then* applies TRIM → EQ → isolator → fader. That function's whole body is two
+loads:
+
+```
+r3 = 0x01149f08 + input*4;   r0 = *(u32 *)(r3 + 0x48);   return r0 ? *(u32 *)(r0+4) : 0;
+```
+
+so the shim reads the same two words rather than calling in. **There is no hook
+and no patched code** — no trampoline, no `mprotect`, no prologue to match — and
+the address is re-read every flush instead of cached, so a rebuilt engine or a
+moved buffer cannot be missed. Inputs 0 and 1 are the two decks; 2 is preview, 3
+mic, 4 aux, and 5/6 the USB/PC pair (read off the live objects' vtables).
+
+**Reading it at flush time is safe, and that is a measurement.** The buffer is a
+fixed address written in place each block: measured on `.239` (2026-10-10) deck 1's
+pointer held `0xc8b28ea8` across five seconds while its contents moved on every
+sample, and deck 2's held `0xc8b474d8`. So the deck taps ride the **same
+`snd_pcm_writei`** as the master always did — same block, same instant, no queue
+and no second thread — which is what makes the latency identical to internal
+mode's rather than merely small. The length needs no bound either: the master
+block being written *is* that engine block, so the per-input buffers are at least
+that long, exactly as the master's own source is.
+
+**It applies only while an external digital mixer is on the USB bus.** That is the whole
+point of the mode — the other device's channel strips — so with none of them plugged in the
+decks would go out on pairs nothing is listening to, and the mix (which is what a
+controller's own output carries) would have been dropped. The recognised devices are the
+`mixer` rows of `scripts/shims/controllers.c`: **euphonia** (id and product string measured on
+`.239`), **DJM-V10**, **DJM-A9** and **DJM-900NXS2** (ids from the kernel's own
+`sound/usb/quirks-table.h`), **DJM-V5** and **DJM-900NXS** (no id recorded anywhere this tree
+could check, so they are reached by model name alone — a guessed id is the drift that table
+exists to remove).
+
+The question is asked of **sysfs**, once, by `scripts/shims/usb_devices.c` — the same single
+walk behind `controllers_cli detect`, so the shim and the diagnostic cannot answer
+differently. Matching is by USB id first and by model name second, both sides normalised
+(lowercased, punctuation dropped) so that `DJM-900NXS2`, `DJM900NXS2` and `djm-900nxs2` all
+reach one token. Ask it by hand:
+
+```
+controllers_cli mixer        # 'id name', or 'none' with exit 1
+controllers_cli mixer /tmp   # the same question about a path that is not the bus
+controllers_cli detect       # every recognised device, mixers included
+```
+
+When the bus has no recognised mixer and `RB_MIXER_MODE` still says `external`, the shim
+**says so and stays internal** rather than doing nothing quietly, and the config page hides
+the setting instead of offering one that cannot apply — except to say the saved value is
+inert, which is the one case where hiding it would leave a setting doing nothing with nothing
+on the page to explain why.
+
+Two consequences worth knowing before choosing the mode:
+
+* **The card must be wide enough.** The pairs are hardware channel indices, so
+  external mode wants **6 channels** (2 + 2 + 2). On a card opened narrower than a
+  pair's indices those decks are skipped and `/tmp/audioshim.log` says so once
+  rather than writing past the frame.
+* **rbp's FX cannot ride the deck feeds.** Beat FX and Sound Color FX are applied
+  at the master, after the channel sum — and the master is exactly what external
+  mode does not send. A deck that needs one of rbp's effects wants `internal`.
+
+The shim's constructor logs the mode and the pairs it chose, so
+`/tmp/audioshim.log` distinguishes the two modes without inference:
+
+```
+audioshim: MIXER_MODE=external -- the deck taps go out on 2,3 and 4,5 and rbp's own mix is NOT sent. ...
+```
+
+`RB_MIXER_MODE` is read **once**, in the constructor, like every other value in
+this file: the *environment variable* is not a live switch, and changing it takes a player
+restart. `start-rb.sh` passes it through as `MIXER_MODE` (`SHIM_VARS`), so a value that is
+missing there reaches the shim as empty — which is internal mode, the shipped
+behaviour, and also what a hand-run shim with no environment at all gets.
+
+### The route IS live, through a switch file
+
+`RB_MIXER_MODE` is the **start-up** value; what the unit does *now* is
+`RB_MIXER_MODE_FILE` — `/run/rblive4/mixer.mode`, one word and a newline, the same shape as
+the viewer's switch files. `audioshim.c`'s `mixer_route_tick()` re-reads it on the audio
+callback every ~512 blocks (**~0.7 s** at 64 frames) and re-walks the USB bus every eighth
+of those (**~6 s**, because that walk is a dozen sysfs reads); a **missing file means "keep
+what we were started with"**, so a unit nobody has switched behaves exactly as its conf
+says. Unplugging the mixer takes the route back to internal on its own, and the transition
+is logged rather than inferred:
+
+```
+audioshim: mixer route -> EXTERNAL (decks raw on their own pairs, rbp's mix not sent)
+```
+
+**Two writers, one file.** `confscreen.py`'s mixer routing buttons write it
+([20](20-config-page.md)), and since 2026-10-14 so does the **SETTINGS panel's
+`MIXER ROUTE` row** on the glass ([07](07-touch.md)) — no laptop needed. Both write the
+same word and both are read by the same tick, so the page and the panel cannot disagree
+about the route; the panel's readout deliberately shows the route *in effect* rather than
+the file's word, so a file left saying `external` with the mixer unplugged reads
+`INTERNAL` and is dim, which is what the unit is actually doing.
+
+## What the shim decided: `/run/rblive4/audio.state`
+
+`/run/rblive4` is bound into the chroot, so `audioshim` can write it and the **host** can
+read it. Over ssh, this is the whole answer to the question the 2026-10-14 A9 evening
+could not ask — *which card was chosen, by which rung, against which map, and had it
+failed*:
+
+```
+$ cat /run/rblive4/audio.state
+dev=plughw:CARD=euphonia,DEV=0
+why=a recognised mixer is on the bus (its recorded card id)
+card=euphonia
+key=2b73:0047
+channels=8
+map=[master=0,1 headphones=2,3 booth=-1,-1 monitor=-1,-1]
+decks=[deck1=2,3 deck2=4,5]
+route=external
+reopen_failures=0
+frames=0
+```
+
+`why=` is the rung from `apply_audio_device()`; `key=` is the USB id the per-model pair
+memory is indexed by; `route=` is the **live** route, not the conf's. It is written when
+something changes — a device change, the map settling, a route transition — and never per
+block. `channels=` and `frames=` are a snapshot taken at that moment, so both can read `0`
+in a file that is otherwise complete and healthy; they are not liveness indicators.
+
+**The trap, and it lies at exactly the wrong moment.** `rbp` spawns **~3 short-lived
+helpers at bring-up** (the child noise in [13](13-raspberrypi4.md)'s S3.7, with pids in
+`$RB_DEPLOY_ROOT/rbx3-run/root/pdj/crash.log`). They inherit `LD_PRELOAD` *and* fd 2, so
+each one loads `audioshim`, runs its constructor and writes this file — from a **fresh
+process**, where the device is unknown, no block has been negotiated and the route is
+still the boot value. They are the *last* writers, so for a long stretch after a restart
+the file read `channels=0`, `frames=0`, `route=internal` while rbp was routing EXTERNAL
+with eight channels and ten million frames delivered: measured on the unit 2026-10-15,
+**four writers** (rbp pid 29256 plus helpers 29920, 29927, 29928).
+
+So the file is **the playing process's to write**. `flush_master()` — the one place only
+the process rbp plays through ever reaches, including on the no-device path, where it is
+what calls `reopen_try()` — sets `g_astate_owner`, and `astate_write()` refuses without it.
+The helpers still log every decision to fd 2 (`rbp.log`), which is where a boot's decisions
+belong; they just cannot speak for the audio any more. Two smaller rules in the same
+function: the **rung and the route are both remembered** across writes (`why`/`route` =
+`NULL` means "unchanged", not "unknown", so a later writer cannot blank the fields the file
+exists for — every `resolve_pairs()` passes both, and a live map change re-runs it, which is
+how `route=` came to read `unknown` the first time this was tested), and the check for the
+file is `[ -f /run/rblive4/audio.state ]` — with the owner gate it appears when the player
+first flushes, not before.
+
+## The map is live too: `RB_AUDIO_MAP_FILE` → `/run/rblive4/audio.map`
+
+`AUDIO_MAP` is an **environment variable**, so its value is frozen when the player launches.
+That is why the pair map was the one audio setting with no way in from the glass or the page,
+and why moving a stream meant editing `rb.local.conf` and restarting the unit — and it is a
+property of *where the value comes from*, so no amount of shim code changes it. A second
+source is what changes it:
+
+```
+$ printf 'deck1=6,7;deck2=8,9\n' > /run/rblive4/audio.map
+audioshim: the live pair map changed (/run/rblive4/audio.map): deck1=6,7 deck2=8,9
+audioshim: resolved 8 channel(s): master=0,1 headphones=2,3 booth=-1,-1 monitor=-1,-1
+```
+
+One line of `AUDIO_MAP` grammar, re-read by `pairs_tick()` on the audio callback on the same
+cadence as the route (**~0.7 s**), and it **overrides only the streams it names**:
+
+| layer | source |
+|---|---|
+| 1 (wins) | `/run/rblive4/audio.map` — the operator's current intent |
+| 2 | `RB_AUDIO_PAIRS_MEMORY`'s entry for the attached mixer |
+| 3 | `RB_AUDIO_MAP` — the configured default |
+
+So a file naming only the deck pairs leaves `master` alone, and a device nobody has configured
+still gets the conf.
+
+**Absent means "keep what we were started with"**, the same rule the route follows — which has
+a consequence worth stating plainly: **deleting the file does not revert it.** The last map
+applied stays applied until something writes a different one or the unit restarts; write the
+conf's own string to go back. It lives in `/run` (tmpfs), so a reboot clears it and the unit
+comes up on its conf, exactly as with `mixer.mode`.
+
+**The base is re-laid on every change, and that is the load-bearing part.** `parse_map()`
+overrides rather than replaces, so applying a partial map needs a known base underneath it;
+`lay_base_pairs()` supplies layer 2 or 3 and then the file, and it is called from **all three**
+paths that resolve a map — the constructor, a device change in `reopen_try()`, and the tick.
+A reopen that re-laid only the memory would silently drop a live change the moment a different
+mixer was plugged in. The **deck pairs joined the pristine copy** (`g_cfg_map0`) with this
+change; without them a live `deck1=6,7` would have inherited whatever deck pairs the previous
+mixer happened to have.
+
+**What moves is what the card can carry.** The four streams are clamped by `resolve_pairs()`
+and the two deck taps by `fill_deck_taps()`, both against the channel count the card was opened
+with; a pair beyond it is dropped with a log line rather than folded down. That guard is a
+one-shot per process, so `pairs_tick()` clears the flag when the map changes — otherwise a live
+change to a pair the card does not have would be **silent**, which is the failure this whole
+file keeps paying for.
+

@@ -128,8 +128,8 @@ MOUNTS_NOW=$(_mounts_under | wc -l | tr -d ' ')
 echo
 say "this will remove rbpi4b from this unit:"
 echo "    deploy root   $DEPLOY   ($MOUNTS_NOW mount(s) under it will be unmounted first)"
-echo "    units         rblive4.service, healthwatch.service (stopped and disabled)"
-echo "    unit files    /etc/systemd/system/{rblive4,healthwatch}.service"
+echo "    units         rblive4.service, healthwatch.service, rblive4-vnc.service, rblive4-boot.service (stopped and disabled)"
+echo "    unit files    /etc/systemd/system/{rblive4,healthwatch,rblive4-vnc,rblive4-boot}.service"
 echo "    state         /var/lib/rblive4"
 echo "    journal drop-in  /etc/systemd/journald.conf.d/persistent.conf"
 echo "    boot changes  reverted by boot-trim.sh revert (services, cloudinit, apt, unit, bootfiles)"
@@ -168,8 +168,17 @@ fi
 say "stopping the units"
 x_systemctl stop healthwatch.service
 x_systemctl stop rblive4.service
+# The viewer is independent of the player, so it is stopped too rather than being
+# left serving a screen nobody asked for after the tree it lives in is gone.
+x_systemctl stop rblive4-vnc.service
+# The boot screen is stopped with the player it is a screen for. Left running it
+# would only sit on fb0 until its own exit path (it exits when a frame it did not
+# draw appears, which after this script finds nothing).
+x_systemctl stop rblive4-boot.service
 x_systemctl disable healthwatch.service
 x_systemctl disable rblive4.service
+x_systemctl disable rblive4-vnc.service
+x_systemctl disable rblive4-boot.service
 
 # --- 2. boot trim, BEFORE anything is deleted --------------------------------
 #
@@ -269,6 +278,12 @@ fi
 say "removing the unit files"
 x_rm /etc/systemd/system/rblive4.service
 x_rm /etc/systemd/system/healthwatch.service
+x_rm /etc/systemd/system/rblive4-vnc.service
+x_rm /etc/systemd/system/rblive4-boot.service
+# The boot screen's rendezvous directory, created at sysinit by this drop-in.
+# Removing the file stops it being made; the directory itself is in /run (tmpfs)
+# and goes on the next reboot, so it is not deleted here.
+x_rm /etc/tmpfiles.d/rblive4.conf
 # boot-trim's `revert unit` drop-in, if a revert left it behind.
 x_rm /etc/systemd/system/rblive4.service.d
 x_systemctl daemon-reload
@@ -281,6 +296,23 @@ x_systemctl reset-failed
 #
 # The comparison is against the copy we SHIP, not against the file removed on the
 # line above, so --dry-run reaches the same verdict as a real run.
+# The logrotate drop-in, on the same terms as the journal one below: ours is the file that is
+# byte-identical to the copy we ship, and anything else is left alone.
+LR=/etc/logrotate.d/rblive4
+LR_OURS="$HERE/logrotate-rblive4.conf"
+if [ ! -f "$LR_OURS" ] && [ -f "$DEPLOY/logrotate-rblive4.conf" ]; then
+    LR_OURS="$DEPLOY/logrotate-rblive4.conf"
+fi
+if [ -f "$LR" ]; then
+    if [ -f "$LR_OURS" ] && cmp -s "$LR_OURS" "$LR"; then
+        say "removing /etc/logrotate.d/rblive4"
+        x_rm "$LR"
+    else
+        warn "$LR is not the file we ship (or there is no copy to compare against), so it is
+  not ours to judge -- leaving it alone."
+    fi
+fi
+
 JD=/etc/systemd/journald.conf.d
 JD_OURS="$HERE/journald-persistent.conf"
 if [ ! -f "$JD_OURS" ] && [ -f "$DEPLOY/journald-persistent.conf" ]; then

@@ -493,6 +493,7 @@ static void led_transport_update(void)
           int playing = ((int (*)(void *, int))PE_ISPLAYING)(pe, i) != 0;
           int loaded  = ((int (*)(void *, int))PE_ISLOADED)(pe, i) != 0;
           int sync    = ((int (*)(void *, int))PE_ISSYNCON)(pe, i) != 0;
+          int mt      = ((int (*)(void *, int))PE_ISMASTERTEMPO)(pe, i) != 0;
           int bits    = 0;
 
           /* Each is computed into a local and the four are stored ONCE, at the end,
@@ -504,6 +505,20 @@ static void led_transport_update(void)
                bits |= RBP_TRANSPORT_CUE;
           if (playing || (loaded && led_blink_for(LEDSTAT_PLAY, ch)))
                bits |= RBP_TRANSPORT_PLAY;
+          /* The same `playing`, with the blink stripped out -- see RBP_TRANSPORT_PLAY_SOLID. */
+          if (playing)
+               bits |= RBP_TRANSPORT_PLAY_SOLID;
+          /* MASTER TEMPO, from rbp's own predicate rather than from its LED -- the same
+           * source the hardware's key-lock LED is read from a few lines down, so the
+           * drawer's disc and the controller's lamp are one answer. */
+          if (mt)
+               bits |= RBP_TRANSPORT_MT;
+          /* MASTER comes from the TABLE and not a predicate: there is no isMaster() in
+           * rbp_abi.h, and there does not need to be -- rbp lights id 5 on the master's own
+           * channel and moves it when the master moves, so the light IS the answer. The
+           * fallback is 0: a deck rbp has not marked is not master. */
+          if (led_from_table_state(LEDSTAT_MASTER, i, 0))
+               bits |= RBP_TRANSPORT_MASTER;
           rbp_transport_set(i, bits);
      }
 }

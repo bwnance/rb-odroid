@@ -69,6 +69,16 @@ for d in proc sys tmp; do
     mountpoint -q "$RB_CHROOT/$d" || mount --bind "/$d" "$RB_CHROOT/$d"
 done
 
+# /run/rblive4, for the reason the loop above exists: THE LIVE SWITCH FILES. The config page writes
+# them from OUTSIDE the chroot and the shims read them from INSIDE it, and a path that resolves on
+# one side and not the other makes a switch that silently does nothing. Measured 2026-10-12:
+# /run/rblive4/mixer.mode said `external` for two days while audioshim, chrooted, reported the file
+# "not present" at start-up and never once changed route -- the config page was writing the switch
+# exactly where nothing reads it. Just this directory and not all of /run: the rest is systemd's.
+mkdir -p "$RB_CHROOT/run/rblive4"
+mountpoint -q "$RB_CHROOT/run/rblive4" || mount --bind /run/rblive4 "$RB_CHROOT/run/rblive4" || \
+    echo "fix-dev: WARNING: could not bind /run/rblive4 onto the chroot; the player's live switches" >&2
+
 echo "fix-dev: dev mounted: $(mountpoint -q "$RB_CHROOT/dev" && echo yes || echo NO)"
 if [ -e "$RB_CHROOT/dev/fb0" ]; then
     echo "fix-dev: fb0: $(ls -l "$RB_CHROOT/dev/fb0" | awk '{print $1, $5, $6}')"

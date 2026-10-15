@@ -2,7 +2,7 @@
  * test_fx.c -- the BEAT FX panel's three touch controls, with no Pi, no panel, no plane
  * and no rbp anywhere in this file.
  *
- * It links the PRODUCTION fx_zone.c and fx_paint.c, for the reason test_prompt.c,
+ * It links the PRODUCTION fx_zone.c and fx_paint.c, for the reason
  * test_side.c, test_menu.c, test_util.c and test_wave.c link theirs: a rectangle
  * boundary, an anchored release and a timeout guard are exactly the kind of thing that
  * gets quietly rewritten in a copy.
@@ -28,7 +28,9 @@
  *    cannot straddle two controls.
  *
  * 2. THE ZONE'S LATCH, which is the whole safety property, and the same one
- *    prompt_zone.c keeps. A press this module swallowed has been withheld from rbp for
+ *    every feeder in the shim keeps (settings_zone.c among them; prompt_zone.c, the USB
+ *    STOP chooser's, kept it too until that chooser was deleted). A press this module
+ *    swallowed has been withheld from rbp for
  *    its whole life; rbp is going to be given its release. So a press that began inside
  *    a rect must keep being OURS until it lifts, even after it has slid off.
  *

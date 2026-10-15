@@ -182,7 +182,7 @@ else
 	note "broken rather than misconfigured. Re-deploy a matching pair."
 fi
 
-for s in lib.sh fix-dev.sh start-rb.sh usb-watch.sh; do
+for s in lib.sh fix-dev.sh start-rb.sh usb-watch.sh bootscreen.py; do
 	[ -f "$RB_DEPLOY_ROOT/$s" ] || {
 		bad "$RB_DEPLOY_ROOT/$s is missing"
 		fix "scp scripts/device/$s root@<unit>:$RB_DEPLOY_ROOT/"
@@ -204,10 +204,10 @@ fi
 
 hdr 2 "shims: the deployed file and the copy rbp loads"
 
-# The list comes from RB_LD_PRELOAD itself (rb.conf:636), so a shim added to the
+# The list comes from RB_LD_PRELOAD itself (rb.conf:1125), so a shim added to the
 # preload list is checked here without touching this script. basename of each
 # entry is also the deploy-root filename, which is exactly what start-rb.sh's
-# install_override() list mirrors (start-rb.sh:115-120).
+# install_override() list mirrors (start-rb.sh:148-161).
 _seen_preload=0
 for p in $(echo "${RB_LD_PRELOAD:-}" | tr ':' ' '); do
 	_seen_preload=$((_seen_preload + 1))
@@ -586,6 +586,252 @@ if command -v systemctl >/dev/null 2>&1; then
 			*)       ok "disabled (RB_AUTOSTART=${RB_AUTOSTART})";;
 		esac
 	fi
+fi
+
+# The VNC viewer, on the same terms. Gated rather than checked unconditionally:
+# RB_VNC=0 is the shipped default and means the viewer is deliberately not
+# installed, so "not installed" is only a fault on a unit that asked for one. Each
+# check below is a way the feature can look installed and not work:
+#   * the unit restart-looping every ten seconds on a binary that is not there;
+#   * the unit enabled while RB_VNC says off, which the next install will quietly
+#     disable -- and then VNC "stopped working" with nothing having changed;
+#   * an EMPTY PASSWORD, which macOS's Screen Sharing refuses while never using the
+#     word "password" in the error it shows;
+#   * a control file holding something the server will not parse, so a change made
+#     on the web page silently did nothing.
+if [ "${RB_VNC:-0}" = "1" ] || [ -f /etc/systemd/system/rblive4-vnc.service ]; then
+	VNC_BIN="$RB_DEPLOY_ROOT/vncserve/vncserve"
+	if [ -x "$VNC_BIN" ]; then
+		ok "vncserve built on the unit: $VNC_BIN"
+	else
+		bad "$VNC_BIN is missing or not executable"
+		note "install.sh compiles it here with the unit's own gcc, and aborts with the"
+		note "compiler's output if that fails. There is no cross-toolchain in this"
+		note "tree that can produce a hard-float armhf binary."
+		fix "sh $RB_DEPLOY_ROOT/install.sh"
+	fi
+
+	if command -v systemctl >/dev/null 2>&1; then
+		if [ -f /etc/systemd/system/rblive4-vnc.service ]; then
+			_ven=$(systemctl is-enabled rblive4-vnc.service 2>/dev/null || echo unknown)
+			if [ "${RB_VNC:-0}" = "1" ]; then
+				case "$_ven" in
+					enabled) ok "rblive4-vnc.service enabled — the screen is on port ${RB_VNC_PORT:-5900}";;
+					*)       bad "RB_VNC=1 but rblive4-vnc.service is '$_ven'";
+					         fix "systemctl enable --now rblive4-vnc";;
+				esac
+			else
+				case "$_ven" in
+					enabled) warn "rblive4-vnc.service is enabled but RB_VNC=${RB_VNC} — the next install will disable it";;
+					*)       ok "rblive4-vnc.service disabled (RB_VNC=${RB_VNC})";;
+				esac
+			fi
+		elif [ "${RB_VNC:-0}" = "1" ]; then
+			bad "RB_VNC=1 but /etc/systemd/system/rblive4-vnc.service is not installed"
+			note "install.sh installs it only when the binary exists, so the two are"
+			note "missing together."
+			fix "sh $RB_DEPLOY_ROOT/install.sh"
+		fi
+	fi
+
+	# RB_VNC_PASSWORD is the viewer's credential and, since schema v3, the only name for
+	# it: RB_PASSWORD was the configuration page's sign-in, and the page has none any
+	# more. A stale RB_PASSWORD line is reported at the end of this section, not here.
+	if [ -z "${RB_VNC_PASSWORD:-}" ]; then
+		bad "RB_VNC_PASSWORD is empty"
+		note "the viewer needs a password or macOS's Screen Sharing will not connect at"
+		note "all, and the error it shows does not mention passwords."
+		fix "printf 'RB_VNC_PASSWORD=<something>\\n' >> $RB_DEPLOY_ROOT/rb.local.conf"
+	elif [ "${RB_VNC_PASSWORD}" = "password" ]; then
+		# rb.conf ships this placeholder on purpose, so the feature works on first
+		# use. That makes this line the only thing that ever says it is still there,
+		# which is exactly why it must exist: a warning that cannot fire is worse
+		# than no warning, because it reads as a check.
+		# The state that decides how loud this is: with the pointer on, the
+		# placeholder is not just a look at the screen, it is the decks. Read the
+		# way the server reads it (the switch file wins wherever it exists; the
+		# config is only the seed for a file that is not there yet).
+		_vi_file="${RB_VNC_INPUT_FILE:-/run/rblive4/vnc.input}"
+		if [ -f "$_vi_file" ]; then
+			_vi=$(tr -d ' \t\r\n' < "$_vi_file" 2>/dev/null | tr 'A-Z' 'a-z')
+		else
+			_vi=$(printf '%s' "${RB_VNC_INPUT:-0}" | tr -d ' \t\r\n' | tr 'A-Z' 'a-z')
+			case "$_vi" in
+				1|yes|true) _vi=on ;;
+				*)          _vi=off ;;
+			esac
+		fi
+		if [ "$_vi" = "on" ]; then
+			bad "RB_VNC_PASSWORD is the shipped placeholder ('password') AND the pointer is ON"
+			note "anyone on this LAN who guesses it can press the buttons of a live"
+			note "player: $_vi_file says 'on', so a click in the picture is a real"
+			note "press on the glass. This is the state to leave only on a bench."
+			fix "printf 'RB_VNC_PASSWORD=<something>\\n' >> $RB_DEPLOY_ROOT/rb.local.conf"
+		else
+			warn "RB_VNC_PASSWORD is still the shipped placeholder ('password')"
+			note "it is the first thing anyone would guess. The pointer is off, so today"
+			note "it buys a look at the screen -- but set a real one before the unit is"
+			note "left unattended."
+			fix "printf 'RB_VNC_PASSWORD=<something>\\n' >> $RB_DEPLOY_ROOT/rb.local.conf"
+		fi
+	fi
+
+	# The configuration page has no sign-in at all any more -- the operator retired it -- so
+	# the thing worth saying is not "you left the lock off" but "there is no lock, and this is
+	# how far it reaches". The VNC client password is a separate matter and unaffected.
+	note "the configuration page has no password (RB_CONF_AUTH is gone): anyone who can reach"
+	note "it can change a setting, enable or stop the viewer, start sharing, and start or"
+	note "restart a service. The VNC client password is separate and still asked for."
+
+	# The page's editor, which install.sh copies beside it. confscreen.py refuses every
+	# write when it is missing -- fail closed, and the page says so -- but that is a page
+	# you only see in a browser, and this is the check that would have caught the deploy
+	# that shipped the page without the editor.
+	if [ "${RB_CONF:-1}" = "1" ] && [ ! -f "$RB_DEPLOY_ROOT/confedit.py" ]; then
+		bad "confedit.py is missing from $RB_DEPLOY_ROOT"
+		note "confscreen.py refuses EVERY write without it, on purpose: it is the only"
+		note "thing that knows how to edit rb.local.conf safely, and a page with a second"
+		note "implementation of that would be a second thing to get wrong."
+		fix "sh $RB_DEPLOY_ROOT/install.sh"
+	fi
+
+	# The web client. Its program comes from the distribution, not from this tree, so the
+	# two things worth saying are whether the packages are there and whether the bridge is
+	# up -- and that with sharing OFF it can never connect, which is the gate, not a fault.
+	if [ "${RB_VNC_WEB:-1}" = "1" ] && [ "${RB_VNC:-0}" = "1" ]; then
+		# The pages the unit edits. The patcher is run from the deploy root by
+		# webvnc-run.sh:83, whose guard is a plain file test, and it reaches there by
+		# install.sh:174's copy list -- the healthwatch.sh shape, and the second time it
+		# happened: novnc_patch.py was missing from that list until 2026-10-13, so the
+		# three operator asks it carries were skipped in silence on every deployed unit.
+		# Without it the page keeps the stock dot-less cursor, the Ctrl-Alt-Del button
+		# and the "Running without HTTPS" warning (webvnc-run.sh:77), and nothing on the
+		# glass says why. warn rather than bad: an unpatched page is a worse page, not a
+		# dead one, so it is not worth failing the run over.
+		if [ ! -f "$RB_DEPLOY_ROOT/novnc_patch.py" ]; then
+			warn "novnc_patch.py is missing from $RB_DEPLOY_ROOT"
+			note "webvnc-run.sh applies it on every start; without it the page keeps the"
+			note "stock cursor, the Ctrl-Alt-Del button and the HTTPS warning, and nothing"
+			note "on the glass says why."
+			fix "sh $RB_DEPLOY_ROOT/install.sh"
+		fi
+		if [ ! -x /usr/bin/websockify ] || [ ! -f "${RB_VNC_WEB_ROOT:-/usr/share/novnc}/vnc.html" ]; then
+			warn "RB_VNC_WEB=1 but the web client's packages are missing"
+			note "the noVNC page and websockify come from the distribution:"
+			fix "apt-get install novnc websockify && sh $RB_DEPLOY_ROOT/install.sh"
+		else
+			_wb=$(systemctl is-active rblive4-webvnc.service 2>/dev/null)
+			if [ "$_wb" != "active" ]; then
+				warn "rblive4-webvnc.service is $_wb"
+				fix "systemctl enable --now rblive4-webvnc"
+			else
+				note "web client up on :${RB_VNC_WEB_PORT:-5903} -- the password is the
+  viewer's, and sharing must be ON or a browser connection fails (that is the gate)"
+			fi
+		fi
+	fi
+
+	# THE MIGRATION, and the reason it is worth a line: RB_PASSWORD was this credential's
+	# old name, and rb.conf no longer defines it (schema v3 -- see its version block). A
+	# line left in rb.local.conf by an earlier deploy is now INERT: it is not exported to
+	# the viewer, so the shipped placeholder quietly stands in its place and a real
+	# password stops being asked for without anything failing or saying so. This is the
+	# one place that reports it, and the only reference to the old name left in the tree.
+	# The value is never printed -- it is a credential, and doctor may be run over a
+	# shoulder or pasted into a thread.
+	if [ -n "${RB_PASSWORD:-}" ]; then
+		warn "RB_PASSWORD is set but no longer used (the name was removed in schema v3)"
+		note "something still exports it -- most likely a line in"
+		note "$RB_DEPLOY_ROOT/rb.local.conf from an earlier deploy. The viewer reads"
+		note "RB_VNC_PASSWORD and nothing else, so that line no longer reaches it and"
+		note "the placeholder is what a VNC client is being asked for. Rename it:"
+		fix "sed -i 's/^RB_PASSWORD=/RB_VNC_PASSWORD=/' $RB_DEPLOY_ROOT/rb.local.conf"
+	fi
+
+	# Read exactly as the server reads it (vnc_mode_parse): blanks and case are
+	# forgiven, anything that is not raw/hwjpeg is refused and the running mode is
+	# kept. A file holding junk therefore looks like a switch that does nothing.
+	VNC_MODE_FILE="${RB_VNC_MODE_FILE:-/run/rblive4/vnc.mode}"
+	if [ -f "$VNC_MODE_FILE" ]; then
+		_vm=$(tr -d ' \t\r\n' < "$VNC_MODE_FILE" 2>/dev/null | tr 'A-Z' 'a-z')
+		case "$_vm" in
+			raw|hwjpeg) ok "mode file says '$_vm' ($VNC_MODE_FILE)";;
+			*) warn "mode file says '$_vm', which the server refuses — it keeps the mode it has"
+			   note "the page's buttons write this file; a hand edit must be 'raw' or 'hwjpeg'"
+			   fix "printf 'raw\\n' > $VNC_MODE_FILE";;
+		esac
+	elif [ "${RB_VNC:-0}" = "1" ]; then
+		note "no $VNC_MODE_FILE yet — the server writes it on the first change;"
+		note "the mode it started with is in $RB_LOG_DIR/vncserve.log"
+	fi
+
+	# The control page opens in its full-screen state -- every word hidden, picture
+	# alone on black -- and a tap on the picture toggles them. It was a second port
+	# (`RB_VNC_PREVIEW_PORT`) until the operator asked for it to be a tap instead, so
+	# there is nothing here to check beyond the page itself -- no extra listener, and
+	# therefore no extra way for one to be quietly absent.
+	_vport="${RB_VNC_PORT:-5900}"
+	_vhttp="${RB_VNC_HTTP_PORT:-$((_vport + 1))}"
+	if [ "$_vhttp" = "0" ]; then
+		note "no pages at all (RB_VNC_HTTP_PORT=0); the preview is off with them"
+	else
+		ok "control page on port $_vhttp (RB_VNC_HTTP_PORT); it opens full screen, tap for the words"
+	fi
+fi
+
+# The boot-progress screen. Gated like the player, not like the viewer (it is a
+# screen FOR the player), but reported in the same breath. Each way it can look
+# installed and not work:
+#   * python3 missing, so the unit's ConditionPathExists skips it in silence;
+#   * the unit disabled while RB_BOOTSCREEN=1, so the gap stays black;
+#   * the rendezvous directory absent, so the launcher's first boot.log lines die
+#     (rb_bootmsg mkdir -p's defensively, so this is belt, not the only hold-up).
+BOOT_UNIT=/etc/systemd/system/rblive4-boot.service
+if [ -f "$BOOT_UNIT" ]; then
+	_bum=$(stat -c '%a' "$BOOT_UNIT" 2>/dev/null || echo '?')
+	if [ "$_bum" = "644" ]; then
+		ok "rblive4-boot.service installed, mode 644"
+	else
+		warn "rblive4-boot.service mode is $_bum (644 is what install.sh sets)"
+	fi
+	if command -v python3 >/dev/null 2>&1; then
+		ok "python3 present ($(command -v python3)) — the screen can run"
+	else
+		bad "python3 is not installed — ConditionPathExists skips rblive4-boot in silence"
+		note "the player is unaffected; the boot screen simply never appears."
+		fix "apt-get install python3 && systemctl restart rblive4-boot"
+	fi
+	if command -v systemctl >/dev/null 2>&1; then
+		_ben=$(systemctl is-enabled rblive4-boot.service 2>/dev/null || echo unknown)
+		if [ "${RB_AUTOSTART:-1}" = "1" ] && [ "${RB_BOOTSCREEN:-1}" = "1" ]; then
+			case "$_ben" in
+				enabled) ok "enabled — the boot screen draws from first light (RB_BOOTSCREEN=1)";;
+				*)       bad "RB_BOOTSCREEN=1 but rblive4-boot.service is '$_ben'"
+				         fix "systemctl enable rblive4-boot";;
+			esac
+		else
+			case "$_ben" in
+				enabled) warn "rblive4-boot.service is enabled but RB_BOOTSCREEN=${RB_BOOTSCREEN:-1}/RB_AUTOSTART=${RB_AUTOSTART:-1} — the next install will disable it";;
+				*)       ok "disabled (RB_BOOTSCREEN=${RB_BOOTSCREEN:-1}, RB_AUTOSTART=${RB_AUTOSTART:-1})";;
+			esac
+		fi
+	fi
+else
+	warn "/etc/systemd/system/rblive4-boot.service is not installed — no boot screen"
+	note "install.sh installs and enables it with the player (RB_BOOTSCREEN=1)."
+	fix "sh $RB_DEPLOY_ROOT/install.sh"
+fi
+if [ -f /etc/tmpfiles.d/rblive4.conf ]; then
+	ok "tmpfiles.d/rblive4.conf present — /run/rblive4 exists from sysinit"
+else
+	warn "no /etc/tmpfiles.d/rblive4.conf — the launcher's first boot.log lines can race the directory"
+	note "rb_bootmsg mkdir -p's defensively, so this is belt rather than the only"
+	note "thing holding the directory up; install.sh installs the drop-in."
+	fix "sh $RB_DEPLOY_ROOT/install.sh"
+fi
+# The screen's own word on what it did last boot — a breadcrumb, never a fault.
+if [ -f /run/rblive4/boot.stage ]; then
+	note "last boot-screen stage: $(cat /run/rblive4/boot.stage 2>/dev/null)"
 fi
 
 # pids_matching, not `ps | awk`: the same lookup start-rb.sh uses (start-rb.sh:269),

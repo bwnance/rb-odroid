@@ -122,7 +122,12 @@ static unsigned short fb16[FB_MAX_W * FB_MAX_H];
 struct tsize { int w, h, usable; };
 static const struct tsize TSIZES[] = {
     { 1280, 800, 1 }, { 1280, 720, 1 }, { 1024, 768, 1 }, { 1024, 600, 1 },
-    {  800, 480, 1 }, {  800, 600, 1 }, {  640, 480, 1 }, {  480, 320, 0 },
+    {  800, 480, 1 }, {  800, 600, 1 },
+    /* 640 IS USABLE AGAIN since the USB STOP column went (2026-10-14): seven columns divide
+     * it into 91 px, which holds every label the band draws now that the 76 px "USB STOP" is
+     * gone. It was refused for the few hours the band had eight columns; menu_paint.c's
+     * menu_labels_fit() records the arithmetic. */
+    {  640, 480, 1 }, {  480, 320, 0 },
     { 1920, 1080, 1 }, { 1366, 768, 1 }
 };
 #define TSIZE_N ((int)(sizeof TSIZES / sizeof TSIZES[0]))
@@ -336,11 +341,12 @@ static void test_geometry(void)
  *
  * The set is no longer just the panel's labels. Lowercase and ten punctuation marks
  * were appended on 2026-10-04 for the browser window's URL bar and its popup
- * keyboard, and two of the pins below moved with them: 'Z' is no longer the last
+ * keyboard (both removed 2026-10-12; the glyphs were kept, see menu_font.h), and two
+ * of the pins below moved with them: 'Z' is no longer the last
  * glyph and 'a' is no longer absent. The append-only rule is what keeps the rest of
- * this file -- and the operator's seven felt buttons -- untouched, and the keyboard's
- * own alphabet is now pinned here too, so a key the atlas cannot draw is caught on
- * the host rather than found as a blank cap on the glass.
+ * this file -- and the operator's seven felt buttons -- untouched, and the appended
+ * runs are pinned here too, so a re-bake that loses one is caught on the host rather
+ * than found as a gap on the glass.
  * ------------------------------------------------------------------------- */
 static void test_font(void)
 {
@@ -487,12 +493,12 @@ static void test_font(void)
     CHECK(menu_font_glyph('~')->adv == menu_font_glyph(' ')->adv,
           "an unsupported character does not resolve to a space");
 
-    /* THE KEYBOARD'S ALPHABET IS IN THE ATLAS. menu_keyboard.h's caps name these
-     * characters and the URL bar is typed with them; a character the atlas lacks
-     * draws a gap, which on a key cap is a blank button the operator cannot tell
-     * from a broken one. bake_menu_font.py checks the same string at bake time, so
-     * this is the belt to that braces -- it catches a keyboard that names a
-     * character the font deliberately never carried. */
+    /* THE APPENDED RUNS ARE IN THE ATLAS, INK AND ALL. Lowercase and the punctuation
+     * were appended for the browser window's URL bar and its popup keyboard, both
+     * removed on 2026-10-12 -- nothing draws them now, and they stay because cutting
+     * them is a re-bake rather than an edit (bake_menu_font.py's CHARS note). The check
+     * is kept with them: it is what a re-bake is measured against, and a character the
+     * atlas lacks draws a gap, which is a blank where a mark should be. */
     {
         static const char *keys =
             "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -1398,6 +1404,14 @@ static void test_labels_fit(void)
                             (menu_button_x0(i) * fw) / MZ_LOGICAL_W -
                             2 * (MENU_BTN_PAD_PX + MENU_BTN_BORDER_PX);
 
+                /* THE GEAR COLUMN IS NOT MEASURED BY ITS LABEL, which is menu_paint.c's own
+                 * rule and the reason this test has to repeat it: "SETTINGS" is 73 px of text
+                 * that is never drawn, and the column's ink is a 30 px baked icon. Leaving it
+                 * in would put this test's floor 20 px above the production one -- where the
+                 * production refuses nothing and this check would report a clip. The icon is
+                 * narrower than every label, so the column cannot set the width floor. */
+                if (menu_column_is_gear(i + 1))
+                    continue;
                 if (inner < menu_text_width(menu_label(i + 1)))
                     clipped++;
             }
@@ -1449,7 +1463,13 @@ static void test_labels_fit(void)
 static void test_paint_matches_value(void)
 {
     static const struct { int w, h; } sizes[] = {
-        { 1280, 800 }, { 1024, 600 }, { 800, 480 }, { 1920, 1080 }, { 640, 480 }
+        { 1280, 800 }, { 1024, 600 }, { 800, 480 }, { 1920, 1080 },
+        /* 688x480 and not 640x480: the smallest picture this port still draws the band on,
+         * since the eighth column moved the width floor (menu_paint.c's menu_labels_fit()).
+         * A refused size is a legitimate thing to hand menu_paint() -- it paints nothing --
+         * but this test's claim is that the PAINTER and the CLASSIFIER agree, and on a
+         * refused view they trivially "agree" about every pixel of the sentinel. */
+        { 688, 480 }
     };
     int s, pressed, fx, fy, bad, x0, y0, x1, y1;
     long blended = 0, blended_wrong = 0;
@@ -1606,6 +1626,41 @@ static void test_label_pens(void)
             continue;
         in0 = L.bx0[i] + MENU_BTN_PAD_PX + MENU_BTN_BORDER_PX;
         in1 = L.bx1[i] - MENU_BTN_PAD_PX - MENU_BTN_BORDER_PX;
+
+        /* THE GEAR COLUMN DRAWS NO LABEL AT ALL (menu_zone.c's menu_column_is_gear()), so
+         * the pens-and-advances oracle below is not its ink and would be asserting the
+         * wrong thing about it. What it draws is a disc, and the properties worth pinning
+         * are the ones the witness and the operator both depend on: there IS ink, it is
+         * inside the button's inner rect, and it stays off the outline rows -- which is
+         * what keeps menu_draw.c's damage witness (two points per column, on those very
+         * rows) reading an exact palette value. */
+        if (menu_column_is_gear(i + 1)) {
+            int gx0 = 99999, gx1 = -1, gy0 = 99999, gy1 = -1;
+
+            for (fy = L.by0; fy <= L.by1; fy++)
+                for (fx = in0; fx <= in1; fx++)
+                    if (menu_class_at(&v, fx, fy, 0) == MENU_LABEL) {
+                        if (fx < gx0) gx0 = fx;
+                        if (fx > gx1) gx1 = fx;
+                        if (fy < gy0) gy0 = fy;
+                        if (fy > gy1) gy1 = fy;
+                    }
+            CHECK(gx1 >= 0, "the gear column drew no ink at all");
+            if (gx1 >= 0) {
+                CHECK(gx0 >= in0 && gx1 <= in1,
+                      "the gear's ink at %d..%d is outside the button's %d..%d",
+                      gx0, gx1, in0, in1);
+                CHECK(gy0 > L.by0 && gy1 < L.by1,
+                      "the gear's ink at rows %d..%d reaches the outline rows %d/%d"
+                      " -- it would sit on a witness point", gy0, gy1, L.by0, L.by1);
+                /* And it is a MARK and not a stray pixel: a disc a fifth of the button
+                 * tall at least, or nothing legible is being drawn. */
+                CHECK(gx1 - gx0 >= 8 && gy1 - gy0 >= 8,
+                      "the gear's ink is %dx%d -- too small to be the mark",
+                      gx1 - gx0 + 1, gy1 - gy0 + 1);
+            }
+            continue;
+        }
         /* The oracle is only the ink's extent while the label sits WHOLLY inside the
          * button's inner rect: a clipped label's first or last ink pixel is the clip,
          * not the pen, and this test would then be asserting the clip. It is the INK
@@ -1660,7 +1715,8 @@ static void test_witness_points_are_clear(void)
 {
     int s, i, n = menu_witness_count();
 
-    CHECK(n == 15, "the witness changed from 15 points to %d", n);
+    CHECK(n == MZ_COLS * 2 + 1, "the witness changed from %d points to %d",
+          MZ_COLS * 2 + 1, n);
     for (s = 0; s < TSIZE_N; s++) {
         struct menu_view v = mkview(TSIZES[s].w, TSIZES[s].h);
 

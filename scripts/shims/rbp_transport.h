@@ -47,6 +47,24 @@
 #define RBP_TRANSPORT_SYNC 1
 #define RBP_TRANSPORT_CUE  2
 #define RBP_TRANSPORT_PLAY 4
+/* ...AND "PLAYING" AS OPPOSED TO "THE PLAY BUTTON LOOKS LIT". The bit above is set for a deck that
+ * is playing OR for a paused deck whose LED is in the lit half of its blink, because that is what
+ * a play BUTTON does and the drawer imitates the hardware. A surface that means "this deck is
+ * playing" cannot use it: it would blink, and following a blinking bit is a flicker, not a state.
+ * This one is rbp's play engine's own answer, with no blink in it, and it is what the deck badges'
+ * rings are lit from -- the operator asked for exactly that: "if its not playing don't display
+ * green". Same source, two questions, so neither consumer has to guess at the other's. */
+#define RBP_TRANSPORT_PLAY_SOLID 8
+/* ...AND MASTER TEMPO (key lock), which is its own row on rbp's LED table and was already
+ * being read for the CONTROLLER's key-lock LED (rbp_led.c's LEDSTAT_MT). The edge drawers
+ * grew a MASTER TEMPO button on 2026-10-12 and it lights from this -- the same reading the
+ * hardware's own key-lock LED is sent, so the two cannot disagree about a deck. */
+#define RBP_TRANSPORT_MT 16
+/* ...AND THE MASTER DESIGNATION, one deck at a time. rbp answers this itself by lighting
+ * LedStat id 5 on whichever channel is master and MOVING it when the master changes decks, so
+ * this bit is read straight off the table and nothing here has to know that only one deck can
+ * hold it. The drawer's MASTER button lights from it -- per deck, for free. */
+#define RBP_TRANSPORT_MASTER 32
 
 /*
  * This deck's three, as rbp has them right now, ORed from the RBP_TRANSPORT_* bits

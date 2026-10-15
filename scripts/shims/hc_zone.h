@@ -53,7 +53,7 @@
  * rects out to fill the gutter would make a tap in the 10-row gap -- visibly neither
  * pad -- fire one of them. A touch that lands in the gutter does nothing at all.
  *
- * PURE, LIKE fx_zone.c AND prompt_zone.c. Nothing here reads rbp, the framebuffer or a
+ * PURE, LIKE fx_zone.c AND settings_zone.c. Nothing here reads rbp, the framebuffer or a
  * clock: the three gate values arrive as arguments and the answer leaves as a pad
  * number the caller sends. test_hc.c pins the geometry, the latch, the slide rule and
  * the gate on a host with no Pi, no panel and no player.
@@ -100,15 +100,26 @@
  * notes 27/30/32/34 through the shim's own sequencer port moved deck 1's value
  * 3 -> 0, 1, 3, 2 exactly, with deck 2's held at 0.
  *
- * THE MODE GATE IS NOT DECORATION. rbp's eight pad keycodes mean whatever the CURRENT
- * pad mode makes them mean -- K_PAD1+p is a hot cue in HOT CUE, a 1/8 beat loop in
- * AUTO BEAT LOOP, a beat jump in BEAT JUMP -- so a tap on a cell while the deck is in
- * any other mode would send that mode's action. Engaging a beat loop because a finger
- * landed on a drawn pad is exactly as unwanted as creating a cue, and it is the same
- * fix. A deck not in HOT CUE mode gets nothing from this module, and neither does one
- * whose mode cannot be read.
+ * THE MODE GATE IS NOT DECORATION, and it is not the same gate in every mode. rbp's eight pad
+ * keycodes mean whatever the CURRENT pad mode makes them mean -- K_PAD1+p is a hot cue in HOT
+ * CUE, a 1/8 beat loop in AUTO BEAT LOOP, a beat jump in BEAT JUMP -- so a cell that fires without
+ * knowing the mode sends that mode's action.
+ *
+ * HOT CUE IS THE ONLY MODE THAT ASKS ABOUT THE CUE, and what decides that is what the pad DOES
+ * there: on real Pioneer gear an unlit HOT CUE pad STORES a cue at the playhead, so a tap on an
+ * empty cell does not merely disappoint -- it writes a cue onto the operator's own track, mid-set.
+ * The other three are non-destructive in the same place: AUTO BEAT LOOP engages a beat loop, SLIP
+ * BEAT LOOP engages a slip loop, BEAT JUMP moves the playhead. Each is what the operator asked for
+ * by tapping a cell rbp itself drew, and each is reversible from the same pad or from the panel.
+ * So ALL EIGHT CELLS FIRE IN THOSE THREE MODES -- the operator's ask of 2026-10-10 -- and a deck
+ * whose mode cannot be read (pad_mode -1) gets NOTHING, because there is no mode it is safe to
+ * guess.
  */
-#define HC_PAD_MODE_HOT   0
+#define HC_PAD_MODE_HOT       0
+#define HC_PAD_MODE_ALOOP     1
+#define HC_PAD_MODE_SLIPLOOP  2
+#define HC_PAD_MODE_BEATJUMP  3
+#define HC_PAD_MODES          4     /* the four the caption band cycles (padmode_zone.h) */
 
 /* THE WHOLE RULE, as a pure function so test_hc.c can pin it -- and pinned in both
  * directions, because "fires when it should not" is the defect that costs the operator
@@ -118,9 +129,11 @@
  *   pad_mode     UiGetPadMode(deck)   0 means HOT CUE; -1 means the read failed
  *   registered   isRegisteredHotCue() non-zero means a cue IS on that pad
  *
- * ALL THREE TERMS MUST HOLD, and every failure lands on 0: a pad mode that could not be
- * read is -1, and a registration query that could not be made is 0. There is no fourth
- * branch and no default that fires. */
+ * IN HOT CUE ALL THREE TERMS MUST HOLD and every failure lands on 0: a pad mode that could
+ * not be read is -1, and a registration query that could not be made is 0. IN THE OTHER THREE
+ * MODES the first two are the whole rule and `registered` is not consulted at all -- the caller
+ * does not even ask it (pointsrc.c's hc_fire). There is no branch and no default that fires
+ * blind. */
 int hc_may_fire(int browse_mode, int pad_mode, int registered);
 
 /* ------------------------------------------------------------------- the input */

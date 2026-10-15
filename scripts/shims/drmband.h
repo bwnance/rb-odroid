@@ -73,6 +73,13 @@ typedef signed int         __s32;
 #define DRM_IOCTL_MODE_GETPLANE         DRM_IOWR(0xB6, struct drm_mode_get_plane)
 #define DRM_IOCTL_MODE_SETPLANE         DRM_IOWR(0xB7, struct drm_mode_set_plane)
 #define DRM_IOCTL_MODE_OBJ_GETPROPERTIES DRM_IOWR(0xB9, struct drm_mode_obj_get_properties)
+/* THE KERNEL'S OWN ENCODING, SPELLED OUT BECAUSE GETTING IT WRONG IS INVISIBLE. This line read
+ * DRM_IOW(0xBC, ...) until 2026-10-12 -- a DIFFERENT COMMAND, since the number and the direction
+ * are part of the ioctl word. Nothing called it, so nothing failed; the first caller would have got
+ * ENOTTY out of a driver that supports the call perfectly well, and ENOTTY here reads exactly like
+ * "this driver will not let you set properties". It is what the ARGB plane's alpha and blend mode
+ * are set through, so it is the difference between a faded ring and a diagnosis that is wrong. */
+#define DRM_IOCTL_MODE_OBJ_SETPROPERTY   DRM_IOWR(0xBA, struct drm_mode_obj_set_property)
 
 /* The "type" property's enum ordinals. libdrm spells these in xf86drmMode.h,
  * which is a library header and not uapi; they are the kernel enum's order. */
@@ -82,6 +89,28 @@ typedef signed int         __s32;
 
 #define DRM_MODE_OBJECT_PLANE   0xeeeeeeee
 #define DRM_CLIENT_CAP_UNIVERSAL_PLANES 2
+
+/* HOW MANY OF THE FIRST FREE OVERLAY PLANES TO PASS OVER, for every surface that asks for one.
+ *
+ * NOT SUPERSTITION -- MEASURED 2026-10-12. The deck badge's rings ask for DRM_RANK_RING, i.e. the
+ * FIRST free overlay, which on this unit is plane 127 (deck 1) and 138 (deck 2). The kernel's own
+ * state dump reports those two as bound, enabled, at the right coordinates, on the same CRTC, in
+ * the same RG16 format as surfaces that DO reach the screen -- and nothing they contain ever
+ * appears on it. The menu band (plane 193) and the side drawers (171, 182) share every one of those
+ * properties and are visible.
+ *
+ * The proof that the PLANE is what differs, rather than the geometry or the surface: a probe put the
+ * badge's plane at exactly the band's shape and place (1280x56 at 0,0, magenta) and it stayed
+ * invisible on plane 127 -- and appeared on the screen the moment the same build asked for a late
+ * rank and landed on plane 215. Same geometry, same format, same process, same rank machinery, same
+ * first-to-set-up surface. Only the plane.
+ *
+ * So every surface steps over the first DRM_BAND_SKIP_OVERLAYS candidates, which keeps the RELATIVE
+ * order the ranks exist for (a badge still lands below a drawer, a drawer below the band) while
+ * moving all of them clear of the ones that go nowhere. Four rather than two because 171 is the
+ * first plane this project has actually seen work, and stepping over two unverified planes costs
+ * nothing. */
+#define DRM_BAND_SKIP_OVERLAYS  4
 
 #define DRM_DISPLAY_MODE_LEN 32
 #define DRM_PROP_NAME_LEN    32
@@ -200,6 +229,16 @@ struct drm_mode_obj_get_properties {
     __u32 obj_type;
 };
 
+/* The one SET ioctl this shim needs, for the stacking order below. Same provenance as the rest:
+ * read out of libdrm's uapi rather than typed from memory, and frozen because the ioctl number
+ * encodes the struct's size. */
+struct drm_mode_obj_set_property {
+    __u64 value;
+    __u32 prop_id;
+    __u32 obj_id;
+    __u32 obj_type;
+};
+
 /* ------------------------------------------------------------------- band */
 
 /* One overlay plane, held open, with a buffer the band is drawn into. Filled in
@@ -239,10 +278,68 @@ struct drm_band {
  * the display code already writes to. */
 int  drm_band_setup(struct drm_band *b, int w, int h, int bpp);
 
+/* The same, but the caller NAMES the format. One caller needs this and it is worth its own entry
+ * point: DRM_FORMAT_ARGB8888 carriers carry per-pixel alpha, so a surface can draw ONLY ITS OWN
+ * pixels and let rbp's show through the rest -- where the bpp-derived formats (RGB565, XRGB8888)
+ * are opaque, which is why every one of them has to COPY rbp's pixels into its buffer first.
+ *
+ * `bpp` is still passed because the buffer geometry is in bytes-per-pixel terms (pitch, the
+ * ADDFB depth) and the two must agree; the fourcc decides the format word and the depth.
+ * drm_band_setup() is this with the fourcc derived from bpp, so the two cannot drift. */
+int  drm_band_setup_fmt(struct drm_band *b, int w, int h, int bpp, unsigned int fourcc);
+
+/* ------------------------------------------------------------- the stacking order
+ *
+ * HIGHER SCANS OUT ON TOP, and rbp's own picture is 0. These are ASKED FOR, and the asking is the
+ * whole point: the kernel's default zpos is the plane's INDEX, so without this the order is
+ * whichever order the planes happened to be picked in -- which put the top menu band UNDER the
+ * deck badges' play rings, and would move again the first time a surface was created in a
+ * different sequence. Set with drm_band_want_rank() immediately before the band's drm_band_setup().
+ *
+ * The order, and why: the rings are over rbp's picture and under everything the shim draws, so a
+ * panel sliding out covers them; the panels are under the boxes that sit on top of them; and the
+ * band is over all of them, which is what the operator asked for by name ("the band should be
+ * above deck 1, 2 rings") -- it spans the full width at the top, so the drawers' full-height edge
+ * panels would otherwise cover its ends. The browser window sat above the lot on its own rank
+ * (7); it was removed 2026-10-12 and the rank went with it. */
+#define DRM_RANK_RING      0     /* the first free overlay -- the LOWEST, so panels cover it */
+#define DRM_RANK_SETTINGS  1     /* the SETTINGS panel (settings_paint.c). Rank 1 was the one
+                                  * value left unassigned; it sits BELOW the band like PROMPT and
+                                  * FXLIST do, so correctness rests on the tick hiding the band
+                                  * while a box is up rather than on z-order. */
+#define DRM_RANK_DRAWER    2
+#define DRM_RANK_PROMPT    3
+#define DRM_RANK_FXLIST    4
+#define DRM_RANK_FXPAD     5
+#define DRM_RANK_BAND      6     /* the operator's ask: above both deck rings */
+#define DRM_RANK_MASK      7     /* vidmask.c, and it is the browser window's freed rank put back
+                                  * to use. ABOVE THE BAND, which is the point: every other surface
+                                  * here wants to be covered by something, and this one has to cover
+                                  * them all -- a mask a panel could slide over is not a mask. */
+
+/* The ranking the NEXT drm_band_setup() in this process will ask for: it takes the (n+1)-th free
+ * overlay rather than the first. Consumed by that call, so it cannot leak onto a later band.
+ *
+ * WHY A RANK AND NOT A zpos. The obvious way is to SET the plane's zpos property, and an earlier
+ * version of this asked for exactly that -- the kernel refused it with EINVAL on all three planes,
+ * so nothing was enforced and the order was whatever the planes happened to be picked in. What is
+ * MEASURED instead, from /sys/kernel/debug/dri/1/state with the surfaces up, is that the driver's
+ * DEFAULT zpos follows the plane's index: our three planes read normalized-zpos 1, 2 and 3 in the
+ * order they were taken. So taking a later plane is taking a higher one, and that is a fact about
+ * this driver rather than a hope -- but a driver that ordered them differently would show it as a
+ * surface in the wrong place, so if that ever happens, this is the assumption to re-measure. */
+void drm_band_want_rank(unsigned int n);
+
 /* Put the plane on the glass at crtc position (x, y), showing the whole buffer.
  * The buffer must already hold the image. Idempotent while it is already on at
  * the same place, so a tick may call it every frame. Returns 0 on success. */
 int  drm_band_show(struct drm_band *b, int x, int y);
+
+/* The same commit with BOTH rectangles named: `sw`x`sh` taken out of the buffer, shown
+ * at `w`x`h` at (x,y). The HVS does the scaling, so a buffer of one size can be shown
+ * at another -- drm_band_show() is this with the whole buffer at its own size. */
+int  drm_band_show_rect(struct drm_band *b, int sx, int sy, int sw, int sh,
+                        int x, int y, int w, int h);
 
 /* Take it off. The band is opaque -- RGB565 has no alpha -- so this is what
  * happens the moment the menu closes, and it is not optional: a plane left on
