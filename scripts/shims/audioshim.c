@@ -1452,7 +1452,7 @@ static void load_config(void)
      * rung above writes too, but it runs before the conf's map has been parsed, so its copy
      * reads channels=0 and a map of zeros. This one is the real picture, and it is what
      * /run/rblive4/audio.state is for -- `cat` it from a laptop. */
-    astate_write(why, NULL);
+    astate_write(why, g_cfg.mixer_external ? "external" : "internal");
 }
 
 /* Verify the shared-state contract before anything reads g_master_gain and

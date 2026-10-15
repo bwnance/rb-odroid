@@ -126,7 +126,7 @@ static const struct controller table[] = {
           "djmv10",
           "DJM-V10",
           "2b73:0034",                              /* kernel quirks-table.h */
-          NULL, NULL, NULL,
+          NULL, NULL, NULL,                         /* card id NOT measured -- see below */
           NULL, 0, NULL, 0, 0,
           1, "DJM-V10",
      },
@@ -134,7 +134,18 @@ static const struct controller table[] = {
           "djma9",
           "DJM-A9",
           "2b73:003c",                              /* kernel quirks-table.h */
-          NULL, NULL, NULL,
+          NULL,                                     /* not reached by a sequencer name */
+          "DJMA9",                                  /* its ALSA card id, MEASURED: the
+                                                     * journal's alsactl says "card DJMA9",
+                                                     * because ALSA strips the hyphen that
+                                                     * the product string carries. audioshim
+                                                     * prefers /proc/asound/cards and only
+                                                     * falls back to this, so a wrongly
+                                                     * guessed id here would be worse than
+                                                     * none -- which is why the others are
+                                                     * left NULL until somebody reads them
+                                                     * off a unit. */
+          NULL,
           NULL, 0, NULL, 0, 0,
           1, "DJM-A9",
      },
