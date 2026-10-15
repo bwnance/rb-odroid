@@ -1108,3 +1108,50 @@ about the route; the panel's readout deliberately shows the route *in effect* ra
 the file's word, so a file left saying `external` with the mixer unplugged reads
 `INTERNAL` and is dim, which is what the unit is actually doing.
 
+## What the shim decided: `/run/rblive4/audio.state`
+
+`/run/rblive4` is bound into the chroot, so `audioshim` can write it and the **host** can
+read it. Over ssh, this is the whole answer to the question the 2026-10-14 A9 evening
+could not ask — *which card was chosen, by which rung, against which map, and had it
+failed*:
+
+```
+$ cat /run/rblive4/audio.state
+dev=plughw:CARD=euphonia,DEV=0
+why=a recognised mixer is on the bus (its recorded card id)
+card=euphonia
+key=2b73:0047
+channels=8
+map=[master=0,1 headphones=2,3 booth=-1,-1 monitor=-1,-1]
+decks=[deck1=2,3 deck2=4,5]
+route=external
+reopen_failures=0
+frames=0
+```
+
+`why=` is the rung from `apply_audio_device()`; `key=` is the USB id the per-model pair
+memory is indexed by; `route=` is the **live** route, not the conf's. It is written when
+something changes — a device change, the map settling, a route transition — and never per
+block. `channels=` and `frames=` are a snapshot taken at that moment, so both can read `0`
+in a file that is otherwise complete and healthy; they are not liveness indicators.
+
+**The trap, and it lies at exactly the wrong moment.** `rbp` spawns **~3 short-lived
+helpers at bring-up** (the child noise in [13](13-raspberrypi4.md)'s S3.7, with pids in
+`$RB_DEPLOY_ROOT/rbx3-run/root/pdj/crash.log`). They inherit `LD_PRELOAD` *and* fd 2, so
+each one loads `audioshim`, runs its constructor and writes this file — from a **fresh
+process**, where the device is unknown, no block has been negotiated and the route is
+still the boot value. They are the *last* writers, so for a long stretch after a restart
+the file read `channels=0`, `frames=0`, `route=internal` while rbp was routing EXTERNAL
+with eight channels and ten million frames delivered: measured on the unit 2026-10-15,
+**four writers** (rbp pid 29256 plus helpers 29920, 29927, 29928).
+
+So the file is **the playing process's to write**. `flush_master()` — the one place only
+the process rbp plays through ever reaches, including on the no-device path, where it is
+what calls `reopen_try()` — sets `g_astate_owner`, and `astate_write()` refuses without it.
+The helpers still log every decision to fd 2 (`rbp.log`), which is where a boot's decisions
+belong; they just cannot speak for the audio any more. Two smaller rules in the same
+function: the **rung is remembered** across writes (`why=NULL` means "unchanged", not
+"unknown", so a later writer cannot blank the one field the file exists for), and the check
+for the file is `[ -f /run/rblive4/audio.state ]` — with the owner gate it appears when the
+player first flushes, not before.
+

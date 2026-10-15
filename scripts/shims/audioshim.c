@@ -1527,10 +1527,46 @@ static void clamp_pair(const char *what, struct pair *p)
  * change, resolve_pairs() when the map is settled, and the route tick on a transition. */
 #define ASTATE_PATH "/run/rblive4/audio.state"
 
+/* Set by flush_master(), which only the process rbp plays through ever reaches. Everything
+ * else that loads this shim -- the bring-up helpers -- stays out of the state file. */
+static int g_astate_owner;
+
 static void astate_write(const char *why, const char *route)
 {
+    /* THE RUNG IS REMEMBERED ACROSS WRITES, and that is the whole point of the field.
+     *
+     * Only apply_audio_device() has a rung to give, and it gives it at the moment the device
+     * is CHOSEN -- before the conf's map is parsed and before any block has been negotiated.
+     * Every later writer has nothing to add about the DEVICE and passes NULL: resolve_pairs()
+     * when the map settles, the route tick on a transition. So a NULL here means "unchanged",
+     * not "unknown", and blanking on it lost the one fact this file is read for. It shipped
+     * that way: the unit's file read `why=` with the route tick's write the last one in, and
+     * the rung was gone by the time anybody looked. */
+    static char last_why[80];
     char buf[640];
     int fd, n;
+
+    if (why && why[0])
+        snprintf(last_why, sizeof last_why, "%s", why);
+
+    /* ONLY THE PROCESS CARRYING THE AUDIO MAY PUBLISH, and this is not a nicety.
+     *
+     * rbp spawns ~3 short-lived helpers at bring-up (docs/13's S3.7 child noise; the pids are in
+     * $RB_DEPLOY_ROOT/rbx3-run/root/pdj/crash.log, armed and gone in the same second). They
+     * inherit LD_PRELOAD and fd 2, so each one loads this shim, runs load_config() and arrives
+     * here -- and they arrive LAST. A file written by them is a FRESH PROCESS'S view: channels=0,
+     * frames=0, route=the boot value. Measured on the unit 2026-10-15: four writers (rbp pid
+     * 29256 plus helpers 29920/29927/29928), and the file said `route=internal` while rbp was
+     * routing EXTERNAL with ten million frames delivered and eight channels negotiated. That is
+     * an instrument that lies at exactly the moment somebody reads it -- the A9 drill's whole
+     * question is "which card, by which rung, against which map, had it failed", and this field
+     * is the answer.
+     *
+     * So the owner is defined by the one thing a helper never does: flush_master() sets
+     * g_astate_owner, and no write happens without it. The helpers' own view is still logged to
+     * fd 2 line by line, which is where a boot's decisions belong. */
+    if (!g_astate_owner)
+        return;
 
     fd = open(env_str("AUDIO_STATE_FILE", ASTATE_PATH),
               O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -1547,7 +1583,7 @@ static void astate_write(const char *why, const char *route)
                  "route=%s\n"
                  "reopen_failures=%u\n"
                  "frames=%lu\n",
-                 g_cfg.dev, why ? why : "", g_cfg.card_id, g_dev_key,
+                 g_cfg.dev, last_why, g_cfg.card_id, g_dev_key,
                  g_out_channels,
                  g_cfg.master.a, g_cfg.master.b,
                  g_cfg.headphones.a, g_cfg.headphones.b,
@@ -3669,6 +3705,10 @@ static void fill_deck_taps(snd_pcm_uframes_t size)
 
 static snd_pcm_sframes_t flush_master(const int32_t *src, snd_pcm_uframes_t size)
 {
+    /* This process is the one playing, so it -- and not a bring-up helper -- owns the state
+     * file from here on. Claimed before resolve_pairs() below, which publishes it. */
+    g_astate_owner = 1;
+
     float master_gain = clamp01(g_master_gain);
     /* The HDMI mirror's level, from the unit's own MASTER LEVEL knob -- the one
      * thing here that scales the mirror and not the master. Hoisted out of the
