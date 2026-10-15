@@ -38,14 +38,16 @@
  *     |  +-----------------------------------------------+|
  *     |  | USB1 STOP              RBOX USB               ||
  *     |  +-----------------------------------------------+|
- *     |  ...                                    5 rows    |
+ *     |  ...                                    8 rows    |
  *     |  SB_PAD                                           |
  *     +---------------------------------------------------+  SB_Y1
  *
- * SB_H = 2*3 + 40 + 1 + 2*8 + 6*56 + 5*6 = 429, exactly -- the same arithmetic
- * the USB STOP chooser's own box was, before it was removed on 2026-10-14 -- and
+ * SB_H = 2*3 + 40 + 1 + 2*8 + 8*56 + 7*6 = 553, exactly -- the same arithmetic
+ * the USB STOP chooser's own box was, before it was removed on 2026-10-14, and
  * test_settings.c asserts the sum rather than the number, so a change to a row's height
- * moves what is under it instead of running off the bed.
+ * moves what is under it instead of running off the bed. The bed is MZ_LOGICAL_H (800),
+ * so EIGHT is the most rows that fit with a margin: nine would need 615 px and still fit,
+ * twelve would not.
  * ---------------------------------------------------------------------------
  * THE TARGET IS THE VALUE, AND ONLY THE VALUE. The rows are a list to be READ, and the
  * operator asked for the label half to be inert -- so the framed rect is what tells the
@@ -66,7 +68,7 @@
 
 /* ------------------------------------------------------------------ geometry */
 
-#define SB_ROWS       6
+#define SB_ROWS       8
 
 /* The rows, 1-based and in the order they are drawn. THE NUMBER IS ALSO THE ANSWER: a
  * tap reports the row it acted on, so there is no second enum to drift out of step with
@@ -93,6 +95,20 @@
 #define ST_ROW_SHARE    4
 #define ST_ROW_ENCODE   5
 #define ST_ROW_POINTER  6
+/* THE TWO DECK PAIRS, added 2026-10-15 with the live pair map. The operator asked *"what about
+ * configuring which channel pairs get audio?"*, and in EXTERNAL mixer mode the deck pairs ARE
+ * the answer to it: rbp's mix is not sent at all, so master/headphones/booth are not in the path
+ * and `deck1`/`deck2` are the only pairs that decide where audio goes. That is why these two are
+ * here and the other four streams are not -- together with the arithmetic below, which has room
+ * for two more rows and not for six.
+ *
+ * THEY CYCLE, like the mixer route's row: a tap moves the deck to the next pair the shim can
+ * carry (2,3 -> 4,5 -> 6,7 -> 2,3). They are NOT dim in internal mode, and that is deliberate:
+ * unlike the mixer row, whose readout would claim a route the unit is not taking, this row reads
+ * a SETTING -- where deck 1 goes when external is in force -- and a setting can be made before
+ * it is used. */
+#define ST_ROW_DECK1    7
+#define ST_ROW_DECK2    8
 
 #define SB_TITLE      "SETTINGS"
 
@@ -102,7 +118,7 @@
  * 640 leaves 458 px of row for the label and 160 px for the value, against 129 and 107 --
  * test_settings.c pins both numbers rather than trusting this comment. */
 #define SB_W        640
-#define SB_H        429         /* 2*3 + 40 + 1 + 2*8 + 6*56 + 5*6, exactly */
+#define SB_H        553         /* 2*3 + 40 + 1 + 2*8 + 8*56 + 7*6, exactly */
 #define SB_X0       ((MZ_LOGICAL_W - SB_W) / 2)          /* 320 */
 #define SB_Y0       ((MZ_LOGICAL_H - SB_H) / 2)          /* 185 */
 #define SB_X1       (SB_X0 + SB_W - 1)                   /* 959 */
@@ -218,6 +234,20 @@ struct settings_state {
     int share_on;           /* vnc.live  */
     int encode_hw;          /* vnc.mode, where nonzero is `hwjpeg` */
     int pointer_on;         /* vnc.input */
+    /* THE DECK PAIRS AND THE CARD'S WIDTH, for the two deck rows (ST_ROW_DECK1/2).
+     *
+     * READ FROM `/run/rblive4/audio.state` -- the file audioshim publishes -- and NOT from the
+     * live map file, because the row must show what the unit is DOING: audio.state carries the
+     * resolved map, so a pair the shim refused is not claimed here. This is the mixer row's own
+     * rule ("the route IN EFFECT and not the file's word") applied to a pair.
+     *
+     * `deck_a[i]`/`deck_b[i]` are deck i+1's channels; `audio_channels` is the width the card
+     * was opened with. A zeroed state -- the caller that has not read the file yet -- is legal
+     * and is the shipped picture, which here means both decks on the shim's own defaults (2,3
+     * and 4,5) against an unknown width. */
+    int audio_channels;     /* 0 = not known, and then every candidate pair is offered */
+    int deck_a[2];
+    int deck_b[2];
 };
 
 /* ---------------------------------------------------------------- the state */

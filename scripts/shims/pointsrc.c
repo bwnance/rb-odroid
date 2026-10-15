@@ -1137,8 +1137,55 @@ static const char *settings_row_path(int row)
     case ST_ROW_SHARE:   return env_str("VNC_LIVE_FILE", "/run/rblive4/vnc.live");
     case ST_ROW_ENCODE:  return env_str("VNC_MODE_FILE", "/run/rblive4/vnc.mode");
     case ST_ROW_POINTER: return env_str("VNC_INPUT_FILE", "/run/rblive4/vnc.input");
+    /* THE TWO DECK ROWS WRITE THE LIVE PAIR MAP -- audioshim's own switch, read by
+     * pairs_tick() while the unit plays. The word they write is a whole AUDIO_MAP line
+     * ("deck1=4,5;deck2=2,3"), which is why the row's answer is composed there and written
+     * here verbatim: this file is the switch's path and nothing else. */
+    case ST_ROW_DECK1:
+    case ST_ROW_DECK2:   return env_str("AUDIO_MAP_FILE", "/run/rblive4/audio.map");
     default:             return 0;
     }
+}
+
+/* THE DECK PAIRS AND THE CARD'S WIDTH, out of /run/rblive4/audio.state -- audioshim's own
+ * publish -- and NOT out of the live map file this row writes.
+ *
+ * THE ROW MUST SHOW WHAT THE UNIT IS DOING, which is the mixer row's rule and applies here for
+ * the same reason: audio.state carries the RESOLVED map, so a pair audioshim refused is not
+ * claimed on the glass. It also carries `channels=`, the width the card was opened with, and
+ * that is what decides which pairs the cycle may offer at all -- a 4-channel card offers 2,3 and
+ * nothing else, where offering 6,7 would be offering a pair the shim would refuse.
+ *
+ * A MISSING OR UNREADABLE FILE LEAVES THE STATE ZEROED, which settings_zone.c reads as its own
+ * defaults (2-3 and 4-5, against an unknown width): a unit whose shim has not published yet
+ * draws a real panel rather than a panel of blanks, which is the rule that module states. */
+static void settings_read_astate(struct settings_state *S)
+{
+    char buf[512];
+    const char *p;
+    int fd, n;
+    int ch = 0, a1 = 0, b1 = 0, a2 = 0, b2 = 0;
+
+    fd = real_open(env_str("AUDIO_STATE_FILE", "/run/rblive4/audio.state"), O_RDONLY, 0);
+    if (fd < 0)
+        return;
+    n = (int)real_read(fd, buf, sizeof buf - 1);
+    real_close(fd);
+    if (n <= 0)
+        return;
+    buf[n] = '\0';
+
+    p = strstr(buf, "channels=");
+    if (p && sscanf(p, "channels=%d", &ch) != 1)
+        ch = 0;
+    if (strstr(buf, "deck1=") && sscanf(strstr(buf, "deck1="), "deck1=%d,%d", &a1, &b1) != 2)
+        a1 = b1 = 0;
+    if (strstr(buf, "deck2=") && sscanf(strstr(buf, "deck2="), "deck2=%d,%d", &a2, &b2) != 2)
+        a2 = b2 = 0;
+
+    S->audio_channels = ch > 0 ? ch : 0;
+    S->deck_a[0] = a1;  S->deck_b[0] = b1;
+    S->deck_a[1] = a2;  S->deck_b[1] = b2;
 }
 
 /* WHAT THE PANEL READS: rbp's two media slots, the bus, and the four files.
@@ -1176,6 +1223,8 @@ static void settings_state_fill(struct settings_state *S)
                         strcmp(w, "hwjpeg") == 0;
     S->pointer_on     = switch_word_read(settings_row_path(ST_ROW_POINTER), w, sizeof w) &&
                         strcmp(w, "on") == 0;
+
+    settings_read_astate(S);
 }
 
 /* The same snapshot for the painter, which is a different thread. See pointsrc.h. */

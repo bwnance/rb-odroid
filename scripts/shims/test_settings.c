@@ -111,7 +111,7 @@ static void test_geometry(void)
           "SB_H is %d, and its own arithmetic gives %d", SB_H,
           2 * SB_BORDER + SB_TITLE_H + SB_RULE + 2 * SB_PAD
           + SB_ROWS * SB_ROW_H + (SB_ROWS - 1) * SB_ROW_GAP);
-    CHECK(SB_H == 429, "SB_H moved to %d", SB_H);
+    CHECK(SB_H == 553, "SB_H moved to %d", SB_H);
     CHECK(SB_X0 == (MZ_LOGICAL_W - SB_W) / 2 && SB_Y0 == (MZ_LOGICAL_H - SB_H) / 2,
           "the box is not centred");
     CHECK(SB_X1 == SB_X0 + SB_W - 1 && SB_Y1 == SB_Y0 + SB_H - 1,
@@ -209,7 +209,8 @@ static void test_geometry(void)
 static void test_labels_and_values(void)
 {
     static const char *const want_label[SB_ROWS] = {
-        "MIXER ROUTE", "USB1 STOP", "USB2 STOP", "SHARE", "ENCODE", "POINTER INJECT"
+        "MIXER ROUTE", "USB1 STOP", "USB2 STOP", "SHARE", "ENCODE", "POINTER INJECT",
+        "DECK 1 PAIR", "DECK 2 PAIR"
     };
     int i, k;
 
@@ -1100,11 +1101,133 @@ static void test_values_are_drawn(void)
     }
 }
 
+/* THE TWO DECK ROWS, from `struct settings_state`'s deck pairs and the card's width.
+ *
+ * The rules worth pinning, all of them decisions rather than arithmetic:
+ *   - the readout shows a pair the ATLAS CAN DRAW (a dash, not the file's comma);
+ *   - the WORD names BOTH decks, because the live map file is authoritative for what it
+ *     names -- a word naming only deck1 would put deck2 back to the conf;
+ *   - the cycle only offers pairs the card can carry, and wraps;
+ *   - the rows are operable with nothing known, because what they hold is a setting. */
+static void test_deck_pairs(void)
+{
+    struct settings_state t;
+
+    memset(&t, 0, sizeof t);
+
+    /* NOTHING KNOWN: the shim's own defaults, and both rows operable. Every character of the
+     * readout has to be in the atlas -- the comma is not, which is why the value is a dash. */
+    CHECK(strcmp(settings_row_text(ST_ROW_DECK1, &t), "2-3") == 0,
+          "an unfilled state reads deck 1 as '%s'", settings_row_text(ST_ROW_DECK1, &t));
+    CHECK(strcmp(settings_row_text(ST_ROW_DECK2, &t), "4-5") == 0,
+          "an unfilled state reads deck 2 as '%s'", settings_row_text(ST_ROW_DECK2, &t));
+    CHECK(settings_row_live(ST_ROW_DECK1, &t) && settings_row_live(ST_ROW_DECK2, &t),
+          "the deck rows are not operable with nothing known");
+    CHECK(settings_row_live(ST_ROW_DECK1, NULL) && settings_row_live(ST_ROW_DECK2, NULL),
+          "the deck rows are not operable with no state at all");
+    {
+        int k;
+        const char *v = settings_row_text(ST_ROW_DECK1, &t);
+
+        for (k = 0; v[k]; k++)
+            CHECK(menu_font_index((unsigned char)v[k]) >= 0,
+                  "a deck row's readout '%s' has '%c' in it, which the atlas cannot draw",
+                  v, v[k]);
+    }
+
+    /* WHAT THE STATE SAYS, read off audio.state's decks=[deck1=a,b deck2=c,d]. */
+    t.deck_a[0] = 6; t.deck_b[0] = 7;
+    t.deck_a[1] = 2; t.deck_b[1] = 3;
+    CHECK(strcmp(settings_row_text(ST_ROW_DECK1, &t), "6-7") == 0,
+          "deck 1 reads '%s'", settings_row_text(ST_ROW_DECK1, &t));
+    CHECK(strcmp(settings_row_text(ST_ROW_DECK2, &t), "2-3") == 0,
+          "deck 2 reads '%s'", settings_row_text(ST_ROW_DECK2, &t));
+    /* Both rows' texts are readable AT THE SAME TIME -- the module keeps a buffer per row,
+     * so a caller comparing them (this file does) cannot be handed the same one twice. */
+    CHECK(strcmp(settings_row_text(ST_ROW_DECK1, &t), "6-7") == 0 &&
+          strcmp(settings_row_text(ST_ROW_DECK2, &t), "2-3") == 0,
+          "the two deck rows' readouts overwrote each other");
+
+    /* THE WORD NAMES BOTH DECKS. deck 1 is on 6,7 and deck 2 on 2,3, so a tap on deck 1 asks
+     * for the pair after 6,7 -- which wraps to 2,3 -- AND restates deck 2 where it is. */
+    t.audio_channels = 8;
+    CHECK(settings_next_value(ST_ROW_DECK1, &t)
+          && strcmp(settings_next_value(ST_ROW_DECK1, &t), "deck1=2,3;deck2=2,3") == 0,
+          "a tap on deck 1 at 6,7 asks for '%s'", settings_next_value(ST_ROW_DECK1, &t));
+    CHECK(settings_next_value(ST_ROW_DECK2, &t)
+          && strcmp(settings_next_value(ST_ROW_DECK2, &t), "deck2=4,5;deck1=6,7") == 0,
+          "a tap on deck 2 at 2,3 asks for '%s'", settings_next_value(ST_ROW_DECK2, &t));
+
+    /* THE CYCLE WALKS THE CANDIDATES AND WRAPS, on a card wide enough for all three. */
+    {
+        struct settings_state w;
+        const char *want[3] = { "deck1=4,5;deck2=4,5", "deck1=6,7;deck2=4,5",
+                                "deck1=2,3;deck2=4,5" };
+        int step;
+
+        memset(&w, 0, sizeof w);
+        w.audio_channels = 8;
+        for (step = 0; step < 3; step++) {
+            const char *word = settings_next_value(ST_ROW_DECK1, &w);
+
+            CHECK(word && strcmp(word, want[step]) == 0,
+                  "deck 1's cycle step %d asks for '%s', not '%s'", step,
+                  word ? word : "(null)", want[step]);
+            /* What the file would now say -- the panel writes it, and the next tap must see
+             * the world it just made rather than the one it started from. */
+            sscanf(word, "deck1=%d,%d", &w.deck_a[0], &w.deck_b[0]);
+        }
+        CHECK(w.deck_a[0] == 2 && w.deck_b[0] == 3,
+              "three taps left deck 1 at %d,%d, so the cycle did not come back",
+              w.deck_a[0], w.deck_b[0]);
+    }
+
+    /* THE WIDTH FILTER: the cycle never offers a pair the card cannot carry. A 4-channel card
+     * is channels 0..3, so (2,3) is the ONLY candidate on it and a tap stays where it is
+     * rather than inventing a pair audioshim would refuse; a 6-channel card adds (4,5) and
+     * still never reaches (6,7). Both are the same rule, at two widths. */
+    {
+        struct settings_state w;
+
+        memset(&w, 0, sizeof w);
+        w.audio_channels = 4;
+        CHECK(strcmp(settings_next_value(ST_ROW_DECK1, &w), "deck1=2,3;deck2=4,5") == 0,
+              "a 4-channel card offers '%s' after 2,3 -- only 2,3 fits it",
+              settings_next_value(ST_ROW_DECK1, &w));
+
+        memset(&w, 0, sizeof w);
+        w.audio_channels = 6;
+        CHECK(strcmp(settings_next_value(ST_ROW_DECK1, &w), "deck1=4,5;deck2=4,5") == 0,
+              "a 6-channel card offers '%s' after 2,3",
+              settings_next_value(ST_ROW_DECK1, &w));
+        w.deck_a[0] = 4; w.deck_b[0] = 5;
+        CHECK(strcmp(settings_next_value(ST_ROW_DECK1, &w), "deck1=2,3;deck2=4,5") == 0,
+              "a 6-channel card offers '%s' after 4,5 -- 6,7 is not on it",
+              settings_next_value(ST_ROW_DECK1, &w));
+    }
+
+    /* A PAIR THE CANDIDATE LIST DOES NOT HOLD -- set by hand in the conf -- still answers a
+     * sensible word rather than none or a crash: the cycle starts at the first candidate that
+     * fits, which here is 2,3. */
+    {
+        struct settings_state w;
+
+        memset(&w, 0, sizeof w);
+        w.audio_channels = 8;
+        w.deck_a[0] = 0; w.deck_b[0] = 1;      /* a deck on the master pair */
+        CHECK(settings_next_value(ST_ROW_DECK1, &w)
+              && strcmp(settings_next_value(ST_ROW_DECK1, &w), "deck1=2,3;deck2=4,5") == 0,
+              "a deck on a pair the list does not hold asks for '%s'",
+              settings_next_value(ST_ROW_DECK1, &w));
+    }
+}
+
 int main(void)
 {
     test_geometry();
     test_labels_and_values();
     test_next_values();
+    test_deck_pairs();
     test_gesture_value_only();
     test_hold_rows();
     test_dim_rows();

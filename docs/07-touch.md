@@ -3375,12 +3375,15 @@ rows) reading an exact palette value.
 
 ### The box, and the value-only target
 
-Six rows in a 640×429 box, on the structure and palette the USB STOP chooser established
+Eight rows in a 640×553 box, on the structure and palette the USB STOP chooser established
 before it was deleted (2026-10-14) — the same black bed, centred title and rule; only the
 body differs, a list of framed rows instead of one row of two buttons. `SB_H` is its own
 arithmetic
-(`2*3 + 40 + 1 + 2*8 + 6*56 + 5*6`) rather than a number that happens to be right, and
-`test_settings.c` asserts the sum so a row's height cannot run off the bed.
+(`2*3 + 40 + 1 + 2*8 + 8*56 + 7*6`) rather than a number that happens to be right, and
+`test_settings.c` asserts the sum so a row's height cannot run off the bed. Eight is what
+fits with a margin on a 800-px bed; the two deck rows were the last two that would, and the
+remaining four streams of the pair map have nowhere left to go, which is why the row that
+matters most in external mode is the one that got them.
 
 **Only the value acts.** The operator asked for the label half to be inert, and that comes
 with a second half that is easy to lose: **a press that lands on a row's LABEL does not
@@ -3391,7 +3394,7 @@ all still ways out — and the label half neither fires nor dismisses. Both halv
 pinned at both edges of the value rect, because an off-by-one here is a control that is
 dead on one side or live where the operator was only reading.
 
-**Four of the six rows have no hold and no flash** — the two USB rows are the exception,
+**Six of the eight rows have no hold and no flash** — the two USB rows are the exception,
 and the whole of their gesture is below. A row that moves a word the next tap moves back is
 complete at the release, so `settings_feed()` takes no clock for those; the timeout
 (`SB_TIMEOUT_MS`, the number the chooser used) and the two USB rows' hold are the only
@@ -3409,7 +3412,7 @@ the right side"*. What replaced them is padding: the value is right-aligned `SP_
 opens a box any more — the two USB rows do their work in place, on the hold — and
 `test_settings.c` pins that the padding stays clear of ink.
 
-### The six rows
+### The eight rows
 
 | row | reads | live when | a tap | a **hold** (3 s) |
 |---|---|---|---|---|
@@ -3419,6 +3422,26 @@ opens a box any more — the two USB rows do their work in place, on the hold �
 | `SHARE` | `ON` / `OFF` | always | writes `vnc.live` | — |
 | `ENCODE` | `RAW` / `HWJPEG` | always | writes `vnc.mode` | — |
 | `POINTER INJECT` | `ON` / `OFF` | always | writes `vnc.input` | — |
+| `DECK 1 PAIR` | that deck's channels, e.g. `2-3` | always | writes `/run/rblive4/audio.map` | — |
+| `DECK 2 PAIR` | ...the same for deck 2 | always | ...**naming both decks** | — |
+
+**The two deck rows are the pair map on the glass** (2026-10-15), and they exist because the
+operator asked *"what about configuring which channel pairs get audio?"*. In **external mixer
+mode** the deck pairs *are* that answer: rbp's mix is not sent at all, so master, headphones
+and booth are not in the path and `deck1`/`deck2` are the only pairs that decide where audio
+goes — which is why these two are here and the other four streams are not. A tap cycles the
+deck through the pairs the card can carry (`2,3` → `4,5` → `6,7` → back), skipping any pair
+too wide for the card audioshim actually opened: a 4-channel card offers `2,3` alone, and
+rather than offering `6,7` and letting the shim refuse it. The readout comes from
+`/run/rblive4/audio.state` — the **resolved** map — so the row shows what the unit is doing,
+which is the mixer row's own rule, and it draws a **dash and not the file's comma** because
+menu_font.h's atlas has no comma and a value with one in it would ship as a gap.
+
+**The word a tap writes names BOTH decks**, always: `deck1=4,5;deck2=2,3`. That is not
+tidiness — the live map file is *authoritative for the streams it names*
+([09](09-audio.md)), so a word naming only `deck1` would silently put `deck2` back to the
+conf. The panel writes the pair state it is showing, both rows of it, so a tap on `DECK 1 PAIR`
+cannot disturb `DECK 2 PAIR`.
 
 **The two USB rows replaced the one `USB STOP` row** on 2026-10-14 — the operator's ask:
 *"add a line for each usb stick the settings menu, it should be called USB1 and USB2 and the

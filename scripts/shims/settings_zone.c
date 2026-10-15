@@ -13,6 +13,9 @@
  * 2026-10-14 -- and carries none of its label or box state.
  */
 #include "settings_zone.h"
+#include <stdio.h>        /* snprintf(), for the two deck rows' channel pairs -- the first
+                           * formatting this module has ever done, and the same call its
+                           * sibling side_paint.c already makes in this shim. */
 #include "menu_font.h"    /* menu_text_width(): how wide a value draws, which is what
                            * decides whether the box may be painted at all. A
                            * compile-time table and nothing else -- see the header. */
@@ -21,7 +24,8 @@
  * rather than as a failure, which is why test_settings.c walks every character of every
  * one of these against menu_font.h. */
 static const char *const row_labels[SB_ROWS] = {
-    "MIXER ROUTE", "USB1 STOP", "USB2 STOP", "SHARE", "ENCODE", "POINTER INJECT"
+    "MIXER ROUTE", "USB1 STOP", "USB2 STOP", "SHARE", "ENCODE", "POINTER INJECT",
+    "DECK 1 PAIR", "DECK 2 PAIR"
 };
 
 /* ---------------------------------------------------------------------------
@@ -46,6 +50,17 @@ static const char *const row_labels[SB_ROWS] = {
  * operator asked it to show. An EMPTY slot reads EMPTY and is drawn dim. */
 #define ST_USB_NONAME "--"
 #define ST_USB_EMPTY  "EMPTY"
+/* The widest a deck row's value can read: a channel pair is two digits at most on a shim that
+ * carries 8 channels, and "6-7" is as wide as "2-3" -- so this is the yardstick the column is
+ * measured against, and it is the same three characters every candidate pair occupies.
+ *
+ * THE SEPARATOR IS A DASH AND NOT THE COMMA THE FILE USES, and that is a font fact rather than
+ * a taste: menu_font.h's set is letters, digits and ./-_:?=&@# -- THERE IS NO COMMA IN IT, so
+ * "2,3" would draw as "2 3" with a hole in the middle, a value that is silently not the one
+ * anybody wrote. (The plus sign is missing for the same reason and is why a retired value reads
+ * "USB 1 & USB 2" and not "USB 1 + USB 2".) The WORD that goes into the file keeps its commas,
+ * because that is audioshim's grammar and it parses them; the readout is this module's own. */
+#define ST_PAIR_WIDEST "6-7"
 
 static const char *const val_mixer[]   = { "INTERNAL", "EXTERNAL" };
 /* "USB 1 & USB 2" AND NOT "USB 1 + USB 2", which is what it was written as first. The 19 px
@@ -60,9 +75,10 @@ static const char *const val_encode[]  = { "RAW", "HWJPEG" };
 static const char *const val_pointer[] = { "OFF", "ON" };
 
 /* NULL for a row that does not read from a table -- the two USB rows, whose value is the
- * stick's name out of the state. Every function below has to allow for that. */
+ * stick's name out of the state, and the two deck rows, whose value is a channel pair
+ * formatted out of the state. Every function below has to allow for that. */
 static const char *const *const row_values[SB_ROWS] = {
-    val_mixer, NULL, NULL, val_share, val_encode, val_pointer
+    val_mixer, NULL, NULL, val_share, val_encode, val_pointer, NULL, NULL
 };
 
 /* THE YARDSTICK each row's value column is measured against, which is NOT always its widest
@@ -74,7 +90,8 @@ static const char *const *const row_values[SB_ROWS] = {
  * measured against "EMPTY" -- what they read with nothing in the slot -- and a name that does
  * not fit is trimmed. */
 static const char *const row_yardstick[SB_ROWS] = {
-    "INTERNAL", ST_USB_EMPTY, ST_USB_EMPTY, "OFF", "HWJPEG", "OFF"
+    "INTERNAL", ST_USB_EMPTY, ST_USB_EMPTY, "OFF", "HWJPEG", "OFF",
+    ST_PAIR_WIDEST, ST_PAIR_WIDEST
 };
 
 /* The word a tap writes, per row, INDEXED THE SAME WAY the display table is: the value
@@ -97,8 +114,126 @@ static const char *const next_pointer[] = { "on", "off" };
  * happened when the second USB row was added and this table was not, and test_settings.c's
  * per-row value checks are what caught it. */
 static const char *const *const row_next[SB_ROWS] = {
-    next_mixer, NULL, NULL, next_share, next_encode, next_pointer
+    next_mixer, NULL, NULL, next_share, next_encode, next_pointer, NULL, NULL
 };
+
+/* ---------------------------------------------------------------------------
+ * THE DECK PAIRS, and the two things the tables above cannot express.
+ *
+ * `n` is not fixed at two for these rows: the candidate list is walked, not indexed by a
+ * bit, so the row is a CYCLE over however many pairs the card can carry. The candidate
+ * pairs are every adjacent stereo pair the shim can address that is not the master's own
+ * (0,1): the master is not a deck, and a deck sent to 0,1 would be sent to the master pair.
+ *
+ * THE WIDTH FILTER IS WHY THIS IS A FUNCTION AND NOT A TABLE. A 4-channel card has no 6,7,
+ * and offering it would be offering a pair audioshim refuses -- which says so in a log line
+ * now, but a control that offers a dead value is a control the operator has to learn to
+ * distrust. So the candidates are filtered by the width the card was opened with, and a
+ * width of 0 (not read yet) offers all of them, because refusing to offer what might work
+ * is worse than offering one the shim will refuse in a line anybody can read.
+ * ------------------------------------------------------------------------- */
+#define ST_PAIR_MAX 7               /* "10,11" would be 5; the shim carries 8 channels */
+
+static const struct { int a, b; } pair_cand[] = {
+    { 2, 3 }, { 4, 5 }, { 6, 7 }
+};
+#define ST_PAIR_CANDS ((int)(sizeof pair_cand / sizeof pair_cand[0]))
+
+/* Is candidate `i` pair-addressable on a card `channels` wide? 0 means "width not known".
+ * Both channels have to be on the card -- a pair whose second channel is past the end is
+ * the same refusal as one past it entirely. */
+static int pair_cand_fits(int i, int channels)
+{
+    if (i < 0 || i >= ST_PAIR_CANDS)
+        return 0;
+    if (channels <= 0)
+        return 1;
+    return pair_cand[i].a < channels && pair_cand[i].b < channels;
+}
+
+/* The pair deck `slot` (0-based) is on, with the shim's own default standing in for a state
+ * that has not been filled.
+ *
+ * (0,0) IS THE "NOT FILLED" MARKER AND IT IS NOT A PAIR: parse_pair() refuses a pair whose
+ * two channels are equal (it would write one channel twice), so 0,0 can never be a real
+ * answer and a caller that has read nothing cannot be mistaken for one that read a deck on
+ * the master pair. Every other pair, including one starting at channel 0, is taken as given. */
+static void deck_pair_of(int slot, const struct settings_state *S, int *a, int *b)
+{
+    int da = S ? S->deck_a[slot] : 0;
+    int db = S ? S->deck_b[slot] : 0;
+
+    if (da == 0 && db == 0) {
+        da = slot ? 4 : 2;
+        db = slot ? 5 : 3;
+    }
+    *a = da;
+    *b = db;
+}
+
+/* The index of the pair deck `slot` is on, or -1 when it is on one the candidate list does
+ * not hold -- a pair set by hand in the conf, or a width that does not offer it. -1 is what
+ * makes a tap start the cycle at the first candidate rather than at an arbitrary one. */
+static int pair_index_of(int slot, const struct settings_state *S)
+{
+    int a, b, i;
+
+    deck_pair_of(slot, S, &a, &b);
+    for (i = 0; i < ST_PAIR_CANDS; i++)
+        if (pair_cand[i].a == a && pair_cand[i].b == b)
+            return i;
+    return -1;
+}
+
+/* The pair a tap on deck `slot` asks for: the next candidate that fits, wrapping, and
+ * staying put when nothing fits (a 2-channel card carries no deck pair at all, and the row
+ * then writes what it is already showing rather than inventing one). */
+static int pair_next_index(int slot, const struct settings_state *S)
+{
+    int cur = pair_index_of(slot, S);
+    int i, step;
+
+    for (step = 1; step <= ST_PAIR_CANDS; step++) {
+        i = (cur + step) % ST_PAIR_CANDS;
+        if (pair_cand_fits(i, S ? S->audio_channels : 0))
+            return i;
+    }
+    return cur < 0 ? 0 : cur;
+}
+
+/* THE READOUT: the pair the deck is on, formatted. `deck_text[2][...]` is one buffer per
+ * row and not one shared, so a caller comparing the two rows' texts -- test_settings.c does
+ * -- cannot have the second call overwrite the first's answer. */
+static char deck_text[2][ST_PAIR_MAX + 1];
+
+static const char *deck_pair_text(int slot, const struct settings_state *S)
+{
+    int a, b;
+
+    deck_pair_of(slot, S, &a, &b);
+    /* A DASH, not the file's comma -- see ST_PAIR_WIDEST. */
+    snprintf(deck_text[slot], sizeof deck_text[slot], "%d-%d", a, b);
+    return deck_text[slot];
+}
+
+/* THE WORD A TAP ASKS FOR, and it names BOTH decks, always. That is not tidiness: the live
+ * map file is AUTHORITATIVE for the streams it names (audioshim.c's pairs_tick, and docs/09
+ * says why), so a word naming only deck1 would put deck2 back to the conf's value. The panel
+ * writes the pair state it is SHOWING, both rows of it, so a tap on DECK 1 cannot disturb
+ * DECK 2. One buffer per row, for the reason deck_text is two. */
+static char deck_next[2][40];
+
+static const char *deck_pair_next(int slot, const struct settings_state *S)
+{
+    int other = slot ? 0 : 1;
+    int i = pair_next_index(slot, S);
+    int oa, ob;
+
+    deck_pair_of(other, S, &oa, &ob);
+    snprintf(deck_next[slot], sizeof deck_next[slot], "deck%d=%d,%d;deck%d=%d,%d",
+             slot + 1, pair_cand[i].a, pair_cand[i].b, other + 1, oa, ob);
+    return deck_next[slot];
+}
 
 /* ---------------------------------------------------------------------------
  * State. All of it is cleared by settings_reset(); the touch thread is the only writer,
@@ -246,6 +381,8 @@ const char *settings_row_text(int row, const struct settings_state *S)
             return ST_USB_EMPTY;
         return S->usb_name[slot][0] ? S->usb_name[slot] : ST_USB_NONAME;
     }
+    if (row == ST_ROW_DECK1 || row == ST_ROW_DECK2)
+        return deck_pair_text(row == ST_ROW_DECK1 ? 0 : 1, S);
     {
         int i = row_value_index(row, S);
 
@@ -294,6 +431,15 @@ int settings_row_live(int row, const struct settings_state *S)
     case ST_ROW_ENCODE:
     case ST_ROW_POINTER:
         return 1;
+    case ST_ROW_DECK1:
+    case ST_ROW_DECK2:
+        /* ALWAYS OPERABLE, and the one row here that does not gate on the unit's state. The
+         * mixer row dims because its readout would otherwise claim a route the unit is not
+         * taking; this row reads a SETTING -- where the deck goes when external is in force --
+         * and a setting can be made before it is used. It is also the only way to reach the
+         * pair map from the glass, so dimming it in internal mode would put the control out of
+         * reach at exactly the moment somebody is setting up to go external. */
+        return 1;
     default:
         return 0;
     }
@@ -303,6 +449,11 @@ const char *settings_next_value(int row, const struct settings_state *S)
 {
     int i;
 
+    if (row == ST_ROW_DECK1 || row == ST_ROW_DECK2) {
+        if (!settings_row_live(row, S))
+            return 0;
+        return deck_pair_next(row == ST_ROW_DECK1 ? 0 : 1, S);
+    }
     if (row < 1 || row > SB_ROWS || !row_next[row - 1])
         return 0;
     /* A dim row answers nothing. The fire already refuses it (settings_feed()), and this
