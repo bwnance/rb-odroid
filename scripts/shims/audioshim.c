@@ -129,6 +129,55 @@ static void alog(const char *fmt, ...)
     }
 }
 
+/* THE DECISIONS, AND WHERE THEY SURVIVE A POWER CYCLE.
+ *
+ * alog() writes to /tmp/audioshim.log and nothing else. /tmp is tmpfs, so the only record of
+ * what this shim DECIDED dies at the next power cycle -- and that is exactly what made the
+ * operator's DJM-A9 evening undiagnosable: the journal had the kernel's enumeration and the
+ * launcher's `AUDIO_DEV=...` line, but not one word about the open that failed, and by the time
+ * a laptop was available the file was gone.
+ *
+ * THE SHIM CANNOT WRITE THE DEPLOY ROOT: it runs inside $RB_CHROOT, where only /dev, /proc,
+ * /sys, /tmp and /run/rblive4 are bound ([[shims-see-the-chroots-filesystem]]). What it CAN
+ * reach is the one file rbp itself was launched with -- start-rb.sh runs it as
+ * `>>"$RBP_LOG" 2>&1`, so /opt/rblive4/log/rbp.log IS this process's stdout and stderr, on DISK,
+ * and rotated to `rbp.log.prev` at every launch. So a decision line written to fd 2 outlives
+ * the reboot and is readable afterwards with nothing but ssh.
+ *
+ * adecide() is that, and it is deliberately a SECOND entry point rather than a flag on alog().
+ * alog() is called on paths that run per block and per open attempt -- audioshim.log has been
+ * 54 MB of a 1.9 GB tmpfs -- and rbp.log is a file an operator reads. Only the decisions go to
+ * both: which device was chosen and by which rung, the pair map that was resolved, the route
+ * and its reason, and every reopen failure with the device that failed. A handful of lines per
+ * boot and per hot-plug.
+ *
+ * The prefix matters: these lines land interleaved with rbp's own output, and "audioshim: " is
+ * what makes them findable in a 84 MB file. Every call site already writes it. */
+static void adecide(const char *fmt, ...)
+{
+    char buf[512];
+    va_list ap;
+    int fd, n;
+
+    va_start(ap, fmt);
+    n = vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    if (n <= 0)
+        return;
+    if ((size_t)n >= sizeof(buf))
+        n = (int)sizeof(buf) - 1;
+
+    fd = open(LOG_PATH, O_WRONLY | O_CREAT | O_APPEND, 0666);
+    if (fd >= 0) {
+        write(fd, buf, (size_t)n);
+        close(fd);
+    }
+    /* fd 2, which the launcher gave to rbp.log. A failure here is not worth a log line of its
+     * own -- it would be reported by being absent from the only file that matters. */
+    if (write(2, buf, (size_t)n) < 0)
+        return;
+}
+
 /* Opaque ALSA types */
 typedef void snd_pcm_t;
 typedef void snd_pcm_hw_params_t;
@@ -314,6 +363,9 @@ static const char *master_dev_name(void)
  * rb.conf's AUDIO_DEV stays as the operator's override, and docs/15 tells them to
  * change the device there; doctor.sh compares the two so a drifted rb.conf is a
  * reported line rather than a silent one. */
+static void parse_card_id(const char *dev);
+static void restore_pairs_for(const char *key);
+
 static const char *audio_dev_default(void)
 {
     static char buf[64];
@@ -333,6 +385,204 @@ static const char *audio_dev_default(void)
      * never a different card opened by accident. */
     snprintf(buf, sizeof buf, "hw:CARD=%s,DEV=0", card);
     return buf;
+}
+
+/* ---------------------------------------------------------------------------
+ * WHICH CARD, AND WHY. One question, answered twice: once in the constructor and
+ * again at every reopening, because the answer can change while the unit runs.
+ *
+ * THE RUNGS, in order:
+ *
+ *   1. AUDIO_DEV, if the conf names one. Unchanged, and still the operator's
+ *      override -- a rig that pins a card gets that card.
+ *   2. THE DEVICE THAT IS ACTUALLY HERE. If a recognised digital MIXER is on the
+ *      USB bus (usb_devices.c's mixer_present(), the same single walk audioshim asks
+ *      before it honours external mode), its card is the one to open. This is the
+ *      rung whose absence cost the operator a whole venue: with AUDIO_DEV pinned to
+ *      `euphonia` and a DJM-A9 in the port, every reopen retried a card that was not
+ *      there and the log went quiet after three tries (2026-10-14).
+ *   3. The CONTROLLER's card -- audio_dev_default() above, which is what a unit with
+ *      nothing but a DDJ-FLX4 on it has always used.
+ *
+ * ONE CARD AT A TIME, which is what makes this a rung list rather than a preference:
+ * the operator's rigs have either a controller or a mixer attached, never both, so
+ * rung 2 and rung 3 cannot disagree about which card the audio should go to.
+ *
+ * THE CARD'S NAME IS READ OFF THE KERNEL, NOT ASSUMED. /proc/asound/cards is visible
+ * inside the chroot (it is /proc, which fix-dev.sh binds) and carries both the ALSA id
+ * and the product string:
+ *
+ *     1 [DJMA9          ]: USB-Audio - DJM-A9
+ *                          AlphaTheta Corporation DJM-A9 at usb-0000:01:00.0-1.2
+ *
+ * so the device the table already names is matched by THAT name, and the id comes from
+ * the same two lines. Hardcoding ids instead would mean knowing that ALSA strips the
+ * hyphen -- the DJM-A9 is card `DJMA9`, not `DJM-A9` -- which is exactly the kind of
+ * fact that is true until the next firmware. The table's own card_id is the fallback
+ * for a kernel that does not describe the card the way this expects.
+ * ------------------------------------------------------------------------- */
+
+/* The ALSA card id whose entry mentions `want` (case-insensitive), or 0 when no card
+ * does. `out` receives just the id, without the brackets or the padding. */
+static int asound_card_for(const char *want, char *out, size_t outsz)
+{
+    FILE *f;
+    char line[256];
+    char pending[64];
+    int have_pending = 0;
+
+    if (!want || !want[0] || !out || outsz == 0)
+        return 0;
+    out[0] = '\0';
+    f = fopen("/proc/asound/cards", "r");
+    if (!f)
+        return 0;
+
+    /* Two lines per card: the id line, then the description. The id line is kept as
+     * `pending` so a match on the SECOND line can still answer with the id from the
+     * first -- a device whose product string appears only in the description (which is
+     * the vendor line) is still that device. */
+    while (fgets(line, sizeof line, f)) {
+        char *lb = strchr(line, '[');
+        char *rb = lb ? strchr(lb, ']') : NULL;
+
+        if (lb && rb && rb > lb) {
+            size_t n = (size_t)(rb - lb - 1);
+
+            while (n > 0 && lb[n] == ' ')
+                n--;
+            if (n >= sizeof pending)
+                n = sizeof pending - 1;
+            memcpy(pending, lb + 1, n);
+            pending[n] = '\0';
+            have_pending = 1;
+            if (strcasestr(line, want)) {
+                snprintf(out, outsz, "%s", pending);
+                fclose(f);
+                return 1;
+            }
+        } else if (have_pending && strcasestr(line, want)) {
+            snprintf(out, outsz, "%s", pending);
+            fclose(f);
+            return 1;
+        }
+    }
+    fclose(f);
+    return 0;
+}
+
+/* WHAT IDENTIFIES THE DEVICE, for the per-model pair memory: the USB id of the
+ * recognised device that answered rung 2 or 3, or its card id when no row did. Set by
+ * apply_audio_device() and read by restore_pairs_for(). */
+static char g_dev_key[64];
+
+/* Fill g_cfg.dev / g_cfg.card_id / g_cfg.dev_plug and g_master_cands[] from the rungs
+ * above. Answers 1 when the device CHANGED from what was already in g_cfg.dev -- the
+ * caller uses that to decide whether the pair map has to be re-resolved (it must be:
+ * the map's indices are only ever resolved against the card that was opened).
+ *
+ * `why` receives a short phrase naming the rung, for the one line that is logged to
+ * both logs. It is always set, including when nothing was found. */
+static int apply_audio_device(const char **why)
+{
+    char dev[DEV_MAX];
+    char card[64];
+    const char *s;
+    const struct controller *mixer;
+    int changed, dropped = 0, k;
+
+    dev[0] = '\0';
+    *why = "no device";
+
+    /* 1. EXPLICIT. */
+    s = env_str("AUDIO_DEV", "");
+    if (s[0]) {
+        if (strlen(s) >= sizeof dev) {
+            adecide("audioshim: AUDIO_DEV is longer than %u bytes; ignoring it\n",
+                    (unsigned)sizeof dev - 1);
+        } else {
+            snprintf(dev, sizeof dev, "%s", s);
+            *why = "AUDIO_DEV names it";
+        }
+    }
+
+    /* 2. THE MIXER THAT IS HERE. Its card is found by the name the table holds, so a
+     *    mixer this build knows and the kernel describes agrees without a hardcoded id. */
+    if (!dev[0] && (mixer = mixer_present()) != NULL) {
+        if (asound_card_for(mixer->name, card, sizeof card)) {
+            /* plughw: AND NOT hw:, and this is the difference between a unit that plays and
+             * one that looks healthy and does nothing. The operator's own working pin was
+             * `plughw:CARD=euphonia,DEV=0`; a rung that named the raw device opened fine and
+             * then never consumed a block, and because the CARD IS RBP'S CLOCK a card that
+             * never consumes stops the playhead too -- "press play and nothing moves on the
+             * screen", with every log clean. The plug device converts format and rate, which
+             * is what a USB mixer's stream needs. */
+            snprintf(dev, sizeof dev, "plughw:CARD=%s,DEV=0", card);
+            snprintf(g_dev_key, sizeof g_dev_key, "%s",
+                     mixer->usb ? mixer->usb : card);
+            *why = "a recognised mixer is on the bus";
+        } else if (mixer->card_id && mixer->card_id[0]) {
+            snprintf(dev, sizeof dev, "plughw:CARD=%s,DEV=0", mixer->card_id);
+            snprintf(g_dev_key, sizeof g_dev_key, "%s",
+                     mixer->usb ? mixer->usb : mixer->card_id);
+            *why = "a recognised mixer is on the bus (its recorded card id)";
+        } else {
+            adecide("audioshim: %s (%s) is on the bus but no ALSA card names it and "
+                    "the table records no card id for it; falling back\n",
+                    mixer->name, mixer->usb ? mixer->usb : "id unknown");
+        }
+    }
+
+    /* 3. THE CONTROLLER. */
+    if (!dev[0]) {
+        const struct controller *ctl =
+            controllers_find(env_str("MIDI_MAP", CONTROLLERS_DEFAULT_ID));
+
+        if (!ctl)
+            ctl = controllers_default();
+        snprintf(dev, sizeof dev, "%s", audio_dev_default());
+        snprintf(g_dev_key, sizeof g_dev_key, "%s",
+                 (ctl && ctl->usb) ? ctl->usb : (ctl && ctl->card_id ? ctl->card_id : ""));
+        *why = "the controller on the MIDI map";
+    }
+    /* An explicit AUDIO_DEV names a card, not a device: its key is the card id, which is
+     * as good an identity as this build has for a rig that named its own device. */
+    if (!g_dev_key[0])
+        snprintf(g_dev_key, sizeof g_dev_key, "%s", g_cfg.card_id);
+
+    changed = (strcmp(dev, g_cfg.dev) != 0);
+    snprintf(g_cfg.dev, sizeof g_cfg.dev, "%s", dev);
+    parse_card_id(g_cfg.dev);
+
+    /* The plughw twin, and its reason, are load_config()'s and are quoted there: it is
+     * the SAME physical card, which is the only property that qualifies a fallback. */
+    g_cfg.dev_plug[0] = '\0';
+    if (strncmp(g_cfg.dev, "hw:", 3) == 0) {
+        /* strcpy/strcat rather than snprintf, as this was written before: both strings
+         * are bounded by DEV_MAX, and dev_plug has DEV_MAX + 8 for the prefix. */
+        strcpy(g_cfg.dev_plug, "plughw:");
+        strcat(g_cfg.dev_plug, g_cfg.dev + 3);
+    }
+    g_master_ncands = master_candidates(g_cfg.dev,
+                                        g_cfg.dev_plug[0] ? g_cfg.dev_plug : "",
+                                        g_master_cands, MASTER_CAND_MAX, &dropped);
+    if (dropped)
+        alog("audioshim: %d device candidate(s) were not kept (too long for %u bytes, "
+             "or no room); the chain is what follows\n", dropped,
+             (unsigned)MASTER_NAME_MAX);
+    /* LOGGED WHEN THE ANSWER CHANGES, and not otherwise. This runs from reopen_try(),
+     * which a unit with no card on it retries every 500 ms doubling to 5 s for ever, so
+     * an unconditional line here would fill rbp.log -- the file an operator reads --
+     * with the same sentence. At start-up it always reports, because g_cfg.dev begins
+     * empty and the answer is therefore always a change. */
+    if (changed) {
+        adecide("audioshim: master dev=\"%s\" candidates=%d (%s)\n",
+                g_cfg.dev, g_master_ncands, *why);
+        for (k = 0; k < g_master_ncands; k++)
+            adecide("audioshim: master candidate %d/%d: %s\n",
+                    k + 1, g_master_ncands, g_master_cands[k]);
+    }
+    return changed;
 }
 
 /* ---- the HDMI mirror: defaults and tunables ------------------------------- */
@@ -993,57 +1243,14 @@ static void parse_card_id(const char *dev)
 static void load_config(void)
 {
     const char *s;
-    const char *dflt = audio_dev_default();
+    const char *why = "";
     long mute_ms, fade_ms;
 
-    /* `dflt` is a function now rather than a macro, so it is captured once: the
-     * selection it reads cannot change under us, but calling it twice in the two
-     * branches below would build the string twice and the log line would then
-     * name a different buffer than the one that was chosen. */
-    s = env_str("AUDIO_DEV", dflt);
-    if (strlen(s) >= sizeof g_cfg.dev) {
-        alog("audioshim: AUDIO_DEV is longer than %u bytes; using the default "
-             "%s\n", (unsigned)sizeof g_cfg.dev - 1, dflt);
-        s = dflt;
-    }
-    strcpy(g_cfg.dev, s);
-    parse_card_id(g_cfg.dev);
-
-    /* A hw: device that will not open is nearly always one that needs the plug
-     * chain for format or rate conversion, so its plughw: form gets one attempt —
-     * and that is the whole chain. The twin is kept because it is the SAME
-     * physical card, which is the only property that qualifies a fallback here: a
-     * card that will not take our format directly is still the card the pair map
-     * was resolved against, whereas any other device is one whose channel count
-     * gets latched into that map without its indices ever having been resolved
-     * against it. That is the shape of the defect `default` used to cause; see
-     * master_policy.h. Both strings are bounded by DEV_MAX here, which is the only
-     * place they are built; the copy below is bounded by the array. */
-    g_cfg.dev_plug[0] = '\0';
-    if (strncmp(g_cfg.dev, "hw:", 3) == 0) {
-        strcpy(g_cfg.dev_plug, "plughw:");
-        strcat(g_cfg.dev_plug, g_cfg.dev + 3);
-    }
-    {
-        int dropped = 0;
-        int k;
-
-        g_master_ncands = master_candidates(g_cfg.dev,
-                                            g_cfg.dev_plug[0] ? g_cfg.dev_plug : "",
-                                            g_master_cands, MASTER_CAND_MAX, &dropped);
-        if (dropped)
-            alog("audioshim: %d device candidate(s) were not kept (too long for %u "
-                 "bytes, or no room); the chain is what follows\n",
-                 dropped, (unsigned)MASTER_NAME_MAX);
-        /* Logged unconditionally, including the count of 0 that would mean the
-         * chain is empty: an empty chain is a bug worth seeing, and start-rb.sh
-         * tells the operator this list is in the log. */
-        alog("audioshim: master dev=\"%s\" candidates=%d\n",
-             g_cfg.dev, g_master_ncands);
-        for (k = 0; k < g_master_ncands; k++)
-            alog("audioshim: master candidate %d/%d: %s\n",
-                 k + 1, g_master_ncands, g_master_cands[k]);
-    }
+    /* WHICH CARD: apply_audio_device() answers that, and it is the same function the
+     * reopen path calls, so a unit that swaps rigs mid-session is re-asked the same
+     * question later. See its comment for the rungs and for why only the card it names
+     * may appear in the candidate chain. */
+    (void)apply_audio_device(&why);
 
     /* 0 means auto. env_int() returns the default for anything unparseable, so
      * rb.conf's literal "auto" lands here as auto, which is the intent. */
@@ -1099,14 +1306,14 @@ static void load_config(void)
         snprintf(g_cfg.mixer_file, sizeof g_cfg.mixer_file, "%s",
                  env_str("MIXER_MODE_FILE", MIXER_MODE_FILE_DEFAULT));
         if (g_cfg.mixer_external)
-            alog("audioshim: MIXER_MODE=external, with %s (%s) on the bus -- the deck taps "
+            adecide("audioshim: MIXER_MODE=external, with %s (%s) on the bus -- the deck taps "
                  "go out on %d,%d and %d,%d and rbp's own mix is NOT sent. rbp's faders, "
                  "EQ, isolator, crossfader and its FX are out of the path; the decks are "
                  "taken pre-trim from the engine (see fill_deck_taps)\n",
                  mixer->name, mixer->usb ? mixer->usb : mixer->product,
                  g_cfg.deck1.a, g_cfg.deck1.b, g_cfg.deck2.a, g_cfg.deck2.b);
         else if (want)
-            alog("audioshim: MIXER_MODE=external was asked for, but no recognised external "
+            adecide("audioshim: MIXER_MODE=external was asked for, but no recognised external "
                  "digital mixer is on the USB bus -- staying INTERNAL, so rbp's mix still "
                  "goes to the master pair. Controllers_cli's `detect` prints what this "
                  "shim's table knows about what is plugged in (%s)\n", USB_DEVICES_ROOT);
@@ -1117,6 +1324,19 @@ static void load_config(void)
     g_cfg_map0.headphones = g_cfg.headphones;
     g_cfg_map0.booth = g_cfg.booth;
     g_cfg_map0.monitor = g_cfg.monitor;
+
+    /* THE PER-MODEL MEMORY IS APPLIED HERE AND NOT EARLIER, and the first attempt at this
+     * got it wrong in a way that silenced the unit: restore_pairs_for() falls back to
+     * g_cfg_map0 for a device it has no memory of, so calling it BEFORE the snapshot above
+     * copied a map of ZEROS over master/headphones/booth/monitor -- master=0,0, which in
+     * internal mode is the output, written to channel 0 twice. The symptom was a unit that
+     * looked healthy in every log and played nothing at all.
+     *
+     * So: parse the conf, SNAPSHOT IT, and only then let the memory override for the device
+     * that is attached. The snapshot has to be the CONFIGURED map, because that is exactly
+     * what a device nobody has configured falls back to. */
+    if (g_dev_key[0])
+        restore_pairs_for(g_dev_key);
 
     /* The HDMI mirror. An EMPTY AUDIO_MIRROR_DEV turns it off, and empty is what
      * start-rb.sh exports for a knob rb.conf does not set — so the in-source
@@ -1215,7 +1435,7 @@ static void load_config(void)
      * the difference itself is what you are measuring. */
     g_cfg.sched_rt = env_flag("SCHED_RT", 1);
 
-    alog("audioshim: config dev=%s card=%s channels=%s map=[master=%d,%d "
+    adecide("audioshim: config dev=%s card=%s channels=%s map=[master=%d,%d "
          "headphones=%d,%d booth=%d,%d monitor=%d,%d] fmt=%s mute=%ldms "
          "fade=%ldms sched_rt=%d mixer=%s deck1=%d,%d deck2=%d,%d\n",
          g_cfg.dev, g_cfg.card_id[0] ? g_cfg.card_id : "-",
@@ -1256,6 +1476,90 @@ static void clamp_pair(const char *what, struct pair *p)
     }
 }
 
+/* PUT THE PAIR MAP BACK FOR THE DEVICE THAT IS ATTACHED, from the memory or from the conf.
+ *
+ * THE PRECEDENCE IS THE OPERATOR'S (2026-10-15): *"conf fallback with device w/ no memory
+ * yes"*. So the per-model memory wins where it has an entry for this device, and the
+ * configured AUDIO_MAP is what a device nobody has configured yet gets. `g_cfg_map0` IS
+ * that configured map -- it is snapshotted before resolve_pairs() can clamp anything, which
+ * is the whole reason it exists -- so the fallback needs no second parse.
+ *
+ * THE MEMORY IS ONE STRING in the environment, because that is the only shape a conf value
+ * can reach a shim in: start-rb.sh exports a STATIC list of names, so a key per device
+ * (`RB_AUDIO_PAIRS_DJMA9`) could never arrive. The grammar is
+ *
+ *     AUDIO_PAIRS_MEMORY="2b73:003c=deck1=2,3;deck2=4,5|2b73:0047=deck1=2,3"
+ *
+ * -- entries separated by '|', each `<usb id>=<an AUDIO_MAP string>`, which lets the map
+ * itself be parsed by parse_map(), the function that already knows that grammar and
+ * already refuses what it cannot read.
+ *
+ * THE CALLER MUST RE-RESOLVE AFTERWARDS: the map's indices are only meaningful against the
+ * card they were resolved against, so this clears the three flags that say "the map has
+ * been checked against the card" and lets reopen_try()'s replay commit the new count first.
+ * A caller that forgot would route against the previous card's width. */
+static void restore_pairs_for(const char *key)
+{
+    const char *mem = env_str("AUDIO_PAIRS_MEMORY", "");
+    char entry[256];
+    int got = 0;
+
+    if (key && key[0] && mem[0]) {
+        const char *p = mem;
+
+        while (*p) {
+            const char *bar = strchr(p, '|');
+            size_t len = bar ? (size_t)(bar - p) : strlen(p);
+            char one[256];
+
+            if (len >= sizeof one)
+                len = sizeof one - 1;
+            memcpy(one, p, len);
+            one[len] = '\0';
+            {
+                char *eq = strchr(one, '=');
+
+                if (eq && eq != one) {
+                    *eq = '\0';
+                    if (strcmp(one, key) == 0) {
+                        snprintf(entry, sizeof entry, "%s", eq + 1);
+                        got = 1;
+                        break;
+                    }
+                }
+            }
+            if (!bar)
+                break;
+            p = bar + 1;
+        }
+    }
+
+    if (got) {
+        /* parse_map() writes only what it names, so the defaults are re-laid first:
+         * an entry that names deck pairs and nothing else must not inherit the previous
+         * mixer's master pair by accident. */
+        g_cfg.master.a = g_cfg_map0.master.a;     g_cfg.master.b = g_cfg_map0.master.b;
+        g_cfg.headphones.a = g_cfg_map0.headphones.a;
+        g_cfg.headphones.b = g_cfg_map0.headphones.b;
+        g_cfg.booth.a = g_cfg_map0.booth.a;       g_cfg.booth.b = g_cfg_map0.booth.b;
+        g_cfg.monitor.a = g_cfg_map0.monitor.a;  g_cfg.monitor.b = g_cfg_map0.monitor.b;
+        parse_map(entry);
+        adecide("audioshim: the pair map for %s comes from the MEMORY: %s\n", key, entry);
+    } else {
+        g_cfg.master = g_cfg_map0.master;
+        g_cfg.headphones = g_cfg_map0.headphones;
+        g_cfg.booth = g_cfg_map0.booth;
+        g_cfg.monitor = g_cfg_map0.monitor;
+        adecide("audioshim: no remembered pair map for %s; using the configured one\n",
+                (key && key[0]) ? key : "(no device)");
+    }
+
+    /* The three flags that say the map has been checked against a card. */
+    g_pairs_resolved = 0;
+    g_channels_assumed = 0;
+    g_out_channels = 0;
+}
+
 static void resolve_pairs(void)
 {
     if (g_pairs_resolved)
@@ -1286,7 +1590,7 @@ static void resolve_pairs(void)
     clamp_pair("booth", &g_cfg.booth);
     clamp_pair("monitor", &g_cfg.monitor);
 
-    alog("audioshim: resolved %u channel(s): master=%d,%d headphones=%d,%d "
+    adecide("audioshim: resolved %u channel(s): master=%d,%d headphones=%d,%d "
          "booth=%d,%d monitor=%d,%d\n", g_out_channels,
          g_cfg.master.a, g_cfg.master.b, g_cfg.headphones.a, g_cfg.headphones.b,
          g_cfg.booth.a, g_cfg.booth.b, g_cfg.monitor.a, g_cfg.monitor.b);
@@ -2598,7 +2902,7 @@ static void master_lost(int err, enum master_loss why)
          * back, so the wait starts over — unchanged from before this change. */
         g_reopen_backoff_ms = REOPEN_MIN_MS;
         g_reopen_failures = 0;
-        alog("audioshim: MASTER LOST: the card went away mid-stream (writei said %s, "
+        adecide("audioshim: MASTER LOST: the card went away mid-stream (writei said %s, "
              "after %lu write(s) on that handle). Audio is silent until it is back; "
              "this shim is now looking for it. The stream map is kept\n",
              said, g_write_count);
@@ -2617,7 +2921,7 @@ static void master_lost(int err, enum master_loss why)
         g_reopen_failures++;
         if (g_master_dead_logged < 3) {
             g_master_dead_logged++;
-            alog("audioshim: MASTER LOST: the handle opened but never carried a "
+            adecide("audioshim: MASTER LOST: the handle opened but never carried a "
                  "frame (writei said %s, after %llu frame(s) and %lu write(s) on that "
                  "handle). A device that opens and refuses every block cannot play, "
                  "so it is being retired and this shim is looking again; the stream "
@@ -2794,6 +3098,32 @@ static void reopen_try(void)
      * a controller, and the useful thing is silence in the log until something
      * changes. */
     quiet = g_reopen_failures >= 3;
+
+    /* BEFORE ANY OPEN: IS THE DEVICE WE WERE ABOUT TO RETRY STILL THE RIGHT ONE?
+     *
+     * This is the rung list re-run, and it is the whole of what makes a swap work: the
+     * candidate chain used to be built once in the constructor, so a unit whose rig
+     * changed kept retrying a card that was not there -- for ever, and quietly after the
+     * third try. The operator's DJM-A9 evening was exactly that (2026-10-14).
+     *
+     * A CHANGED DEVICE MEANS THE MAP MUST BE RE-RESOLVED, and this is not optional: the
+     * map's channel indices are only ever meaningful against the card they were resolved
+     * against (master_policy.h), so the pristine copy is put back and the three
+     * resolution flags cleared, exactly as the cold-case block below does for a card that
+     * arrives after a unit booted without one. restore_pairs_for() -- added with the
+     * per-device memory -- chooses between the memory for this device and that pristine
+     * copy; until it did, g_cfg_map0 was the only source. */
+    {
+        const char *dwhy = "";
+        int moved = apply_audio_device(&dwhy);
+
+        if (moved) {
+            adecide("audioshim: the audio device is now \"%s\" (%s); the pair map is "
+                    "being re-resolved against it\n", g_cfg.dev, dwhy);
+            restore_pairs_for(g_cfg.card_id);
+        }
+    }
+
     open_real_device(g_nego.mode, quiet);
 
     if (!g_real_playback) {
@@ -2802,7 +3132,7 @@ static void reopen_try(void)
         if (g_reopen_backoff_ms < REOPEN_MAX_MS)
             g_reopen_backoff_ms *= 2;
         if (!quiet)
-            alog("audioshim: no output device yet (%u attempt(s)); next try in "
+            adecide("audioshim: no output device yet (%u attempt(s)); next try in "
                  "%lu ms\n", g_reopen_failures, g_reopen_backoff_ms);
         return;
     }
@@ -2842,7 +3172,7 @@ static void reopen_try(void)
          * resolve_pairs() — this is one thread — so no reader ever sees the 0. */
         g_out_channels = 0;
         cold_restore = 1;
-        alog("audioshim: the configuration was resolved with no card present, so the "
+        adecide("audioshim: the configuration was resolved with no card present, so the "
              "pair map is being re-resolved against %s and the channel count comes "
              "from the card this time\n", master_dev_name());
     }
@@ -2907,7 +3237,7 @@ static void reopen_try(void)
              "controller attached to get them back\n", g_cfg.master.a, g_cfg.master.b,
              master_dev_name(), g_out_channels);
     else
-        alog("audioshim: the pair map is unchanged: master=%d,%d headphones=%d,%d "
+        adecide("audioshim: the pair map is unchanged: master=%d,%d headphones=%d,%d "
              "booth=%d,%d monitor=%d,%d on %u channel(s)\n",
              g_cfg.master.a, g_cfg.master.b, g_cfg.headphones.a, g_cfg.headphones.b,
              g_cfg.booth.a, g_cfg.booth.b, g_cfg.monitor.a, g_cfg.monitor.b,
@@ -3207,7 +3537,7 @@ static void mixer_route_tick(void)
 
     if (!told) {
         told = 1;
-        alog("audioshim: mixer route is %s (MIXER_MODE=%s, switch file %s%s)\n",
+        adecide("audioshim: mixer route is %s (MIXER_MODE=%s, switch file %s%s)\n",
              external ? "EXTERNAL -- the decks go out raw and rbp's mix is not sent"
                       : "INTERNAL -- rbp's mix goes to the master pair",
              g_cfg.mixer_boot ? "external" : "internal", g_cfg.mixer_file,
@@ -3215,7 +3545,7 @@ static void mixer_route_tick(void)
     }
     if (external != g_cfg.mixer_external) {
         g_cfg.mixer_external = external;
-        alog("audioshim: mixer route -> %s%s\n",
+        adecide("audioshim: mixer route -> %s%s\n",
              external ? "EXTERNAL (decks raw on their own pairs, rbp's mix not sent)"
                       : "INTERNAL (rbp's mix, and its faders and EQ are the path again)",
              (want && !present) ? " -- external was asked for but no recognised external "
@@ -3249,7 +3579,7 @@ static void fill_deck_taps(snd_pcm_uframes_t size)
         if (p->a >= (int)g_out_channels || p->b >= (int)g_out_channels) {
             if (!g_cfg.tap_guard_logged) {
                 g_cfg.tap_guard_logged = 1;
-                alog("audioshim: external mixer mode wants deck %d on channels "
+                adecide("audioshim: external mixer mode wants deck %d on channels "
                      "%d,%d but the card was opened with %u; those decks are NOT "
                      "sent. AUDIO_MAP and the card must agree\n",
                      d + 1, p->a, p->b, g_out_channels);
