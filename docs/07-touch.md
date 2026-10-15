@@ -3430,12 +3430,27 @@ operator asked *"what about configuring which channel pairs get audio?"*. In **e
 mode** the deck pairs *are* that answer: rbp's mix is not sent at all, so master, headphones
 and booth are not in the path and `deck1`/`deck2` are the only pairs that decide where audio
 goes — which is why these two are here and the other four streams are not. A tap cycles the
-deck through the pairs the card can carry (`2,3` → `4,5` → `6,7` → back), skipping any pair
-too wide for the card audioshim actually opened: a 4-channel card offers `2,3` alone, and
-rather than offering `6,7` and letting the shim refuse it. The readout comes from
-`/run/rblive4/audio.state` — the **resolved** map — so the row shows what the unit is doing,
-which is the mixer row's own rule, and it draws a **dash and not the file's comma** because
-menu_font.h's atlas has no comma and a value with one in it would ship as a gap.
+deck through the pairs the card can carry — `0,1` → `2,3` → `4,5` → `6,7` → back — with two
+rules applied to that walk:
+
+- **A pair the card cannot carry is skipped.** The width comes from `audio.state`'s
+  `channels=`, so a 4-channel card offers `0,1` and `2,3` and nothing else, rather than offering
+  `6,7` and letting audioshim refuse it.
+- **A pair the OTHER deck is on is skipped** — the operator's own rule, same day: *"don't allow
+  deck pairs to be used twice so skip over if its occupied"*. Two decks driven onto one pair
+  would be summed onto a single output in external mode, with nothing in any log saying so.
+
+`0,1` is in the list deliberately, and it is the pair the first version left out: the reasoning
+was "the master pair is not a deck's to take", which is true in internal mode and is the wrong
+mode to reason in. In external mode rbp's mix is **not written at all**
+(`if (!external && pair_mapped(&g_cfg.master))`, [09](09-audio.md)), so `0,1` is an ordinary
+free pair; in internal mode the deck taps are not used, so a deck parked there is inert rather
+than harmful. The operator's question — *"why doesn't the euphonia have 1/2 as deck pairs
+also"* — is what found it.
+
+The readout comes from `/run/rblive4/audio.state` — the **resolved** map — so the row shows what
+the unit is doing, which is the mixer row's own rule, and it draws a **dash and not the file's
+comma** because menu_font.h's atlas has no comma and a value with one in it would ship as a gap.
 
 **The word a tap writes names BOTH decks**, always: `deck1=4,5;deck2=2,3`. That is not
 tidiness — the live map file is *authoritative for the streams it names*

@@ -132,10 +132,26 @@ static const char *const *const row_next[SB_ROWS] = {
  * width of 0 (not read yet) offers all of them, because refusing to offer what might work
  * is worse than offering one the shim will refuse in a line anybody can read.
  * ------------------------------------------------------------------------- */
+/* EVERY ADJACENT STEREO PAIR THE SHIM CAN ADDRESS, 0,1 INCLUDED.
+ *
+ * The first version left 0,1 out, reasoning that the master pair is not a deck's to take. That
+ * is true in INTERNAL mode and it is the wrong mode to reason in: in EXTERNAL mode rbp's mix is
+ * NOT SENT AT ALL (`if (!external && pair_mapped(&g_cfg.master))` in audioshim.c's flush_master,
+ * and the monitor with it), so 0,1 is an ordinary free pair and a deck on it is a deck on it.
+ * In internal mode the deck taps are not used at all, so a deck parked on 0,1 is inert rather
+ * than harmful. The operator asked the question that found this -- *"why doesn't the euphonia
+ * have 1/2 as deck pairs also"* -- and the answer was that there was no reason.
+ *
+ * THE PAIR THE OTHER DECK IS ON IS SKIPPED when the cycle passes over it
+ * (*"don't allow deck pairs to be used twice so skip over if its occupied"*), so two decks
+ * cannot be driven onto one pair from the glass: two streams sharing a channel is legal and the
+ * last write wins, which in external mode means both decks summed onto one output and no line
+ * anywhere saying so. A deck parked on a pair the list does not hold is left alone by that rule
+ * -- it cannot be collided with, only moved off. */
 #define ST_PAIR_MAX 7               /* "10,11" would be 5; the shim carries 8 channels */
 
 static const struct { int a, b; } pair_cand[] = {
-    { 2, 3 }, { 4, 5 }, { 6, 7 }
+    { 0, 1 }, { 2, 3 }, { 4, 5 }, { 6, 7 }
 };
 #define ST_PAIR_CANDS ((int)(sizeof pair_cand / sizeof pair_cand[0]))
 
@@ -185,18 +201,28 @@ static int pair_index_of(int slot, const struct settings_state *S)
     return -1;
 }
 
-/* The pair a tap on deck `slot` asks for: the next candidate that fits, wrapping, and
- * staying put when nothing fits (a 2-channel card carries no deck pair at all, and the row
- * then writes what it is already showing rather than inventing one). */
+/* The pair a tap on deck `slot` asks for: the next candidate that fits AND that the other deck
+ * is not already on, wrapping, and staying put when nothing is left (a card with one usable
+ * pair, or one where the other deck holds the only other candidate). */
 static int pair_next_index(int slot, const struct settings_state *S)
 {
+    int other = slot ? 0 : 1;
     int cur = pair_index_of(slot, S);
-    int i, step;
+    int oa, ob, i, step;
 
+    deck_pair_of(other, S, &oa, &ob);
     for (step = 1; step <= ST_PAIR_CANDS; step++) {
         i = (cur + step) % ST_PAIR_CANDS;
-        if (pair_cand_fits(i, S ? S->audio_channels : 0))
-            return i;
+        if (!pair_cand_fits(i, S ? S->audio_channels : 0))
+            continue;
+        /* THE OTHER DECK'S PAIR IS NOT ON OFFER -- see the candidate list's comment. Note
+         * that this only ever skips the OTHER deck's pair, so a state that already has both
+         * decks on one pair (hand-written in the conf) can still be walked out of: the first
+         * tap lands on any pair that is free, and the pair they share is then the only one
+         * skipped. */
+        if (pair_cand[i].a == oa && pair_cand[i].b == ob)
+            continue;
+        return i;
     }
     return cur < 0 ? 0 : cur;
 }

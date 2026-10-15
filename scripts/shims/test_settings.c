@@ -1149,19 +1149,53 @@ static void test_deck_pairs(void)
           "the two deck rows' readouts overwrote each other");
 
     /* THE WORD NAMES BOTH DECKS. deck 1 is on 6,7 and deck 2 on 2,3, so a tap on deck 1 asks
-     * for the pair after 6,7 -- which wraps to 2,3 -- AND restates deck 2 where it is. */
+     * for the pair after 6,7 -- which wraps to 0,1 -- AND restates deck 2 where it is. */
     t.audio_channels = 8;
     CHECK(settings_next_value(ST_ROW_DECK1, &t)
-          && strcmp(settings_next_value(ST_ROW_DECK1, &t), "deck1=2,3;deck2=2,3") == 0,
+          && strcmp(settings_next_value(ST_ROW_DECK1, &t), "deck1=0,1;deck2=2,3") == 0,
           "a tap on deck 1 at 6,7 asks for '%s'", settings_next_value(ST_ROW_DECK1, &t));
     CHECK(settings_next_value(ST_ROW_DECK2, &t)
           && strcmp(settings_next_value(ST_ROW_DECK2, &t), "deck2=4,5;deck1=6,7") == 0,
           "a tap on deck 2 at 2,3 asks for '%s'", settings_next_value(ST_ROW_DECK2, &t));
 
-    /* THE CYCLE WALKS THE CANDIDATES AND WRAPS, on a card wide enough for all three. */
+    /* THE OTHER DECK'S PAIR IS SKIPPED -- the operator's own rule of 2026-10-15: *"don't allow
+     * deck pairs to be used twice so skip over if its occupied"*. deck 1 on 2,3 with deck 2 on
+     * 4,5 must therefore go to 6,7 and not to 4,5. */
     {
         struct settings_state w;
-        const char *want[3] = { "deck1=4,5;deck2=4,5", "deck1=6,7;deck2=4,5",
+
+        memset(&w, 0, sizeof w);
+        w.audio_channels = 8;
+        CHECK(strcmp(settings_next_value(ST_ROW_DECK1, &w), "deck1=6,7;deck2=4,5") == 0,
+              "deck 1 went to '%s' -- it must skip deck 2's 4,5",
+              settings_next_value(ST_ROW_DECK1, &w));
+
+        /* And the same the other way: deck 2 on 6,7 with deck 1 on 2,3 wraps to 0,1, which is
+         * free -- it never needs to pass over deck 1's pair at all. */
+        memset(&w, 0, sizeof w);
+        w.audio_channels = 8;
+        w.deck_a[1] = 6; w.deck_b[1] = 7;
+        CHECK(strcmp(settings_next_value(ST_ROW_DECK2, &w), "deck2=0,1;deck1=2,3") == 0,
+              "deck 2 wrapped to '%s'", settings_next_value(ST_ROW_DECK2, &w));
+
+        /* A STATE THAT IS ALREADY COLLIDED CAN BE WALKED OUT OF: both decks on 4,5 (only
+         * reachable from the conf now) still moves on the first tap, because the shared pair
+         * is the one pair the rule skips. */
+        memset(&w, 0, sizeof w);
+        w.audio_channels = 8;
+        w.deck_a[0] = 4; w.deck_b[0] = 5;
+        w.deck_a[1] = 4; w.deck_b[1] = 5;
+        CHECK(strcmp(settings_next_value(ST_ROW_DECK1, &w), "deck1=6,7;deck2=4,5") == 0,
+              "a collided state offers '%s' -- it must not be a trap",
+              settings_next_value(ST_ROW_DECK1, &w));
+    }
+
+    /* THE CYCLE WALKS THE CANDIDATES AND WRAPS, on a card wide enough for all four and with the
+     * other deck parked somewhere the walk passes. deck 2 sits on 4,5 throughout, so deck 1's
+     * walk is 2,3 -> 6,7 -> 0,1 -> (4,5 is skipped) -> 2,3. */
+    {
+        struct settings_state w;
+        const char *want[3] = { "deck1=6,7;deck2=4,5", "deck1=0,1;deck2=4,5",
                                 "deck1=2,3;deck2=4,5" };
         int step;
 
@@ -1183,40 +1217,42 @@ static void test_deck_pairs(void)
     }
 
     /* THE WIDTH FILTER: the cycle never offers a pair the card cannot carry. A 4-channel card
-     * is channels 0..3, so (2,3) is the ONLY candidate on it and a tap stays where it is
-     * rather than inventing a pair audioshim would refuse; a 6-channel card adds (4,5) and
-     * still never reaches (6,7). Both are the same rule, at two widths. */
+     * is channels 0..3, so it carries 0,1 and 2,3 and nothing else; a 6-channel card adds 4,5
+     * and still never reaches 6,7. */
     {
         struct settings_state w;
 
         memset(&w, 0, sizeof w);
         w.audio_channels = 4;
-        CHECK(strcmp(settings_next_value(ST_ROW_DECK1, &w), "deck1=2,3;deck2=4,5") == 0,
-              "a 4-channel card offers '%s' after 2,3 -- only 2,3 fits it",
+        CHECK(strcmp(settings_next_value(ST_ROW_DECK1, &w), "deck1=0,1;deck2=4,5") == 0,
+              "a 4-channel card offers '%s' after 2,3 -- 4,5 is not on it",
               settings_next_value(ST_ROW_DECK1, &w));
 
+        /* 6 channels: 4,5 now fits, but deck 2 is sitting on it, so the walk goes on to 0,1. */
         memset(&w, 0, sizeof w);
         w.audio_channels = 6;
-        CHECK(strcmp(settings_next_value(ST_ROW_DECK1, &w), "deck1=4,5;deck2=4,5") == 0,
-              "a 6-channel card offers '%s' after 2,3",
+        CHECK(strcmp(settings_next_value(ST_ROW_DECK1, &w), "deck1=0,1;deck2=4,5") == 0,
+              "a 6-channel card offers '%s' after 2,3 -- deck 2 holds 4,5 and 6,7 is not on it",
               settings_next_value(ST_ROW_DECK1, &w));
-        w.deck_a[0] = 4; w.deck_b[0] = 5;
-        CHECK(strcmp(settings_next_value(ST_ROW_DECK1, &w), "deck1=2,3;deck2=4,5") == 0,
-              "a 6-channel card offers '%s' after 4,5 -- 6,7 is not on it",
+
+        /* ...and with deck 2 off it, 4,5 is the next one. */
+        w.deck_a[1] = 6; w.deck_b[1] = 7;
+        CHECK(strcmp(settings_next_value(ST_ROW_DECK1, &w), "deck1=4,5;deck2=6,7") == 0,
+              "a 6-channel card offers '%s' after 2,3 with deck 2 elsewhere",
               settings_next_value(ST_ROW_DECK1, &w));
     }
 
     /* A PAIR THE CANDIDATE LIST DOES NOT HOLD -- set by hand in the conf -- still answers a
      * sensible word rather than none or a crash: the cycle starts at the first candidate that
-     * fits, which here is 2,3. */
+     * fits and is free, which here is 0,1. */
     {
         struct settings_state w;
 
         memset(&w, 0, sizeof w);
         w.audio_channels = 8;
-        w.deck_a[0] = 0; w.deck_b[0] = 1;      /* a deck on the master pair */
+        w.deck_a[0] = 1; w.deck_b[0] = 2;      /* not an adjacent pair in the list */
         CHECK(settings_next_value(ST_ROW_DECK1, &w)
-              && strcmp(settings_next_value(ST_ROW_DECK1, &w), "deck1=2,3;deck2=4,5") == 0,
+              && strcmp(settings_next_value(ST_ROW_DECK1, &w), "deck1=0,1;deck2=4,5") == 0,
               "a deck on a pair the list does not hold asks for '%s'",
               settings_next_value(ST_ROW_DECK1, &w));
     }
