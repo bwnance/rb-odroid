@@ -3458,6 +3458,17 @@ tidiness — the live map file is *authoritative for the streams it names*
 conf. The panel writes the pair state it is showing, both rows of it, so a tap on `DECK 1 PAIR`
 cannot disturb `DECK 2 PAIR`.
 
+**AND EVERY ROW'S VALUE MUST BE IN THE REPAINT KEY.** The panel is published as an image and
+rebuilt only when something it draws with has changed (`menu_draw.c`'s
+`menu_settings_changed()`, keyed by `menu_settings_key()`). The deck rows were added to the
+rows and *not* to the key, so a tap wrote the map, audioshim applied it within a block, and the
+panel went on showing the pair it had drawn minutes earlier — the operator's report of
+2026-10-15: *"when i change the pairs the screen doesn't update until i refresh"*. Measured with
+`boxshot2.py` against the panel's own plane buffer: **0 bytes changed** across a tap that moved
+the deck from `0-1` to `4-5`, and **357 bytes** once the pairs were in the key — same tap, panel
+never closed. The rule to carry: a row whose value comes from a FILE is keyed on what the file
+says, not on the tap, because the two are a block apart.
+
 **The two USB rows replaced the one `USB STOP` row** on 2026-10-14 — the operator's ask:
 *"add a line for each usb stick the settings menu, it should be called USB1 and USB2 and the
 setting should be the USB label name, if you hold the USB1/USB2 button it should behave like

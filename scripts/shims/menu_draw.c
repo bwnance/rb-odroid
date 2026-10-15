@@ -313,6 +313,8 @@ struct menu_map {
     int    settings_painted_flash;   /* ...and the half of a running hold's blink it is lit on */
     int    settings_painted_usb;     /* ...and the liveness bits it was drawn with ... */
     int    settings_painted_mixer;   /* ...the bus and route bits ... */
+    int    settings_painted_decks;   /* ...and the two deck pairs, which are a FILE's answer
+                                      * and so arrive a block or two after the tap ... */
     int    settings_painted_share;   /* ...and the three viewer switches */
     int    settings_painted_encode;
     int    settings_painted_pointer;
@@ -1008,24 +1010,39 @@ static void menu_settings_view(struct menu_view *sv)
     sv->bpp   = g.view.bpp;
 }
 
-/* The two packed pairs the key compares, gathered in one place so the build and the
+/* The packed pairs the key compares, gathered in one place so the build and the
  * no-cache repaint cannot come to key on different things. */
 static void menu_settings_key(const struct settings_state *S, unsigned *usb,
-                              unsigned *mixer)
+                              unsigned *mixer, unsigned *decks)
 {
     *usb   = (unsigned)((S->usb_live[0] ? 1 : 0) | (S->usb_live[1] ? 2 : 0));
     *mixer = (unsigned)((S->mixer_present ? 1 : 0) | (S->mixer_external ? 2 : 0));
+    /* THE TWO DECK PAIRS, which the picture draws as their own text and which nothing used to
+     * key on AT ALL -- so a tap on DECK 1 PAIR wrote the map, audioshim applied it within a
+     * block, and the panel went on showing the pair it had drawn minutes ago until something
+     * else forced a rebuild. That is the operator's report of 2026-10-15: *"when i change the
+     * pairs the screen doesn't update until i refresh"*.
+     *
+     * Four bits a channel, plus one so that the module's "not filled" state (0,0) and a real
+     * channel 0 cannot collide -- channels are 0..7 and PAIR_NONE is -1, so a+1 is 0..8 and
+     * fits. A pair that is unset keys differently from one that reads the same text; that
+     * costs a repaint and can never leave a stale one. */
+    *decks = (unsigned)(((S->deck_a[0] + 1) & 0x0f)
+                      | (((S->deck_b[0] + 1) & 0x0f) << 4)
+                      | (((S->deck_a[1] + 1) & 0x0f) << 8)
+                      | (((S->deck_b[1] + 1) & 0x0f) << 12));
 }
 
 /* Is the published image already the picture this state would draw? */
-static int menu_settings_changed(int row, unsigned usb, unsigned mixer, int flash,
-                                 const struct settings_state *S)
+static int menu_settings_changed(int row, unsigned usb, unsigned mixer, unsigned decks,
+                                 int flash, const struct settings_state *S)
 {
     return !g.settings_valid ||
            g.settings_painted_row != row ||
            g.settings_painted_flash != flash ||
            g.settings_painted_usb != (int)usb ||
            g.settings_painted_mixer != (int)mixer ||
+           g.settings_painted_decks != (int)decks ||
            g.settings_painted_share != S->share_on ||
            g.settings_painted_encode != S->encode_hw ||
            g.settings_painted_pointer != S->pointer_on;
@@ -1037,7 +1054,7 @@ static void menu_settings_build(void)
 {
     struct menu_view sv;
     struct settings_state S;
-    unsigned usb, mixer;
+    unsigned usb, mixer, decks;
     int row, flash;
     void *t;
     long t0;
@@ -1048,14 +1065,14 @@ static void menu_settings_build(void)
         return;
 
     pointsrc_settings_state(&S);
-    menu_settings_key(&S, &usb, &mixer);
+    menu_settings_key(&S, &usb, &mixer, &decks);
     /* THE FLASH IS PART OF THE KEY, and it is the one that is easy to forget: a hold moves the
      * panel nowhere and changes no other value, so a gate that could not see the phase would
      * publish the image built when the finger went down and the row would light once and stay
      * lit -- the trap the settings panel's own build records (settings_zone.c). */
     flash = settings_hold_flash() ? settings_hold_row() : 0;
     row = settings_pressed();
-    if (!menu_settings_changed(row, usb, mixer, flash, &S))
+    if (!menu_settings_changed(row, usb, mixer, decks, flash, &S))
         return;                      /* the published image is already this one */
 
     menu_settings_buf_view(&sv, g.settings_img[1]);
@@ -1078,6 +1095,7 @@ static void menu_settings_build(void)
     g.settings_painted_flash   = flash;
     g.settings_painted_usb     = (int)usb;
     g.settings_painted_mixer   = (int)mixer;
+    g.settings_painted_decks   = (int)decks;
     g.settings_painted_share   = S.share_on;
     g.settings_painted_encode  = S.encode_hw;
     g.settings_painted_pointer = S.pointer_on;
@@ -1142,14 +1160,14 @@ static void menu_settings_repaint(void)
 {
     struct menu_view sv;
     struct settings_state S;
-    unsigned usb, mixer;
+    unsigned usb, mixer, decks;
     int row, flash;
 
     pointsrc_settings_state(&S);
-    menu_settings_key(&S, &usb, &mixer);
+    menu_settings_key(&S, &usb, &mixer, &decks);
     flash = settings_hold_flash() ? settings_hold_row() : 0;
     row = settings_pressed();
-    if (!menu_settings_changed(row, usb, mixer, flash, &S))
+    if (!menu_settings_changed(row, usb, mixer, decks, flash, &S))
         return;
     menu_settings_view(&sv);
     if (settings_paint_ok(&sv))
@@ -1159,6 +1177,7 @@ static void menu_settings_repaint(void)
     g.settings_painted_flash   = flash;
     g.settings_painted_usb     = (int)usb;
     g.settings_painted_mixer   = (int)mixer;
+    g.settings_painted_decks   = (int)decks;
     g.settings_painted_share   = S.share_on;
     g.settings_painted_encode  = S.encode_hw;
     g.settings_painted_pointer = S.pointer_on;
