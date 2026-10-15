@@ -1150,8 +1150,58 @@ the process rbp plays through ever reaches, including on the no-device path, whe
 what calls `reopen_try()` — sets `g_astate_owner`, and `astate_write()` refuses without it.
 The helpers still log every decision to fd 2 (`rbp.log`), which is where a boot's decisions
 belong; they just cannot speak for the audio any more. Two smaller rules in the same
-function: the **rung is remembered** across writes (`why=NULL` means "unchanged", not
-"unknown", so a later writer cannot blank the one field the file exists for), and the check
-for the file is `[ -f /run/rblive4/audio.state ]` — with the owner gate it appears when the
-player first flushes, not before.
+function: the **rung and the route are both remembered** across writes (`why`/`route` =
+`NULL` means "unchanged", not "unknown", so a later writer cannot blank the fields the file
+exists for — every `resolve_pairs()` passes both, and a live map change re-runs it, which is
+how `route=` came to read `unknown` the first time this was tested), and the check for the
+file is `[ -f /run/rblive4/audio.state ]` — with the owner gate it appears when the player
+first flushes, not before.
+
+## The map is live too: `RB_AUDIO_MAP_FILE` → `/run/rblive4/audio.map`
+
+`AUDIO_MAP` is an **environment variable**, so its value is frozen when the player launches.
+That is why the pair map was the one audio setting with no way in from the glass or the page,
+and why moving a stream meant editing `rb.local.conf` and restarting the unit — and it is a
+property of *where the value comes from*, so no amount of shim code changes it. A second
+source is what changes it:
+
+```
+$ printf 'deck1=6,7;deck2=8,9\n' > /run/rblive4/audio.map
+audioshim: the live pair map changed (/run/rblive4/audio.map): deck1=6,7 deck2=8,9
+audioshim: resolved 8 channel(s): master=0,1 headphones=2,3 booth=-1,-1 monitor=-1,-1
+```
+
+One line of `AUDIO_MAP` grammar, re-read by `pairs_tick()` on the audio callback on the same
+cadence as the route (**~0.7 s**), and it **overrides only the streams it names**:
+
+| layer | source |
+|---|---|
+| 1 (wins) | `/run/rblive4/audio.map` — the operator's current intent |
+| 2 | `RB_AUDIO_PAIRS_MEMORY`'s entry for the attached mixer |
+| 3 | `RB_AUDIO_MAP` — the configured default |
+
+So a file naming only the deck pairs leaves `master` alone, and a device nobody has configured
+still gets the conf.
+
+**Absent means "keep what we were started with"**, the same rule the route follows — which has
+a consequence worth stating plainly: **deleting the file does not revert it.** The last map
+applied stays applied until something writes a different one or the unit restarts; write the
+conf's own string to go back. It lives in `/run` (tmpfs), so a reboot clears it and the unit
+comes up on its conf, exactly as with `mixer.mode`.
+
+**The base is re-laid on every change, and that is the load-bearing part.** `parse_map()`
+overrides rather than replaces, so applying a partial map needs a known base underneath it;
+`lay_base_pairs()` supplies layer 2 or 3 and then the file, and it is called from **all three**
+paths that resolve a map — the constructor, a device change in `reopen_try()`, and the tick.
+A reopen that re-laid only the memory would silently drop a live change the moment a different
+mixer was plugged in. The **deck pairs joined the pristine copy** (`g_cfg_map0`) with this
+change; without them a live `deck1=6,7` would have inherited whatever deck pairs the previous
+mixer happened to have.
+
+**What moves is what the card can carry.** The four streams are clamped by `resolve_pairs()`
+and the two deck taps by `fill_deck_taps()`, both against the channel count the card was opened
+with; a pair beyond it is dropped with a log line rather than folded down. That guard is a
+one-shot per process, so `pairs_tick()` clears the flag when the map changes — otherwise a live
+change to a pair the card does not have would be **silent**, which is the failure this whole
+file keeps paying for.
 

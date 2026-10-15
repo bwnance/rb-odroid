@@ -277,6 +277,7 @@ static struct {
     int  mixer_external;       /* MIXER_MODE: 1 = send the decks raw, not the mix */
     int  mixer_boot;           /* ...what the CONSTRUCTOR decided, the file's fallback */
     char mixer_file[128];      /* MIXER_MODE_FILE: the live switch's path, "" = none */
+    char map_file[128];        /* AUDIO_MAP_FILE: the live pair map's path, "" = none */
     int  tap_guard_logged;     /* the "this card is too narrow" NOTE, said once */
     char mirror_dev[DEV_MAX + 64]; /* AUDIO_MIRROR_DEV, the raw list ("" = off) */
     int  mirror_fmt;           /* s24pack format, from AUDIO_MIRROR_FMT */
@@ -308,6 +309,14 @@ static struct {
     struct pair headphones;
     struct pair booth;
     struct pair monitor;
+    /* And the deck taps, which are only read in external mixer mode. They are here for the
+     * same reason as the other four and for one more: the LIVE pair map (pairs_tick) applies
+     * a partial map over this base on every change, so every stream it does not name must be
+     * re-laid from somewhere known -- otherwise a live "deck1=6,7" would inherit whatever
+     * master the device before it happened to have. Without them here, that base was the
+     * running g_cfg, which is exactly the value clamping may have destroyed. */
+    struct pair deck1;
+    struct pair deck2;
 } g_cfg_map0;
 
 /* The device strings to try, in order, and how many of them there are. Filled by
@@ -366,6 +375,7 @@ static const char *master_dev_name(void)
 static void parse_card_id(const char *dev);
 static void restore_pairs_for(const char *key);
 static void astate_write(const char *why, const char *route);
+static int  read_switch_word(const char *path, char *out, size_t outsz);
 
 static const char *audio_dev_default(void)
 {
@@ -1124,6 +1134,12 @@ static struct {
 
 /* ---- configuration -------------------------------------------------------- */
 
+/* Entries a map string named and this shim REFUSED, counted so the live map can say so where the
+ * decisions live. Every refusal already has an alog() line, and alog() goes to /tmp/audioshim.log
+ * -- a file the operator at the glass is not reading. A map that is HALF applied is the worst
+ * kind: the streams it did move look like success. Reset by pairs_tick() around its apply. */
+static int g_map_rejects;
+
 static void parse_pair(const char *what, const char *v, struct pair *out)
 {
     char *end;
@@ -1135,6 +1151,7 @@ static void parse_pair(const char *what, const char *v, struct pair *out)
     }
     a = strtol(v, &end, 10);
     if (end == v || *end != ',') {
+        g_map_rejects++;
         alog("audioshim: %s: '%s' is not a channel pair (want a,b or -); "
              "leaving the default\n", what, v);
         return;
@@ -1142,16 +1159,19 @@ static void parse_pair(const char *what, const char *v, struct pair *out)
     const char *rest = end + 1;
     b = strtol(rest, &end, 10);
     if (end == rest || *end != '\0') {
+        g_map_rejects++;
         alog("audioshim: %s: '%s' is not a channel pair (want a,b or -); "
              "leaving the default\n", what, v);
         return;
     }
     if (a < 0 || b < 0 || a >= MAX_OUT_CHANNELS || b >= MAX_OUT_CHANNELS) {
+        g_map_rejects++;
         alog("audioshim: %s: channel %ld,%ld is outside 0..%d; leaving the default\n",
              what, a, b, MAX_OUT_CHANNELS - 1);
         return;
     }
     if (a == b) {
+        g_map_rejects++;
         alog("audioshim: %s: channel %ld appears twice in %ld,%ld; leaving the "
              "default\n", what, a, a, b);
         return;
@@ -1170,6 +1190,7 @@ static void parse_map(const char *s)
     if (s[0] == '\0')
         return;
     if (strlen(s) >= sizeof buf) {
+        g_map_rejects++;
         alog("audioshim: AUDIO_MAP is longer than %u bytes; ignoring it entirely\n",
              (unsigned)sizeof buf - 1);
         return;
@@ -1187,6 +1208,7 @@ static void parse_map(const char *s)
 
         eq = strchr(tok, '=');
         if (eq == NULL) {
+            g_map_rejects++;
             alog("audioshim: AUDIO_MAP entry '%s' is not stream=pair; ignoring it\n", tok);
             continue;
         }
@@ -1195,6 +1217,7 @@ static void parse_map(const char *s)
         val = eq + 1;
 
         if (strcmp(name, "monitor") == 0) {
+            g_map_rejects++;
             alog("audioshim: AUDIO_MAP has no 'monitor' entry — set "
                  "AUDIO_MONITOR_PAIR instead; ignoring it\n");
             continue;
@@ -1210,6 +1233,7 @@ static void parse_map(const char *s)
         else if (strcmp(name, "deck2") == 0)
             dst = &g_cfg.deck2;
         else {
+            g_map_rejects++;
             alog("audioshim: AUDIO_MAP stream '%s' is not one of "
                  "master/headphones/booth/deck1/deck2; ignoring it\n", name);
             continue;
@@ -1241,6 +1265,11 @@ static void parse_card_id(const char *dev)
 /* Where the LIVE mixer-route switch lives when the conf does not name one. Same directory and
  * same one-word-and-newline shape as the viewer's switch files (RB_VNC_FPS_FILE and friends). */
 #define MIXER_MODE_FILE_DEFAULT "/run/rblive4/mixer.mode"
+
+/* The same shape for the pair map: one line of AUDIO_MAP grammar, and its ABSENCE means "keep
+ * what we were started with" rather than "reset" -- the same rule the route's file follows, so
+ * a unit nobody has switched behaves exactly as its conf says. */
+#define AUDIO_MAP_FILE_DEFAULT  "/run/rblive4/audio.map"
 
 static void load_config(void)
 {
@@ -1284,6 +1313,14 @@ static void load_config(void)
     parse_map(env_str("AUDIO_MAP", ""));
     parse_pair("AUDIO_MONITOR_PAIR", env_str("AUDIO_MONITOR_PAIR", ""), &g_cfg.monitor);
 
+    /* AND WHERE THE LIVE MAP LIVES. AUDIO_MAP is an environment variable, so it is frozen when
+     * the player launches: no conf edit, and no page or panel, can move a stream without a
+     * restart. This file is what lifts that -- it is read while the unit plays, on the same
+     * cadence and by the same rule as the mixer route's switch (a missing file means keep what
+     * we were started with). Only the PATH is read here; pairs_tick() does the reading. */
+    snprintf(g_cfg.map_file, sizeof g_cfg.map_file, "%s",
+             env_str("AUDIO_MAP_FILE", AUDIO_MAP_FILE_DEFAULT));
+
     /* MIXER_MODE=external: an external digital mixer is the mixer, so what goes to the card
      * is each deck's own audio on its own pair and rbp's mix is NOT sent at all -- sending
      * both would play every deck twice. Anything else, including unset and unparseable, is
@@ -1326,6 +1363,8 @@ static void load_config(void)
     g_cfg_map0.headphones = g_cfg.headphones;
     g_cfg_map0.booth = g_cfg.booth;
     g_cfg_map0.monitor = g_cfg.monitor;
+    g_cfg_map0.deck1 = g_cfg.deck1;
+    g_cfg_map0.deck2 = g_cfg.deck2;
 
     /* THE PER-MODEL MEMORY IS APPLIED HERE AND NOT EARLIER, and the first attempt at this
      * got it wrong in a way that silenced the unit: restore_pairs_for() falls back to
@@ -1543,11 +1582,18 @@ static void astate_write(const char *why, const char *route)
      * that way: the unit's file read `why=` with the route tick's write the last one in, and
      * the rung was gone by the time anybody looked. */
     static char last_why[80];
+    /* And the route is remembered for the same reason, which is not a hypothetical: EVERY
+     * resolve_pairs() passes route=NULL, and a map change re-runs resolve_pairs() -- so a live
+     * pair-map write used to leave the file reading `route=unknown` while the shim was routing
+     * EXTERNAL. Only the route tick has a route to give, and it gives it on a transition. */
+    static char last_route[16] = "unknown";
     char buf[640];
     int fd, n;
 
     if (why && why[0])
         snprintf(last_why, sizeof last_why, "%s", why);
+    if (route && route[0])
+        snprintf(last_route, sizeof last_route, "%s", route);
 
     /* ONLY THE PROCESS CARRYING THE AUDIO MAY PUBLISH, and this is not a nicety.
      *
@@ -1590,7 +1636,7 @@ static void astate_write(const char *why, const char *route)
                  g_cfg.booth.a, g_cfg.booth.b,
                  g_cfg.monitor.a, g_cfg.monitor.b,
                  g_cfg.deck1.a, g_cfg.deck1.b, g_cfg.deck2.a, g_cfg.deck2.b,
-                 route ? route : "unknown",
+                 last_route,
                  g_reopen_failures,
                  (unsigned long)g_master_frames_delivered);
     if (n > 0)
@@ -1598,7 +1644,11 @@ static void astate_write(const char *why, const char *route)
     close(fd);
 }
 
-static void restore_pairs_for(const char *key)
+/* LAY THE BASE MAP FOR A DEVICE, and nothing else: the per-model memory where it has an entry for
+ * this device, else the configured map. No flag is touched, which is the whole reason it is
+ * separate from restore_pairs_for() below -- the live switch calls this mid-stream, against a card
+ * that is open and a channel count that is known, and must not have either of those reset. */
+static void lay_base_pairs(const char *key)
 {
     const char *mem = env_str("AUDIO_PAIRS_MEMORY", "");
     char entry[256];
@@ -1635,14 +1685,17 @@ static void restore_pairs_for(const char *key)
     }
 
     if (got) {
-        /* parse_map() writes only what it names, so the defaults are re-laid first:
-         * an entry that names deck pairs and nothing else must not inherit the previous
-         * mixer's master pair by accident. */
+        /* parse_map() writes only what it names, so the base is re-laid first: an entry
+         * that names deck pairs and nothing else must not inherit the previous mixer's
+         * master pair by accident -- and, since the deck pairs joined g_cfg_map0, nor may
+         * an entry that names master alone inherit the previous mixer's DECK pairs. */
         g_cfg.master.a = g_cfg_map0.master.a;     g_cfg.master.b = g_cfg_map0.master.b;
         g_cfg.headphones.a = g_cfg_map0.headphones.a;
         g_cfg.headphones.b = g_cfg_map0.headphones.b;
         g_cfg.booth.a = g_cfg_map0.booth.a;       g_cfg.booth.b = g_cfg_map0.booth.b;
         g_cfg.monitor.a = g_cfg_map0.monitor.a;  g_cfg.monitor.b = g_cfg_map0.monitor.b;
+        g_cfg.deck1.a = g_cfg_map0.deck1.a;       g_cfg.deck1.b = g_cfg_map0.deck1.b;
+        g_cfg.deck2.a = g_cfg_map0.deck2.a;       g_cfg.deck2.b = g_cfg_map0.deck2.b;
         parse_map(entry);
         adecide("audioshim: the pair map for %s comes from the MEMORY: %s\n", key, entry);
     } else {
@@ -1650,11 +1703,36 @@ static void restore_pairs_for(const char *key)
         g_cfg.headphones = g_cfg_map0.headphones;
         g_cfg.booth = g_cfg_map0.booth;
         g_cfg.monitor = g_cfg_map0.monitor;
+        g_cfg.deck1 = g_cfg_map0.deck1;
+        g_cfg.deck2 = g_cfg_map0.deck2;
         adecide("audioshim: no remembered pair map for %s; using the configured one\n",
                 (key && key[0]) ? key : "(no device)");
     }
 
-    /* The three flags that say the map has been checked against a card. */
+    /* AND THE LIVE FILE ON TOP OF THE BASE. It belongs here rather than in pairs_tick() alone,
+     * because the OTHER two callers of this function -- the constructor and a device change --
+     * must get the operator's current map too: a reopen that re-laid only the memory would
+     * silently drop a live change the moment a different mixer was plugged in, which is exactly
+     * the kind of quiet revert this tree keeps paying for. A file that is absent or unreadable
+     * leaves the base alone, and parse_map() overrides only the streams it names. */
+    if (g_cfg.map_file[0]) {
+        char live[256];
+
+        if (read_switch_word(g_cfg.map_file, live, sizeof live))
+            parse_map(live);
+    }
+}
+
+static void restore_pairs_for(const char *key)
+{
+    lay_base_pairs(key);
+
+    /* The three flags that say the map has been checked against a card. Cleared HERE and not in
+     * lay_base_pairs(), because the caller that needs them cleared is the one about to replay a
+     * negotiation: g_out_channels = 0 is what makes the replay's set_channels() commit the new
+     * card's width before resolve_pairs() reads it. A caller with a card already open -- the
+     * live map -- must leave them alone, or resolve_pairs() falls back to 2 channels and drops
+     * the cue and booth pairs of a card that has them. */
     g_pairs_resolved = 0;
     g_channels_assumed = 0;
     g_out_channels = 0;
@@ -3655,6 +3733,124 @@ static void mixer_route_tick(void)
     }
 }
 
+/* ---- the live pair map ---------------------------------------------------- */
+
+/* MOVING A STREAM, WITHOUT A RESTART, and it is the same switch the route rides.
+ *
+ * AUDIO_MAP is an ENVIRONMENT VARIABLE, so its value is frozen when the player launches: that is
+ * why the pair map was the one audio setting with no way in from the glass or the page, and why
+ * changing it meant editing rb.local.conf and restarting the unit. The file named by
+ * AUDIO_MAP_FILE (/run/rblive4/audio.map) lifts that. It holds ONE line of AUDIO_MAP grammar, so
+ * it overrides only what it names and every stream it leaves out keeps the value underneath it:
+ *
+ *     deck1=2,3;deck2=4,5
+ *
+ * THE PRECEDENCE, which is the whole design: the live file on TOP, then the per-model memory for
+ * the mixer that is attached, then the configured AUDIO_MAP. So an unconfigured device gets the
+ * conf, a configured one gets its own memory, and the operator's current intent wins over both --
+ * while a file that names only the deck pairs leaves master alone.
+ *
+ * A MISSING FILE MEANS "KEEP WHAT WE WERE STARTED WITH", the same rule the route follows, so a
+ * unit nobody has switched behaves exactly as its conf says. It follows that DELETING the file
+ * does not revert it: the last map applied stays applied until something writes a different one
+ * (or the unit restarts). Write the conf's own string to go back.
+ *
+ * WHY IT DOES NOT CALL restore_pairs_for(): that clears g_out_channels, which is right for a
+ * reopen -- the negotiation is about to be replayed and must commit the new card's width first --
+ * and wrong here, where the card is open and the count is known. Clearing it would make
+ * resolve_pairs() believe set_channels() never arrived and clamp to 2 channels, dropping the cue
+ * and booth pairs of a card that has them. The base is laid the same way either path; only the
+ * flags differ, and that is why they are not in lay_base_pairs(). */
+static void pairs_tick(void)
+{
+    static unsigned long blocks;
+    static char applied[256];        /* the map string we last applied from the file */
+    char word[256];
+    struct pair before[6];
+    int changed = 0, i;
+
+    blocks++;
+    if ((blocks % MIXER_MODE_EVERY_BLOCKS) != 0)
+        return;
+    if (!g_cfg.map_file[0])
+        return;
+    /* read_switch_word() stops at a newline; anything longer than parse_map() will take is
+     * passed to it whole and refused there, rather than half-applied here. */
+    if (!read_switch_word(g_cfg.map_file, word, sizeof word))
+        return;
+    if (strcmp(word, applied) == 0)
+        return;
+    snprintf(applied, sizeof applied, "%s", word);
+
+    before[0] = g_cfg.master;      before[1] = g_cfg.headphones;
+    before[2] = g_cfg.booth;       before[3] = g_cfg.monitor;
+    before[4] = g_cfg.deck1;       before[5] = g_cfg.deck2;
+
+    /* Counted across the base and the file together, because both are what is being applied --
+     * a refused entry in the per-device memory deserves the same line as one in the file. */
+    g_map_rejects = 0;
+    /* The base AND the file in one call -- lay_base_pairs() reads the file itself, so every
+     * path that resolves a map (this one, the constructor, a device change) agrees. */
+    lay_base_pairs(g_cfg.card_id);
+
+    {
+        const struct pair *now[6];
+        const char *names[6] = { "master", "headphones", "booth", "monitor",
+                                 "deck1", "deck2" };
+
+        now[0] = &g_cfg.master;   now[1] = &g_cfg.headphones; now[2] = &g_cfg.booth;
+        now[3] = &g_cfg.monitor;  now[4] = &g_cfg.deck1;      now[5] = &g_cfg.deck2;
+        for (i = 0; i < 6; i++)
+            if (now[i]->a != before[i].a || now[i]->b != before[i].b)
+                changed = 1;
+        /* Name the streams that MOVED, and not the whole map: the line is read to find out what
+         * the operator just did, and five unchanged entries bury the one that changed. */
+        if (changed) {
+            char what[160];
+            size_t off = 0;
+
+            what[0] = '\0';
+            for (i = 0; i < 6; i++) {
+                if (now[i]->a == before[i].a && now[i]->b == before[i].b)
+                    continue;
+                if (off + 24 >= sizeof what)
+                    break;
+                off += (size_t)snprintf(what + off, sizeof what - off, "%s%s=%d,%d",
+                                        off ? " " : "", names[i],
+                                        now[i]->a, now[i]->b);
+            }
+            adecide("audioshim: the live pair map changed (%s): %s\n",
+                    g_cfg.map_file, what);
+        } else if (g_map_rejects > 0) {
+            /* The file changed and NOTHING moved, and something in it was refused. This is the
+             * line that matters: without it the write is a silent no-op, which is the failure
+             * this whole file keeps paying for. A VALID map that happens to equal what is
+             * already in force also moves nothing -- and says nothing, because there is nothing
+             * to say -- which is why this arm needs the reject count and not just `changed`. */
+            adecide("audioshim: the live pair map changed (%s) but NO stream moved -- %d "
+                    "entry(ies) were refused. AUDIO_MAP grammar is stream=pair, streams are "
+                    "master/headphones/booth/deck1/deck2, and pairs are 0..%d. The reason for "
+                    "each is in /tmp/audioshim.log\n",
+                    g_cfg.map_file, g_map_rejects, MAX_OUT_CHANNELS - 1);
+        }
+    }
+
+    /* HALF-APPLIED IS THE DANGEROUS CASE, so a change that moved some streams AND refused others
+     * says both -- the streams that moved look like success on their own. */
+    if (changed && g_map_rejects > 0)
+        adecide("audioshim: and %d entry(ies) of that map were REFUSED, so the map above is "
+                "not the one that was written; each reason is in /tmp/audioshim.log\n",
+                g_map_rejects);
+
+    /* A map the card cannot carry says so again: the guard in fill_deck_taps() is a one-shot per
+     * process, so without this a live change to a pair the card does not have would be silent. */
+    g_cfg.tap_guard_logged = 0;
+
+    /* Re-clamp and re-log against the card that is open -- resolve_pairs() is idempotent and
+     * guarded, so clearing this one flag is the whole of "apply it". */
+    g_pairs_resolved = 0;
+}
+
 #define TAP_FULL_SCALE 8388607.0f   /* rbp's 24-bit full scale, the S24 container's */
 
 static int32_t tap_to_s24(float f)
@@ -3740,6 +3936,9 @@ static snd_pcm_sframes_t flush_master(const int32_t *src, snd_pcm_uframes_t size
     const void *out;
     unsigned out_bytes;
 
+    /* A live map change is applied BEFORE the resolve below, so it takes effect in the block it
+     * arrives in and is clamped against the card that is actually open. */
+    pairs_tick();
     resolve_pairs();
     mixer_route_tick();
 
