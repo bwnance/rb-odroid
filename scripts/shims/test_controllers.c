@@ -67,7 +67,7 @@ static int checks, failures;
 /* The maps this build has, as ctrlshim.c's midi_maps[]/evdev_maps[] spell them.
  * A COPY, and the header above says which direction that leaves unguarded. */
 static const char *const maps_the_build_has[] = {
-    "flx4", "jp21", "kbd", "none",
+    "flx4", "flx10", "jp21", "kbd", "none",
 };
 
 static int is_a_map(const char *name)

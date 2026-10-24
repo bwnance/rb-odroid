@@ -66,6 +66,20 @@ static const struct controller table[] = {
           0, NULL,                                  /* a surface, not a mixer */
      },
      {
+          /* MEASURED on the ODROID-N2+ 2026-10-24 (docs/21): lsusb, the ALSA card
+           * list and the sequencer port name. No SysEx and no keepalive are known
+           * for it, and none has been needed so far. */
+          "flx10",
+          "DDJ-FLX10",
+          "2b73:0041",
+          "FLX10",                                  /* "DDJ-FLX10 MIDI 1" */
+          "DDJFLX10",
+          "flx10",
+          NULL, 0,
+          NULL, 0, 0,
+          0, NULL,                                  /* a surface, not a mixer */
+     },
+     {
           "jp21",
           "SC Live 4 / Prime GO",
           NULL,                                     /* USB id not recorded here */

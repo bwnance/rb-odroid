@@ -180,3 +180,64 @@ prompt per control: stop the player, run it, and it writes `flx10-learn.json`.
 The map (`map_flx10.c`) and the controller-table row are written from that file.
 The RX3 is a 2-deck player, so FLX10 decks 1 and 2 (and channel strips 1 and 2)
 drive it. Decks 3/4 have nothing to control.
+
+### FLX10 map (`scripts/shims/map_flx10.c`)
+
+Selected with `RB_MIDI_MAP=flx10` in `/opt/rblive4/rb.local.conf`. That also
+points audio at the `DDJFLX10` card through the controller table's new `flx10`
+row. The headphone pair needs the per-device memory line above. The bindings
+are the operator's table, agreed control by control on 2026-10-24:
+
+| FLX10 | RX3 |
+|---|---|
+| PLAY, CUE | PLAY, CUE |
+| BEAT SYNC / SHIFT | SYNC / MASTER (tempo master); long press nothing |
+| KEY SYNC | toggles MASTER TEMPO; hold and SHIFT nothing for now |
+| TEMPO RESET / SHIFT | nothing / TEMPO RANGE |
+| TEMPO fader, jog (top press = touch, top spin, side ring) | the same |
+| 4 BEAT JUMP < > / SHIFT | SEARCH < > / TRACK SEARCH < > |
+| SLIP REVERSE (and SHIFT) | REV |
+| QUANTIZE; SLIP / SHIFT | QUANTIZE; SLIP / VINYL |
+| CUE/LOOP CALL < > and SHIFT | not mapped |
+| MIX POINT, LINK, ACTIVE PART, PAGE, DECK SELECT, SAMPLER, BOOTH | nothing |
+| browse knobs (one shared message) / SHIFT | scroll / 8 steps per detent |
+| browse push (per deck) / held 0.6 s / double | LOAD that deck / TAG TRACK ⚠ / two LOADs |
+| BACK / VIEW; SHIFT+BACK / SHIFT+VIEW | BACK / SHORTCUT; TAG LIST / TRACK FILTER |
+| SHIFT + deck 1's browse push | SOURCE (the FLX10 has no SOURCE button) |
+| pad modes HOT CUE / PAD FX1 / BEAT JUMP / SAMPLER | HOT CUE / SLIP LOOP / BEAT JUMP / nothing |
+| SHIFT + those: KEYBOARD / PAD FX2 / BEAT LOOP / KEY SHIFT | GATE CUE ⚠ / RELEASE FX ⚠ / BEAT LOOP / BEAT JUMP 2 ⚠ |
+| pads; SHIFT + pad in HOT CUE | pads in rbp's mode; delete that cue |
+| ch 1/2 TRIM, EQ, COLOR, FADER, CUE; master CUE, crossfader, HP mix/level | the same |
+| MASTER LEVEL | the unit's own volume; feeds only the HDMI mirror (as on the FLX4) |
+| SCFX SPACE, D.ECHO, CRUSH, NOISE, FILTER / PITCH | the same names / SWEEP |
+| SAMPLER VOL | SCFX PARAMETER ⚠ |
+| BEAT < > / SHIFT; LEVEL/DEPTH / SHIFT; ON/OFF | BEAT < > / TAP; DEPTH / TIME; Beat FX ON/OFF |
+| effect selector | by name: ECHO, MT DELAY→DELAY, SPIRAL, REVERB, TRANS, FLANGER, PHASER, SLIP ROLL, ROLL; others nothing |
+| channel selector | logged only, until its labels are read off the panel |
+
+**Loops**, decided against rbp's `isLooping` at the moment of the press:
+
+| | not in a loop | in a loop |
+|---|---|---|
+| IN · 1/2X | loop IN | halve (rbp's CALL <) ⚠ |
+| OUT · 2X | loop OUT | double (rbp's CALL >) ⚠ |
+| 4 BEAT / EXIT | 4-beat loop (IN held 1.1 s) | exit |
+| SHIFT + IN | loop IN | IN ADJUST |
+| SHIFT + OUT | RELOOP | OUT ADJUST |
+
+**⚠ = an RX3 keycode not yet identified.** These come from `RB_FLX10_KEYS` in
+rb.local.conf (`callprev`, `callnext`, `gatecue`, `releasefx`, `beatjump2`,
+`param`, `tagtrack`), so finding one is a config line and a restart. Until then
+each logs `RX3 keycode not yet mapped`. The SHIFT pad modes' pads are bound only
+once their mode key is set.
+
+**Still to check on the unit:** the effect selector's direction (note 32 assumed
+fully counter-clockwise); the channel selector's labels; the jog's counts per
+revolution (`JOG_PPR`, the FLX4's 720 for now); LEDs (none driven yet). Also,
+once on the audio system: master and booth output by ear.
+
+**Later, maybe:** RX3 effects matching the FLX10's (ENIGMA JET, MOBIUS, ...).
+
+`test_flx10.c` pins the table: 44 checks, built and run natively on the host
+(`cc ... test_flx10.c map_flx10.c ctrl_map.c shimutil.c shmstate.c pitch_state.c`).
+`make test_flx10` builds it like the other shim tests.

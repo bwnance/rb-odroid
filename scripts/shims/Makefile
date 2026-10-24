@@ -241,7 +241,7 @@ rbp_key.o: rbp_key.c rbp_key.h rbp_abi.h syscalls.h
 # (annotated in the sources), and shmstate.o's globals, which the audio shim
 # reads out of the global scope. (rbp_key.o is the third object outside this
 # list; it is hidden too, and says why in its own rule above.)
-CTRL_OBJS  := ctrlshim.o ctrl_map.o map_flx4.o map_jp21.o map_kbd.o evdev_io.o \
+CTRL_OBJS  := ctrlshim.o ctrl_map.o map_flx4.o map_flx10.o map_jp21.o map_kbd.o evdev_io.o \
               mididump.o rbp_bridge.o rbp_led.o led_table.o plinn_scan.o \
               rbp_vu.o midi_io.o controllers.o shimutil.o usb_label.o rbp_load.o
 CTRL_HDRS  := rbp_abi.h rbp_bridge.h rbp_key.h rbp_led.h led_table.h rbp_vu.h \
@@ -646,7 +646,7 @@ pcmprobe: ../../tools/pcmprobe.c
 # pins the glyph and stops exactly where the device begins. The production
 # fb_cursor.o is linked and the kernel is scripted, so what is pinned is the retry
 # and the rectangle -- see that file's header.
-TESTS := test_point test_audio test_midi test_flx4 test_kbd test_cursor \
+TESTS := test_point test_audio test_midi test_flx4 test_flx10 test_kbd test_cursor \
          test_evdev test_cursor_dev test_menu test_side \
          test_menu_dev test_util test_wave test_fx test_hc test_fxpad \
          test_led_table test_plinn_scan test_controllers test_usblabel test_netalias \
@@ -754,6 +754,16 @@ test_plinn_scan: test_plinn_scan.c plinn_scan.c plinn_scan.h
 # one is the day this module has stopped being pure. It is also the source for
 # controllers_cli.c below, which doctor.sh and install.sh read instead of keeping
 # their own copy of the list.
+# test_flx10 links the PRODUCTION map_flx10.c and pins it against the operator's
+# FLX10 table (docs/21); rbp is stubbed in the test file. Two of its cases run
+# against the real clock (4 BEAT's simulated hold, the SCFX deselect window), so
+# it takes about two seconds.
+FLX10_TEST_OBJS := test_flx10.o map_flx10.o ctrl_map.o shimutil.o shmstate.o pitch_state.o
+
+test_flx10: $(FLX10_TEST_OBJS)
+	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
+	    -Wall -Wextra -static -o $@ $(FLX10_TEST_OBJS) -lpthread -lm -lc -ldl
+
 test_controllers: test_controllers.c controllers.c controllers.h usb_devices.c usb_devices.h
 	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
 	    -Wall -Wextra -static -o $@ test_controllers.c controllers.c usb_devices.c
