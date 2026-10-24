@@ -78,15 +78,24 @@ UNIT_DST=/etc/systemd/system/rblive4.service
 # them was already present on the first unit it ran on except `quiet loglevel=3`
 # and the `ds=` removal -- so on an established unit `apply bootfiles` mostly
 # VERIFIES. Its real job is a fresh target, where none of it is there yet.
-CMDLINE_TOKENS="video=HDMI-A-1:1280x800@60 fbcon=map:1 console=tty3 consoleblank=0 vt.global_cursor_default=0 quiet loglevel=3"
+#
+# The video= token differs by board. The Pi's vc4 gives a 16 bpp fb at
+# 1280x800@60 by itself; meson-drm defaults to 32 bpp, and the explicit -16
+# was measured to give 1280x800 at 16 bpp on the N2+ (docs/21 O4/O5) -- the
+# same zero-copy surface the Pi presents.
+case "$BOOT_FORMAT" in
+    armbian) CMDLINE_VIDEO_A1="video=HDMI-A-1:1280x800-16@60" ;;
+    *)       CMDLINE_VIDEO_A1="video=HDMI-A-1:1280x800@60" ;;
+esac
+CMDLINE_TOKENS="$CMDLINE_VIDEO_A1 fbcon=map:1 console=tty3 consoleblank=0 vt.global_cursor_default=0 quiet loglevel=3"
 # Prefixes whose tokens are removed rather than ensured: the imager's datasource
 # hint. NOT what disables cloud-init -- the marker file is (see ci_apply) -- but it
 # is the hint ds-identify would answer from if the marker were ever removed, and
 # leaving it is a lie about the configuration either way.
 CMDLINE_REMOVE="ds="
-# Replaced in place, not appended: two video= tokens for one connector is a silent
-# last-one-wins (docs/13), so a second must never be added.
-CMDLINE_VIDEO_A1="video=HDMI-A-1:1280x800@60"
+# CMDLINE_VIDEO_A1 (above) is replaced in place, not appended: two video= tokens
+# for one connector is a silent last-one-wins (docs/13), so a second must never
+# be added.
 CONFIG_LINES="boot_delay=0
 disable_splash=1"
 

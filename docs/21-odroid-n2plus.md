@@ -71,7 +71,7 @@ Run in order. Each one rules out a whole class of later failure.
 | O1 | `cat /proc/device-tree/model` | contains `ODROID-N2` | set `RB_BOARD=odroid-n2` in the environment |
 | O2 | `cat /sys/class/graphics/fb0/name`, `virtual_size`, `bits_per_pixel` | a `meson` fb device exists | `CONFIG_DRM_FBDEV_EMULATION`; check `dmesg \| grep -i fb0` |
 | O3 | `cat /sys/class/drm/card*-HDMI-A-1/modes` | the monitor's mode list | try another cable or port; the connector must be detected |
-| O4 | `sh scripts/device/boot-trim.sh apply bootfiles` as root, reboot, then O2 again | fb0 is **1280×800** | **the main risk.** If meson refuses the mode, fall back to a CEA mode (1280×720 or 1920×1080) and let the DirectFB present path scale, or reuse rx3-pi's DRM presenter. Record what the mode list offered |
+| O4 ✅ | `sh scripts/device/boot-trim.sh apply bootfiles` as root, reboot, then O2 again | fb0 is **1280×800** | **the main risk.** If meson refuses the mode, fall back to a CEA mode (1280×720 or 1920×1080) and let the DirectFB present path scale, or reuse rx3-pi's DRM presenter. Record what the mode list offered |
 | O5 | fb0 `bits_per_pixel` | 16 is the Pi's zero-copy case; 32 also works through the present path | `video=HDMI-A-1:1280x800-16@60` may ask fbdev emulation for 16 bpp (unverified on meson) |
 | O6 | `install.sh` | "chroot executes: ok" | O0 again |
 | O7 | `start-rb.sh`, then the Pi's S4–S6 rows in [13](13-raspberrypi4.md) | UI on the monitor, FLX4 audio, controls, a USB stick | per row, as on the Pi |
@@ -92,6 +92,13 @@ On the unit, Armbian `6.18.43-current-meson64`, with a 1024×768 bench monitor
   1024x768, 800x600…); card1 is the render-only GPU. This is the reverse of
   the Pi, where the display is card1, and it is why `drm_card.h` finds the card
   instead of hardcoding it.
+* **O1 pass.** Device tree model `Hardkernel ODROID-N2Plus` (matches `*ODROID-N2*`).
+* **O4 + O5 pass.** With `extraargs=video=HDMI-A-1:1280x800-16@60e` in
+  armbianEnv.txt, fb0 came up **1280×800 at 16 bpp**, the same surface the Pi
+  presents with no blit. The 1024×768 bench monitor, whose EDID lists nothing
+  above 1024×768, displayed the forced mode. `boot-trim.sh` now writes the
+  `-16` token on Armbian (without the `e`, which the Pi never needed; if a
+  monitor is ever not detected, `e` is the thing to add back).
 * **Audio.** The board's own ALSA card is `ODROIDN2` (`axg-sound-card`), which is
   the candidate for the HDMI mirror later. `/dev/snd/seq` is present without a
   modprobe.
