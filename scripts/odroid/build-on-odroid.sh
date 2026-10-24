@@ -105,7 +105,7 @@ if [ "${RB_IN_BUILD_CHROOT:-0}" = "1" ]; then
 
     if [ "$STEP" = "all" ] || [ "$STEP" = "chroot" ]; then
         echo "== build-chroot.sh (shims + rbp patches + DirectFB + rootfs) =="
-        RX3=/src/extracted DFB="$W/dfb" TARBALL_NAME="$TARBALL_NAME" sh scripts/build-chroot.sh
+        RX3=/src/extracted DFB="$W/dfb" TARBALL_NAME="$TARBALL_NAME" bash scripts/build-chroot.sh
     fi
     exit 0
 fi
