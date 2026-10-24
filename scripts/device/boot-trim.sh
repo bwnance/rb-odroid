@@ -32,7 +32,10 @@
 # exits 0 only when every item is applied). report needs no privileges either --
 # it is a measurement, not a check, and always exits 0.
 #
-# Env:  RB_BOOT_DIR         default /boot/firmware
+# Env:  RB_BOOT_DIR         default /boot/firmware (rb.conf: /boot on Armbian)
+#       RB_BOOT_FORMAT      rpi (cmdline.txt + config.txt, the default) or
+#                           armbian (the extraargs= line of armbianEnv.txt, no
+#                           config.txt) -- rb.conf picks it from RB_BOARD
 #       RB_BOOT_TRIM_STATE  default /var/lib/rblive4/boot-trim.state
 #       RB_BOOT_TRIM_FORCE=1  proceed past the cloud-init network pre-flight
 
@@ -54,8 +57,17 @@ fi
 [ -n "${RB_CONF_FILE:-}" ] && [ -f "${RB_CONF_FILE:-}" ] && . "$RB_CONF_FILE"
 
 BOOT_DIR="${RB_BOOT_DIR:-/boot/firmware}"
-CMDLINE="$BOOT_DIR/cmdline.txt"
-CONFIG="$BOOT_DIR/config.txt"
+BOOT_FORMAT="${RB_BOOT_FORMAT:-rpi}"
+case "$BOOT_FORMAT" in
+    armbian)
+        # The kernel arguments are one line of a multi-line file; there is no
+        # config.txt (boot_delay/disable_splash are Pi firmware directives).
+        CMDLINE="$BOOT_DIR/armbianEnv.txt"
+        CONFIG="" ;;
+    *)
+        CMDLINE="$BOOT_DIR/cmdline.txt"
+        CONFIG="$BOOT_DIR/config.txt" ;;
+esac
 STATE="${RB_BOOT_TRIM_STATE:-/var/lib/rblive4/boot-trim.state}"
 CLOUD_MARKER=/etc/cloud/cloud-init.disabled
 CLOUD_UNITS="cloud-init-main cloud-init-local cloud-init-network cloud-config cloud-final"
@@ -421,8 +433,8 @@ ci_status() {
         echo "  --  seed still on $BOOT_DIR:$_seed"
         _bad=1
     fi
-    case "$(cat "$CMDLINE" 2>/dev/null)" in
-        *ds=*) echo "  --  cmdline.txt still carries a ds= token" ;;
+    case "$(cmdline_tokens_of "$CMDLINE")" in
+        *ds=*) echo "  --  $(basename "$CMDLINE") still carries a ds= token" ;;
         *)     echo "  ok  no ds= token on the cmdline" ;;
     esac
     return $_bad
@@ -638,6 +650,32 @@ backup_once() {
     return 0
 }
 
+# The kernel argument tokens held by FILE, on one line. On the Pi that is the
+# whole of cmdline.txt; on Armbian it is the value of armbianEnv.txt's
+# extraargs= (the last one, which is the one its boot.scr's import keeps), and a
+# file without the line holds no tokens yet.
+cmdline_tokens_of() {
+    case "$BOOT_FORMAT" in
+        armbian) sed -n 's/^extraargs=//p' "$1" 2>/dev/null | tail -1 ;;
+        *)       cat "$1" 2>/dev/null ;;
+    esac
+}
+
+# Write TOKENS into a copy of the current file, on stdout. armbianEnv.txt keeps
+# every other line exactly; the first extraargs= line is replaced, later
+# duplicates are dropped, and a file without one gets it appended.
+cmdline_render() {
+    case "$BOOT_FORMAT" in
+        armbian)
+            awk -v toks="$1" '
+                /^extraargs=/ { if (!done) { print "extraargs=" toks; done = 1 } ; next }
+                { print }
+                END { if (!done) print "extraargs=" toks }
+            ' "$CMDLINE" ;;
+        *)  printf '%s\n' "$1" ;;
+    esac
+}
+
 # Rewrite cmdline.txt's tokens. Every /boot edit here goes through a temp file on
 # the same partition and a mv over the original: /boot/firmware is FAT, which has
 # no journal, on a unit with a documented under-voltage history, so an in-place
@@ -646,7 +684,7 @@ cmdline_apply() {
     [ -f "$CMDLINE" ] || { warn "bootfiles: $CMDLINE not found"; return 1; }
     backup_once "$CMDLINE" || return 1
 
-    _orig=$(cat "$CMDLINE")
+    _orig=$(cmdline_tokens_of "$CMDLINE")
     set -f                                  # no globbing: a token with * is data
     _out=""
     _seen_a1=0
@@ -678,14 +716,23 @@ cmdline_apply() {
     _out=${_out# }                           # strip the single leading space
 
     _tmp="$CMDLINE.rblive4.new"
-    printf '%s\n' "$_out" > "$_tmp" || { warn "bootfiles: could not write $_tmp"; return 1; }
+    cmdline_render "$_out" > "$_tmp" || { warn "bootfiles: could not write $_tmp"; return 1; }
 
     # Verify before replacing. A cmdline that boots is not something to discover
     # later, so: still exactly one line, and every root-finding token that was
     # there before is still there. Checking only the tokens the original actually
     # had, so a target with root=/dev/mmcblk0p2 is not asked for a PARTUUID.
     _ok=1
-    if [ "$(wc -l < "$_tmp")" != "1" ]; then
+    if [ "$BOOT_FORMAT" = "armbian" ]; then
+        # Every line but extraargs= must come through byte for byte: rootdev=,
+        # fdtfile= and overlays= are what make this unit boot at all.
+        grep -v '^extraargs=' "$_tmp" > "$_tmp.others"
+        if ! grep -v '^extraargs=' "$CMDLINE" | cmp -s - "$_tmp.others"; then
+            warn "bootfiles: refusing -- a line other than extraargs= would change"
+            _ok=0
+        fi
+        rm -f "$_tmp.others"
+    elif [ "$(wc -l < "$_tmp")" != "1" ]; then
         warn "bootfiles: refusing -- the candidate is $(wc -l < "$_tmp") lines, not 1"
         _ok=0
     fi
@@ -706,7 +753,7 @@ cmdline_apply() {
     fi
     if cmp -s "$_tmp" "$CMDLINE"; then
         rm -f "$_tmp"
-        say "bootfiles: cmdline.txt unchanged"
+        say "bootfiles: $(basename "$CMDLINE") unchanged"
         return 0
     fi
     mv "$_tmp" "$CMDLINE" || { warn "bootfiles: could not replace $CMDLINE"; return 1; }
@@ -722,14 +769,18 @@ cmdline_show_diff() {
     [ -f "$_b" ] || return 0
     _t1=/tmp/boot-trim-old.$$
     _t2=/tmp/boot-trim-new.$$
-    tr ' ' '\n' < "$_b" > "$_t1" 2>/dev/null
-    tr ' ' '\n' < "$CMDLINE" > "$_t2" 2>/dev/null
+    cmdline_tokens_of "$_b" | tr ' ' '\n' > "$_t1" 2>/dev/null
+    cmdline_tokens_of "$CMDLINE" | tr ' ' '\n' > "$_t2" 2>/dev/null
     echo "  --- $_b (old)  +++ $CMDLINE (new)"
     diff -u "$_t1" "$_t2" 2>/dev/null | tail -n +3 | sed 's/^/  /' || true
     rm -f "$_t1" "$_t2"
 }
 
 config_apply() {
+    if [ -z "$CONFIG" ]; then
+        say "bootfiles: no config.txt on this board ($BOOT_FORMAT) -- nothing to add"
+        return 0
+    fi
     [ -f "$CONFIG" ] || { warn "bootfiles: $CONFIG not found"; return 1; }
     backup_once "$CONFIG" || return 1
 
@@ -789,7 +840,7 @@ bootfiles_apply() {
 
 bootfiles_revert() {
     _rc=0
-    for f in "$CMDLINE" "$CONFIG"; do
+    for f in "$CMDLINE" $CONFIG; do
         _b="$f.rblive4.bak"
         if [ ! -f "$_b" ]; then
             say "bootfiles: no backup for $f -- nothing to restore"
@@ -811,31 +862,37 @@ bootfiles_revert() {
 
 bootfiles_status() {
     _bad=0
+    _cf=$(basename "$CMDLINE")
     if [ -f "$CMDLINE" ]; then
-        _line=$(cat "$CMDLINE")
+        _line=$(cmdline_tokens_of "$CMDLINE")
         for _d in $CMDLINE_TOKENS; do
             case " $_line " in
                 *" $_d "*) ;;
-                *) echo "  --  cmdline.txt is missing: $_d"; _bad=1 ;;
+                *) echo "  --  $_cf is missing: $_d"; _bad=1 ;;
             esac
         done
         for _p in $CMDLINE_REMOVE; do
             case " $_line " in
-                *" $_p"*) echo "  --  cmdline.txt still has a ${_p}* token"; _bad=1 ;;
+                *" $_p"*) echo "  --  $_cf still has a ${_p}* token"; _bad=1 ;;
             esac
         done
         # The A-1/A-2 gap, reported by name rather than closed: the shipped recipe
         # has two video= tokens and this unit carries one, and adding the second
         # is S10.8's precondition, not a boot-time trim.
-        case " $_line " in
-            *" video=HDMI-A-2:"*) ;;
-            *) echo "  --  no video=HDMI-A-2 token (deliberate; see docs/13 S10.8)" ;;
-        esac
+        # The N2+ has one HDMI connector, so the gap only exists on the Pi.
+        if [ "$BOOT_FORMAT" = "rpi" ]; then
+            case " $_line " in
+                *" video=HDMI-A-2:"*) ;;
+                *) echo "  --  no video=HDMI-A-2 token (deliberate; see docs/13 S10.8)" ;;
+            esac
+        fi
     else
         echo "  --  $CMDLINE not found"
         _bad=1
     fi
-    if [ -f "$CONFIG" ]; then
+    if [ -z "$CONFIG" ]; then
+        echo "  ok  no config.txt on this board ($BOOT_FORMAT)"
+    elif [ -f "$CONFIG" ]; then
         for _l in $CONFIG_LINES; do
             _k=${_l%%=*}
             if grep -q "^[[:space:]]*${_k}=" "$CONFIG" 2>/dev/null; then
@@ -850,7 +907,7 @@ bootfiles_status() {
         _bad=1
     fi
     # Both files carry a backup exactly once, or the revert path is not there.
-    for f in "$CMDLINE" "$CONFIG"; do
+    for f in "$CMDLINE" $CONFIG; do
         if [ -f "$f.rblive4.bak" ]; then
             echo "  ok  backup: $f.rblive4.bak"
         else

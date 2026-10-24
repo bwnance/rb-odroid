@@ -9,6 +9,11 @@ internally) extracted from **XDJ-RX3 firmware v1.20** on a **Raspberry Pi 4B**
 running **Pi OS Lite 32-bit**, with an **HDMI monitor** and a **Pioneer
 DDJ-FLX4** over USB.
 
+> **This fork adds a second board:** the Hardkernel **ODROID-N2+** on Armbian
+> (64-bit kernel, same ARM32 chroot). Board-specific defaults are picked from
+> the device tree; bring-up status and checks are in
+> [docs/21](docs/21-odroid-n2plus.md). Not yet run on the hardware.
+
 The port started from a working Denon SC Live 4 port, which in turn derived from
 the Prime GO work; the differences between them are the whole reason this was
 tractable, and they are set out in [docs/13](docs/13-raspberrypi4.md).

@@ -753,7 +753,12 @@ if ! chroot "$CHROOT" /bin/busybox echo "  chroot executes: ok" 2>/tmp/rbpi4b-ch
   rm -f /tmp/rbpi4b-chroot-test.err
   die "the chroot could not execute a 32-bit binary.
   The most likely cause is a 64-bit kernel with 32-bit emulation disabled.
-  Install Pi OS Lite 32-bit (armhf) -- see docs/13-raspberrypi4.md.
+  $(if [ "${RB_BOARD:-rpi}" = "odroid-n2" ]; then
+      echo "Check that the Armbian kernel has CONFIG_COMPAT (lscpu: 'Op-mode(s): 32-bit, 64-bit')
+  -- see docs/21-odroid-n2plus.md."
+    else
+      echo "Install Pi OS Lite 32-bit (armhf) -- see docs/13-raspberrypi4.md."
+    fi)
   Do NOT retry with a 64-bit userland: every shim and the player itself are
   ARM32 soft-float, and there is no 64-bit build of rbp."
 fi
@@ -762,10 +767,17 @@ rm -f /tmp/rbpi4b-chroot-test.err
 # --- kernel interfaces rbp needs --------------------------------------------
 
 if [ ! -e /dev/fb0 ]; then
-  warn "/dev/fb0 is missing. Under vc4-kms-v3d it comes from DRM fbdev
+  if [ "${RB_BOARD:-rpi}" = "odroid-n2" ]; then
+    warn "/dev/fb0 is missing. On the ODROID-N2 it comes from meson-drm's fbdev
+  emulation: check that dmesg says 'meson-drm ... fb0' and that the kernel has
+  CONFIG_DRM_FBDEV_EMULATION. Without it there is no display, and rbp will exit
+  early. See docs/21-odroid-n2plus.md."
+  else
+    warn "/dev/fb0 is missing. Under vc4-kms-v3d it comes from DRM fbdev
   emulation. Check that dtoverlay=vc4-kms-v3d is enabled and that dmesg says
   'fb0: vc4drmfb frame buffer device'. Without it there is no display, and
   rbp will exit early. See docs/13-raspberrypi4.md."
+  fi
 fi
 
 # Missing /dev/snd/seq is the classic silent "controls do nothing" failure: the

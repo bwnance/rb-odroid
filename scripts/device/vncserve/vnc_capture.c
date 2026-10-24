@@ -32,6 +32,7 @@
  */
 #define _GNU_SOURCE
 #include "vnc_capture.h"
+#include "drm_card.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -642,6 +643,7 @@ struct vnc_capture *vnc_capture_open(char *err, size_t errlen)
     struct fb_var_screeninfo var;
     struct drm_set_client_cap cap;
     size_t n;
+    char card[64];
 
     c = calloc(1, sizeof *c);
     if (!c) { if (err) snprintf(err, errlen, "out of memory"); return NULL; }
@@ -675,9 +677,11 @@ struct vnc_capture *vnc_capture_open(char *err, size_t errlen)
     }
     c->fbsize = n;
 
-    c->drmfd = open("/dev/dri/card1", O_RDWR | O_CLOEXEC);
+    /* card1 on the Pi; found on other boards (drm_card.h, RB_DRM_CARD overrides). */
+    drm_card_path(card, sizeof card);
+    c->drmfd = open(card, O_RDWR | O_CLOEXEC);
     if (c->drmfd < 0) {
-        if (err) snprintf(err, errlen, "open /dev/dri/card1: %s", strerror(errno));
+        if (err) snprintf(err, errlen, "open %s: %s", card, strerror(errno));
         goto fail;
     }
 
@@ -689,8 +693,8 @@ struct vnc_capture *vnc_capture_open(char *err, size_t errlen)
      * client has it legitimately. Only success is worth saying out loud, because it is
      * the case that would otherwise be silent and would cost someone a boot. */
     if (ioctl(c->drmfd, DRM_IOCTL_DROP_MASTER, NULL) == 0)
-        fprintf(stderr, "vncserve: was granted DRM master by opening /dev/dri/card1 "
-                        "first -- dropped it, the display is not ours\n");
+        fprintf(stderr, "vncserve: was granted DRM master by opening %s "
+                        "first -- dropped it, the display is not ours\n", card);
 
     /* Without this the kernel lists only the overlay planes -- this board returned 48
      * of card1's 60 objects with every primary and cursor simply absent -- so the plane
@@ -747,7 +751,7 @@ void vnc_capture_describe(struct vnc_capture *c)
 
     refresh_plane_list(c);
     refresh_geometry(c);
-    printf("card1: %d plane object(s)\n", c->nplane_ids);
+    printf("drm: %d plane object(s)\n", c->nplane_ids);
     printf("atomic capability: %s\n", c->no_atomic ? "REFUSED (vc4 is not an atomic driver)" : "accepted");
     printf("geometry: %d plane(s) placed from " VNC_DRM_STATE "%s\n", c->ngeom,
            c->state_err ? " -- UNREADABLE" : "");

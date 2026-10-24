@@ -57,5 +57,10 @@ test: $(TESTS)
 test_%: test_%.c %.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ $^ $(ZLIB)
 
+# drm_card.h is header-only, so its test has no module to link (the pattern above
+# would look for a drm_card.c).
+test_drm_card: test_drm_card.c drm_card.h
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ test_drm_card.c
+
 clean:
 	rm -f vncserve $(TESTS)

@@ -143,6 +143,8 @@ snapshot() {
     echo "--- dmesg tail"; dmesg 2>/dev/null | tail -60
     echo "--- vmstat 1 3"; vmstat 1 3 2>/dev/null
     echo "--- throttled"; vcgencmd get_throttled 2>/dev/null || echo na
+    echo "--- thermal"; for z in /sys/class/thermal/thermal_zone*; do
+      [ -r "$z/temp" ] && echo "    $(cat "$z/type" 2>/dev/null): $(cat "$z/temp") mC"; done
     echo "=== end incident ==="
   } >> "$f" 2>&1
   cp -f "$f" "$INCDIR/health-incident-LATEST.log" 2>/dev/null
@@ -174,7 +176,13 @@ main() {
     pids=$(ls /proc 2>/dev/null | grep -c '^[0-9]*$')
     snd=$(ls /dev/snd 2>/dev/null | grep -c '^controlC')
     usb=$(ls /sys/bus/usb/devices 2>/dev/null | grep -cE '^[0-9]+-[0-9.]+$')
-    thr=$(vcgencmd get_throttled 2>/dev/null | cut -d= -f2); [ -n "$thr" ] || thr=na
+    thr=$(vcgencmd get_throttled 2>/dev/null | cut -d= -f2)
+    # No vcgencmd off the Pi (the ODROID-N2): the column carries the SoC
+    # temperature instead, prefixed so it cannot be read as a throttle mask.
+    if [ -z "$thr" ] && [ -r /sys/class/thermal/thermal_zone0/temp ]; then
+      thr="t$(( $(cat /sys/class/thermal/thermal_zone0/temp) / 1000 ))C"
+    fi
+    [ -n "$thr" ] || thr=na
     kerr=$(dmesg 2>/dev/null | grep -ciE 'mmc[0-9].*(error|timeout)|I/O error|EXT4-fs error|blk_update_request')
 
     # The disk probes are the slowest part and the only ones that can block; if the

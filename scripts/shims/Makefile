@@ -500,7 +500,7 @@ fxpad_paint.o: fxpad_paint.c fxpad_paint.h fxpad_zone.h menu_paint.h menu_zone.h
 # drmband.o is the only object that talks to the DRM device, and it does it with
 # raw ioctls through syscalls.h's real_* wrappers -- the shim interposes open and
 # ioctl, so the raw path is not optional.
-drmband.o: drmband.c drmband.h syscalls.h pointsrc.h
+drmband.o: drmband.c drmband.h drm_card.h syscalls.h pointsrc.h
 
 # The one rule for the objects above. -Wall -Wextra is on, so a genuinely
 # unused helper fails the build rather than lingering.

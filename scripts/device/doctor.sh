@@ -451,7 +451,11 @@ if [ "$(id -u)" = "0" ]; then
 		printf '%s\n' "$_err" | sed 's/^/        /'
 		note "usually a 64-bit kernel with 32-bit emulation disabled (CONFIG_COMPAT)."
 		note "Every shim and the player are ARM32 soft-float; there is no 64-bit rbp."
-		fix "install Pi OS Lite 32-bit (armhf) — see docs/13-raspberrypi4.md"
+		if [ "${RB_BOARD:-rpi}" = "odroid-n2" ]; then
+			fix "use an Armbian kernel with CONFIG_COMPAT — see docs/21-odroid-n2plus.md"
+		else
+			fix "install Pi OS Lite 32-bit (armhf) — see docs/13-raspberrypi4.md"
+		fi
 	fi
 else
 	warn "skipped (not root)"
@@ -464,7 +468,11 @@ if [ -e /dev/fb0 ]; then
 	ok "/dev/fb0 present (no display without it)"
 else
 	bad "/dev/fb0 is missing — there is no display and rbp exits early"
-	fix "enable dtoverlay=vc4-kms-v3d in /boot/firmware/config.txt and reboot"
+	if [ "${RB_BOARD:-rpi}" = "odroid-n2" ]; then
+		fix "check dmesg for meson-drm's fb0 (CONFIG_DRM_FBDEV_EMULATION) — see docs/21-odroid-n2plus.md"
+	else
+		fix "enable dtoverlay=vc4-kms-v3d in /boot/firmware/config.txt and reboot"
+	fi
 fi
 
 if [ -e /dev/snd/seq ]; then

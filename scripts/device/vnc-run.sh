@@ -85,7 +85,7 @@ fi
 #
 # The process always starts and always serves the control page -- that is what makes
 # it possible to turn the screen on from a browser. This switch decides whether it
-# ALSO opens /dev/fb0 and /dev/dri/card1 and listens for VNC clients. Off, there is
+# ALSO opens /dev/fb0 and the DRM card (card1 on the Pi) and listens for VNC clients. Off, there is
 # nothing left of it that a display can notice.
 #
 # WHY IT DEFAULTS OFF. vncserve comes up at ~6.9 s on this unit, before the player
@@ -122,6 +122,11 @@ echo "vnc-run: serving on $RB_VNC_PORT, page on $RB_VNC_HTTP_PORT," \
 echo "vnc-run: the pointer starts $RB_VNC_INPUT (switch file $RB_VNC_INPUT_FILE)"
 echo "vnc-run: sharing starts $RB_VNC_LIVE (switch file $RB_VNC_LIVE_FILE); with it" \
      "off only the page runs and nothing here opens a display"
+
+# The DRM card vnc_capture opens (drm_card.h). EXPORTED, because rb_load_conf does
+# not export and vncserve reads it from the environment; empty means "find it".
+RB_DRM_CARD="${RB_DRM_CARD:-}"
+export RB_DRM_CARD
 
 exec "$BIN" \
     --port "$RB_VNC_PORT" \

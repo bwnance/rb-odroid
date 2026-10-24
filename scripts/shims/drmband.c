@@ -29,6 +29,7 @@
 #include "drmband.h"
 #include "syscalls.h"          /* real_open/ioctl/mmap/close: the shim interposes the real ones */
 #include "pointsrc.h"
+#include "drm_card.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -38,12 +39,15 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-/* The card rbp's picture is actually on. NOT card0: recon measured card0 = v3d,
- * a render node with no CRTC at all, and card1 = vc4-drm, whose primary plane is
- * the framebuffer /dev/fb0 mmaps. Hardcoded rather than a knob because it is a
- * fact about the board; the A/B that matters is MENU_PLANE, which is the band's
- * route and lives in menu_draw.c. */
-#define DRM_BAND_CARD  "/dev/dri/card1"
+/* The card rbp's picture is actually on. On the Pi it is NOT card0: recon
+ * measured card0 = v3d, a render node with no CRTC at all, and card1 = vc4-drm,
+ * whose primary plane is the framebuffer /dev/fb0 mmaps. It was hardcoded as a
+ * fact about the board; with a second board (the ODROID-N2+, where meson-drm and
+ * panfrost probe in either order) it is found instead -- drm_card.h, overridable
+ * with DRM_CARD. Resolved once, on the first acquire. The A/B that matters is
+ * still MENU_PLANE, which is the band's route and lives in menu_draw.c. */
+static char g_drm_card[64];
+#define DRM_BAND_CARD  (g_drm_card[0] ? g_drm_card : drm_card_path(g_drm_card, sizeof g_drm_card))
 
 /* vc4's planes report 39 formats -- measured, and the reason a fixed 32-format
  * buffer cost a whole run in work/drmplane.c: GETPLANE returns EINVAL when
