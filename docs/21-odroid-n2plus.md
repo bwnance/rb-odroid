@@ -99,6 +99,10 @@ On the unit, Armbian `6.18.43-current-meson64`, with a 1024×768 bench monitor
   above 1024×768, displayed the forced mode. `boot-trim.sh` now writes the
   `-16` token on Armbian (without the `e`, which the Pi never needed; if a
   monitor is ever not detected, `e` is the thing to add back).
+* **Firmware.** `XDJ-RX3_v120.zip` (sha256 `e81f34ef…`) decrypted with the
+  source-package key to the `UsbAuto` ISO (`images/release.txt`: 1.20). Stock
+  `rbp` `4f2efcfc…`, `rbp-audio` `3dda2d4e…` and `rbp-nopc` `97aa2223…` are
+  identical to the Pi's (13, S0.2), so the patch table applies unchanged.
 * **Audio.** The board's own ALSA card is `ODROIDN2` (`axg-sound-card`), which is
   the candidate for the HDMI mirror later. `/dev/snd/seq` is present without a
   modprobe.
