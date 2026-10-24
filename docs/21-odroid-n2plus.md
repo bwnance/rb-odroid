@@ -202,8 +202,8 @@ are the operator's table, agreed control by control on 2026-10-24:
 | MIX POINT, LINK, ACTIVE PART, PAGE, DECK SELECT, SAMPLER, BOOTH | nothing |
 | browse knobs (one shared message) / SHIFT | scroll / 8 steps per detent |
 | browse push (per deck) / held 0.6 s / double | LOAD that deck / TAG TRACK ⚠ / two LOADs |
-| BACK / VIEW; SHIFT+BACK / SHIFT+VIEW | BACK / SHORTCUT; TAG LIST / TRACK FILTER |
-| SHIFT + deck 1's browse push | SOURCE (the FLX10 has no SOURCE button) |
+| BACK / VIEW; SHIFT+BACK / SHIFT+VIEW | BACK / SOURCE; TAG LIST / SHORTCUT |
+| SHIFT + deck 1's browse push | TRACK FILTER (deck 2's SHIFT push not yet recorded) |
 | pad modes HOT CUE / PAD FX1 / BEAT JUMP / SAMPLER | HOT CUE / SLIP LOOP / BEAT JUMP / nothing |
 | SHIFT + those: KEYBOARD / PAD FX2 / BEAT LOOP / KEY SHIFT | GATE CUE ⚠ / RELEASE FX ⚠ / BEAT LOOP / BEAT JUMP 2 ⚠ |
 | pads; SHIFT + pad in HOT CUE | pads in rbp's mode; delete that cue |

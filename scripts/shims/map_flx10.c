@@ -116,7 +116,7 @@
 /* ---- mixer channel (ch 7) ---- */
 #define N_LOAD1         70    /* deck 1's browse knob, pushed */
 #define N_LOAD2         71
-#define N_SOURCE        93    /* SHIFT + deck 1's browse push -> SOURCE */
+#define N_PUSH1_SHIFT   93    /* SHIFT + deck 1's browse push -> TRACK FILTER */
 #define N_BACK         101
 #define N_VIEW         122
 #define N_BACK_SHIFT   102
@@ -927,16 +927,17 @@ static void flx10_build(void)
      add_abs(CH_MIX, CC_HP_MIX, K_HPMIX, CH_GLOBAL);
      add_abs(CH_MIX, CC_HP_LEVEL, K_HPLEVEL, CH_GLOBAL);
      add_note(CH_MIX, N_BACK, K_BACK, CH_GLOBAL);
-     add_note(CH_MIX, N_VIEW, K_SHORTCUT, CH_GLOBAL);
      add_note(CH_MIX, N_BACK_SHIFT, K_TAGLIST, CH_GLOBAL);
-     /* TRACK FILTER needs the second edge -- map_flx4.c's add_note_repeat()
-      * note and rbp_abi.h's OP_REPEAT explain why. */
-     add_note_repeat(CH_MIX, N_VIEW_SHIFT, K_TRACKFILTER, CH_GLOBAL);
-     /* SHIFT + browse push: SOURCE, the FLX4's binding for the same gesture --
-      * the FLX10 has no SOURCE button either, and without one the USB stick is
-      * unreachable from the surface. 93 is deck 1's knob (measured); deck 2's
-      * SHIFT push is unrecorded and logs as unmapped. */
-     add_note(CH_MIX, N_SOURCE, K_SOURCE, CH_GLOBAL);
+     /* VIEW opens SOURCE (operator, 2026-10-24): the FLX10 has no SOURCE button,
+      * and without one the USB stick is unreachable from the surface. SHIFT +
+      * VIEW is SHORTCUT. */
+     add_note(CH_MIX, N_VIEW, K_SOURCE, CH_GLOBAL);
+     add_note(CH_MIX, N_VIEW_SHIFT, K_SHORTCUT, CH_GLOBAL);
+     /* SHIFT + browse push: TRACK FILTER. It needs the second edge --
+      * map_flx4.c's add_note_repeat() note and rbp_abi.h's OP_REPEAT explain
+      * why. 93 is deck 1's knob (measured); deck 2's SHIFT push is unrecorded
+      * and logs as unmapped until it is. */
+     add_note_repeat(CH_MIX, N_PUSH1_SHIFT, K_TRACKFILTER, CH_GLOBAL);
      add_note(CH_MIX, N_SAMPLER_CUE, 0, CH_GLOBAL);
 
      /* Beat FX. */

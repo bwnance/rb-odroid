@@ -191,10 +191,11 @@ int main(void)
      CHECK(sent_n == 2 && is(0, K_LOAD, OP_PRESS, 2), "push 71 loads deck 2");
      reset(); ON(7, 70); ms(650); map_flx10.tick(); OFF(7, 70);
      CHECK(sent_n == 0, "held push: TAG TRACK unset -> nothing, and no LOAD (%d)", sent_n);
-     reset(); ON(7, 122); ON(7, 104);
-     CHECK(is(0, K_SHORTCUT, OP_PRESS, 1) && is(1, K_TRACKFILTER, OP_PRESS, 1) &&
-           is(2, K_TRACKFILTER, OP_REPEAT, 1), "VIEW / SHIFT+VIEW");
-     OFF(7, 122); OFF(7, 104);
+     reset(); ON(7, 122); ON(7, 104); ON(7, 93);
+     CHECK(is(0, K_SOURCE, OP_PRESS, 1) && is(1, K_SHORTCUT, OP_PRESS, 1) &&
+           is(2, K_TRACKFILTER, OP_PRESS, 1) && is(3, K_TRACKFILTER, OP_REPEAT, 1),
+           "VIEW -> SOURCE, SHIFT+VIEW -> SHORTCUT, SHIFT+push -> TRACK FILTER");
+     OFF(7, 122); OFF(7, 104); OFF(7, 93);
 
      /* Sound Color FX radio group */
      reset(); ON(7, 0);

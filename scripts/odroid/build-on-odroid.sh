@@ -104,6 +104,12 @@ if [ "${RB_IN_BUILD_CHROOT:-0}" = "1" ]; then
     fi
 
     if [ "$STEP" = "all" ] || [ "$STEP" = "chroot" ]; then
+        # build-chroot.sh compiles the shims only when one of the three .so is
+        # MISSING, so an edited tree would otherwise ship the previous build
+        # (measured 2026-10-24: a new controller row never reached the unit).
+        # make itself only recompiles what changed.
+        echo "== make -C scripts/shims =="
+        make -C scripts/shims RX3="$RX3"
         echo "== build-chroot.sh (shims + rbp patches + DirectFB + rootfs) =="
         RX3=/src/extracted DFB="$W/dfb" TARBALL_NAME="$TARBALL_NAME" bash scripts/build-chroot.sh
     fi
