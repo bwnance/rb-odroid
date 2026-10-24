@@ -80,6 +80,22 @@ After O7, the HDMI audio mirror can be measured: `aplay -l` for the card name,
 then `tools/pcmprobe` for the formats it takes, and an `RB_AUDIO_MIRROR_DEV=` line
 in `rb.local.conf`. Do this only after a listening check, as [09](09-audio.md#the-hdmi-mirror) warns.
 
+## Measured so far
+
+On the unit, Armbian `6.18.43-current-meson64`, with a 1024×768 bench monitor
+(the target monitor is 1280×800):
+
+* **O0 pass.** `lscpu`: `CPU op-mode(s): 32-bit, 64-bit`; Cortex-A53 + A73.
+* **O2.** `/dev/fb0` is `mesondrmfb`, 1024×768, **32 bpp** (the monitor's own
+  mode; fbdev emulation picked its preferred depth, not 16).
+* **O3.** The display is **card0** (`card0-HDMI-A-1: connected`, modes
+  1024x768, 800x600…); card1 is the render-only GPU. This is the reverse of
+  the Pi, where the display is card1, and it is why `drm_card.h` finds the card
+  instead of hardcoding it.
+* **Audio.** The board's own ALSA card is `ODROIDN2` (`axg-sound-card`), which is
+  the candidate for the HDMI mirror later. `/dev/snd/seq` is present without a
+  modprobe.
+
 ## Open questions
 
 * Whether meson's HDMI PHY will clock 1280×800@60 (71 MHz, CVT-RB). O4 answers it.
