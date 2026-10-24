@@ -154,3 +154,25 @@ On the unit, Armbian `6.18.43-current-meson64`, with a 1024×768 bench monitor
 * Which `cardN` meson-drm gets when panfrost is loaded. `drm_card.h` makes this a
   non-question, but it is worth recording.
 * The board's HDMI audio card name and formats, for the mirror.
+
+## DDJ-FLX10
+
+The surface this fork is ultimately for. No map yet; facts measured on the N2+:
+
+| | DDJ-FLX10 | (DDJ-FLX4, for comparison) |
+|---|---|---|
+| USB id | `2b73:0041` (AlphaTheta Corporation DDJ-FLX10) | `2b73:0045` |
+| ALSA card id | `DDJFLX10` | `DDJFLX4` |
+| sequencer port | `DDJ-FLX10 MIDI 1` (client 20) | `DDJ-FLX4 MIDI 1` |
+| playback | 4 ch, `S24_3LE`, 44100 only, async, high speed; channel map FL FR FC LFE | 4 ch, `S24_3LE`, 44100 |
+
+The playback format is the FLX4's exactly, so audioshim's `hw:` path, `S24_3LE`
+packing and 4-channel map should carry over unchanged. Which pair is master and
+which is headphones has not been confirmed by ear yet.
+
+No published MIDI message list for the FLX10 was found, so the bindings are
+recorded from the hardware with `scripts/odroid/midi-learn.py`. It is a guided
+prompt per control: stop the player, run it, and it writes `flx10-learn.json`.
+The map (`map_flx10.c`) and the controller-table row are written from that file.
+The RX3 is a 2-deck player, so FLX10 decks 1 and 2 (and channel strips 1 and 2)
+drive it. Decks 3/4 have nothing to control.
