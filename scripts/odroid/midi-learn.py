@@ -15,6 +15,14 @@ The player must NOT be holding the port: stop it first.
     python3 scripts/odroid/midi-learn.py --list          # what it will ask
     systemctl start rblive4
 
+FREE MODE (--free) is for controls the guided list does not know about -- the
+FLX10 has more than the FLX4 the list was modelled on. You type a name, then use
+the control; it stops recording once everything is released and nothing has
+moved for a moment. Names are free text; use the label printed on the unit and
+say which deck, e.g. "d1 slip", "d2 vocal", "merge fx". An empty name finishes.
+
+    python3 scripts/odroid/midi-learn.py --free
+
 At each prompt:  do the action, and it records it.
     Enter   skip this control (records it as skipped)
     r       redo the previous control
@@ -211,6 +219,68 @@ def getkey(timeout):
     return None
 
 
+def record_auto(midi, idle_s=0.8, cap_s=20.0):
+    """Free mode: wait for the first message, then record until every note/CC
+    that went non-zero is back at zero AND nothing has arrived for idle_s.
+    Works for buttons and for knobs alike: stop moving and it ends."""
+    msgs = []
+    while True:
+        r, _, _ = select.select([sys.stdin, midi.fd], [], [], 0.5)
+        if sys.stdin in r:
+            k = sys.stdin.read(1)
+            if k in ("\r", "\n"):
+                return "skip", []
+        if midi.fd in r:
+            got = midi.read()
+            if got:
+                msgs += [(time.time(), m) for m in got]
+                break
+    start = last = time.time()
+    while time.time() - start < cap_s:
+        got = midi.read()
+        if got:
+            last = time.time()
+            msgs += [(last, m) for m in got]
+        notes = {}
+        for _, (st, d1, d2) in msgs:
+            if st & 0xF0 in (0x80, 0x90):
+                notes[(st & 0x0F, d1)] = 0 if (st & 0xF0) == 0x80 else d2
+        if all(v == 0 for v in notes.values()) and time.time() - last > idle_s:
+            break
+        time.sleep(0.005)
+    return "ok", msgs
+
+
+def free_mode(midi, data, save):
+    print("FREE MODE: type a name and press Enter, then use the control.")
+    print("While waiting for the control, Enter cancels that name. Empty name = done.\n")
+    old = termios.tcgetattr(sys.stdin)
+    while True:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old)
+        try:
+            name = input("name> ").strip()
+        except EOFError:
+            break
+        if not name:
+            break
+        cid = "free_" + "_".join(name.lower().split())
+        tty.setcbreak(sys.stdin.fileno())
+        midi.drain()
+        sys.stdout.write("   now use '%s' ... " % name)
+        sys.stdout.flush()
+        what, msgs = record_auto(midi)
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old)
+        if what == "skip":
+            print("cancelled")
+            continue
+        sm = summarise(msgs)
+        data["controls"][cid] = {"group": "free", "prompt": name, "kind": "auto",
+                                 "messages": sm, "raw": [list(m) for _, m in msgs[:64]]}
+        print("; ".join("%s ch%d #%d x%d [%d..%d]" % (e["type"], e["ch"], e["num"],
+                        e["count"], e["min"], e["max"]) for e in sm))
+        save()
+
+
 def record(midi, kind, idle_s, move_s):
     """Wait for the first message or a key; then collect per kind."""
     msgs = []
@@ -268,6 +338,8 @@ def main():
     ap.add_argument("--resume", action="store_true", help="skip ids already in --out")
     ap.add_argument("--list", action="store_true", help="print the prompts and exit")
     ap.add_argument("--move-secs", type=float, default=4.0)
+    ap.add_argument("--free", action="store_true",
+                    help="name each control yourself (for what the guided list lacks)")
     a = ap.parse_args()
 
     items = controls()
@@ -304,6 +376,13 @@ def main():
         with open(tmp, "w") as f:
             json.dump(data, f, indent=1, sort_keys=True)
         os.replace(tmp, out)
+
+    if a.free:
+        print("reading %s (%s)." % (path, a.card))
+        free_mode(midi, data, save)
+        save()
+        print("\nwrote %s (%d controls)" % (out, len(data["controls"])))
+        return 0
 
     print("reading %s (%s). %d prompts. Enter = skip, r = redo, q = save+quit.\n"
           % (path, a.card, len(items)))
