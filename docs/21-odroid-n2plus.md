@@ -212,7 +212,7 @@ are the operator's table, agreed control by control on 2026-10-24:
 | SCFX SPACE, D.ECHO, CRUSH, NOISE, FILTER / PITCH | the same names / SWEEP |
 | SAMPLER VOL | SCFX PARAMETER ⚠ |
 | BEAT < > / SHIFT; LEVEL/DEPTH / SHIFT; ON/OFF | BEAT < > / TAP; DEPTH / TIME; Beat FX ON/OFF |
-| effect selector | by name: ECHO, MT DELAY→DELAY, SPIRAL, REVERB, TRANS, FLANGER, PHASER, SLIP ROLL, ROLL; others nothing |
+| effect selector | by name: ECHO, MT DELAY→DELAY, SPIRAL, REVERB, TRANS, FLANGER, PHASER, SLIP ROLL, ROLL; others nothing. Note 32 is fully counter-clockwise (confirmed). rbp's positions are its own order, not the RX3 knob's printing (docs/13 S5.9) |
 | channel selector | logged only, until its labels are read off the panel |
 
 **Loops**, decided against rbp's `isLooping` at the moment of the press:
@@ -231,8 +231,7 @@ rb.local.conf (`callprev`, `callnext`, `gatecue`, `releasefx`, `beatjump2`,
 each logs `RX3 keycode not yet mapped`. The SHIFT pad modes' pads are bound only
 once their mode key is set.
 
-**Still to check on the unit:** the effect selector's direction (note 32 assumed
-fully counter-clockwise); the channel selector's labels; the jog's counts per
+**Still to check on the unit:** the channel selector's labels; the jog's counts per
 revolution (`JOG_PPR`, the FLX4's 720 for now); LEDs (none driven yet). Also,
 once on the audio system: master and booth output by ear.
 

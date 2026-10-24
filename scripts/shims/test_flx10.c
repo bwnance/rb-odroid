@@ -206,10 +206,27 @@ int main(void)
      CHECK(sent_n == 4 && sent[0].key == K_SWEEP, "deselect -> SWEEP pressed again");
 
      /* Beat FX */
-     reset(); ON(5, 36);
-     CHECK(sent_n == 1 && sent[0].key == K_BFXTYPE && sent[0].param == 4, "REVERB -> RX3 position 4");
-     reset(); ON(5, 32);
-     CHECK(sent_n == 0, "LOW CUT ECHO: no RX3 effect");
+     /* every effect position against rbp's MEASURED switch order (docs/13 S5.9):
+      * 0 DELAY 1 ECHO 2 PING PONG 3 SPIRAL 4 HELIX 5 REVERB 6 FLANGER 7 PHASER
+      * 8 FILTER 9 TRANS 10 ROLL 11 SLIP ROLL 12 PITCH 13 VINYL BRAKE */
+     {
+          static const struct { int note; int pos; const char *name; } fx[] = {
+               { 32, -1, "LOW CUT ECHO" }, { 33, 1, "ECHO" }, { 34, 0, "MT DELAY" },
+               { 35, 3, "SPIRAL" }, { 36, 5, "REVERB" }, { 37, 9, "TRANS" },
+               { 38, -1, "ENIGMA JET" }, { 39, 6, "FLANGER" }, { 40, 7, "PHASER" },
+               { 41, -1, "STRETCH" }, { 42, 11, "SLIP ROLL" }, { 43, 10, "ROLL" },
+               { 44, -1, "MOBIUS saw" }, { 45, -1, "MOBIUS tri" },
+          };
+          for (unsigned i = 0; i < sizeof fx / sizeof fx[0]; i++) {
+               reset(); ON(5, fx[i].note); OFF(5, fx[i].note);
+               if (fx[i].pos < 0)
+                    CHECK(sent_n == 0, "%s: no RX3 effect (%d sent)", fx[i].name, sent_n);
+               else
+                    CHECK(sent_n == 1 && sent[0].key == K_BFXTYPE && sent[0].param == fx[i].pos,
+                          "%s -> RX3 position %d (got %ld)", fx[i].name, fx[i].pos,
+                          sent_n ? sent[0].param : -99L);
+          }
+     }
      reset(); CC(5, 2, 64);
      CHECK(sent_n == 1 && sent[0].key == K_DEPTH, "LEVEL -> DEPTH");
      reset(); ON(1, 63); CC(5, 2, 65); CC(5, 2, 63); OFF(1, 63);

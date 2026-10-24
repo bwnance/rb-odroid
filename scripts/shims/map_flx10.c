@@ -544,20 +544,21 @@ static void flx10_scfx_tick(unsigned long long t)
  * (32..45). It is matched to rbp's 14-position switch BY NAME (operator,
  * docs/21); FLX10 effects the RX3 does not have select nothing and log.
  *
- * ASSUMED, to be checked on the screen: that note 32 is the fully
- * counter-clockwise end. The notes arrived in position order during the
- * recording but its direction was not noted. If the screen shows the wrong
- * effect, reverse this table (or tell the map so).
+ * Note 32 is the fully counter-clockwise end: confirmed on the unit
+ * 2026-10-24 (the operator's REVERB / FLANGER / PHASER / ROLL reports matched
+ * the FLX10 side of this table exactly).
  *
  *   FLX10 (32 -> 45, CCW -> CW, as printed): LOW CUT ECHO, ECHO, MT DELAY,
  *   SPIRAL, REVERB, TRANS, ENIGMA JET | FLANGER, PHASER, STRETCH, SLIP ROLL,
  *   ROLL, MOBIUS (saw), MOBIUS (triangle)
- *   RX3 switch positions: 0 DELAY 1 ECHO 2 PING PONG 3 SPIRAL 4 REVERB 5 TRANS
- *   6 FILTER 7 FLANGER 8 PHASER 9 PITCH 10 SLIP ROLL 11 ROLL 12 VINYL BRAKE
- *   13 HELIX */
+ *   rbp's switch positions, MEASURED on the Pi (docs/13 S5.9, and fx_zone.c's
+ *   names): 0 DELAY 1 ECHO 2 PING PONG 3 SPIRAL 4 HELIX 5 REVERB 6 FLANGER
+ *   7 PHASER 8 FILTER 9 TRANS 10 ROLL 11 SLIP ROLL 12 PITCH 13 VINYL BRAKE.
+ *   NOT the order printed round the RX3's knob -- the first version of this
+ *   table assumed that and sent REVERB as HELIX. */
 static const signed char fxsel_to_rbp[14] = {
-     -1,  1,  0,  3,  4,  5, -1,     /* LOW CUT ECHO .. ENIGMA JET */
-      7,  8, -1, 10, 11, -1, -1,     /* FLANGER .. MOBIUS */
+     -1,  1,  0,  3,  5,  9, -1,     /* LOW CUT ECHO .. ENIGMA JET */
+      6,  7, -1, 11, 10, -1, -1,     /* FLANGER .. MOBIUS */
 };
 static const char *const fxsel_name[14] = {
      "LOW CUT ECHO", "ECHO", "MT DELAY", "SPIRAL", "REVERB", "TRANS",
