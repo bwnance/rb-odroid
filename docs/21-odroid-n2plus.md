@@ -117,9 +117,15 @@ On the unit, Armbian `6.18.43-current-meson64`, with a 1024×768 bench monitor
 * **O4 + O5 pass.** With `extraargs=video=HDMI-A-1:1280x800-16@60e` in
   armbianEnv.txt, fb0 came up **1280×800 at 16 bpp**, the same surface the Pi
   presents with no blit. The 1024×768 bench monitor, whose EDID lists nothing
-  above 1024×768, displayed the forced mode. `boot-trim.sh` now writes the
-  `-16` token on Armbian (without the `e`, which the Pi never needed; if a
-  monitor is ever not detected, `e` is the thing to add back).
+  above 1024×768, displayed the forced mode. **But the tree's default player
+  renders at 32 bpp** (`RB_FB_LIE_BPP=32`, the rbp `99040424…` variant), which on
+  the Pi's 16 bpp panel costs a full-frame 32→16 convert (rb.conf measured ~18 %
+  fewer frames and ~2× rbp CPU). meson-drm can give a 32 bpp fb, so
+  `boot-trim.sh` writes **`video=HDMI-A-1:1280x800-32@60`** on Armbian so the
+  player's surface is the panel's own format. That is the expected zero-copy
+  case here, still to be confirmed with the `PRESENT:` log line. The trailing
+  `e` is dropped because the Pi never needed it. If a monitor is ever not
+  detected, `e` is the thing to add back.
 * **Firmware.** `XDJ-RX3_v120.zip` (sha256 `e81f34ef…`) decrypted with the
   source-package key to the `UsbAuto` ISO (`images/release.txt`: 1.20). Stock
   `rbp` `4f2efcfc…`, `rbp-audio` `3dda2d4e…` and `rbp-nopc` `97aa2223…` are

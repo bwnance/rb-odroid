@@ -80,11 +80,14 @@ UNIT_DST=/etc/systemd/system/rblive4.service
 # VERIFIES. Its real job is a fresh target, where none of it is there yet.
 #
 # The video= token differs by board. The Pi's vc4 gives a 16 bpp fb at
-# 1280x800@60 by itself; meson-drm defaults to 32 bpp, and the explicit -16
-# was measured to give 1280x800 at 16 bpp on the N2+ (docs/21 O4/O5) -- the
-# same zero-copy surface the Pi presents.
+# 1280x800@60 by itself, and rbp (RB_FB_LIE_BPP=32, the default) renders at 32
+# bpp into a system buffer that DirectFB converts to 16 every frame -- measured
+# on the Pi at ~18 % fewer frames and nearly double rbp's CPU (rb.conf). meson-drm
+# can give a 32 bpp fb directly (docs/21 O5: it took -16 on request and defaults
+# to 32), which makes rbp's 32 bpp surface the panel's own format and removes
+# that convert pass. So the N2 asks for -32.
 case "$BOOT_FORMAT" in
-    armbian) CMDLINE_VIDEO_A1="video=HDMI-A-1:1280x800-16@60" ;;
+    armbian) CMDLINE_VIDEO_A1="video=HDMI-A-1:1280x800-32@60" ;;
     *)       CMDLINE_VIDEO_A1="video=HDMI-A-1:1280x800@60" ;;
 esac
 CMDLINE_TOKENS="$CMDLINE_VIDEO_A1 fbcon=map:1 console=tty3 consoleblank=0 vt.global_cursor_default=0 quiet loglevel=3"
