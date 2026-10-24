@@ -130,6 +130,11 @@ On the unit, Armbian `6.18.43-current-meson64`, with a 1024×768 bench monitor
   source-package key to the `UsbAuto` ISO (`images/release.txt`: 1.20). Stock
   `rbp` `4f2efcfc…`, `rbp-audio` `3dda2d4e…` and `rbp-nopc` `97aa2223…` are
   identical to the Pi's (13, S0.2), so the patch table applies unchanged.
+* **O6/O7 (first boot).** Built on the board with `build-on-odroid.sh`, installed
+  with `install.sh` (boot trim applied). After the reboot fb0 is **1280×800 at
+  32 bpp**, and `rblive4.service` is active with `edb_streamd`, `rbp -a`,
+  `usb-watch` and `display-watch` running (~500 MB RSS). The `PRESENT:` line is
+  in `/tmp/dfbdig9.log`, not `rbp.log`.
 * **Audio.** The board's own ALSA card is `ODROIDN2` (`axg-sound-card`), which is
   the candidate for the HDMI mirror later. `/dev/snd/seq` is present without a
   modprobe.
