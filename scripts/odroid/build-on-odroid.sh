@@ -14,8 +14,8 @@
 #   sh scripts/odroid/build-on-odroid.sh dfb        # only DirectFB -> work/dfb
 #   sh scripts/odroid/build-on-odroid.sh chroot     # only build-chroot.sh
 #
-# Result: work/rbpi4b-pi4.tgz. Install it with
-#   sh scripts/device/install.sh work/rbpi4b-pi4.tgz
+# Result: work/rb-odroid.tgz (TARBALL_NAME overrides). Install it with
+#   sh scripts/device/install.sh work/rb-odroid.tgz
 #
 # The DirectFB steps are tools/build-directfb/README.md's, verbatim, including
 # its verification; read that file for why each flag is there.
@@ -23,6 +23,7 @@
 set -eu
 
 STEP="${1:-all}"
+TARBALL_NAME="${TARBALL_NAME:-rb-odroid.tgz}"
 BR="${RB_BUILD_ROOT:-/srv/rb-bookworm}"
 
 # ---------------------------------------------------------------- inner part
@@ -104,7 +105,7 @@ if [ "${RB_IN_BUILD_CHROOT:-0}" = "1" ]; then
 
     if [ "$STEP" = "all" ] || [ "$STEP" = "chroot" ]; then
         echo "== build-chroot.sh (shims + rbp patches + DirectFB + rootfs) =="
-        RX3=/src/extracted DFB="$W/dfb" sh scripts/build-chroot.sh
+        RX3=/src/extracted DFB="$W/dfb" TARBALL_NAME="$TARBALL_NAME" sh scripts/build-chroot.sh
     fi
     exit 0
 fi
@@ -141,9 +142,9 @@ if [ ! -x "$BR/usr/bin/arm-linux-gnueabi-gcc" ] || [ ! -x "$BR/usr/bin/patchelf"
         patchelf git ca-certificates python3 file patch'
 fi
 
-chroot "$BR" env RB_IN_BUILD_CHROOT=1 HOME=/root PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+chroot "$BR" env RB_IN_BUILD_CHROOT=1 TARBALL_NAME="$TARBALL_NAME" HOME=/root PATH=/usr/sbin:/usr/bin:/sbin:/bin \
     sh /src/scripts/odroid/build-on-odroid.sh "$STEP"
 
 echo
-echo "built: $REPO/work/rbpi4b-pi4.tgz"
-echo "next:  sh $REPO/scripts/device/install.sh $REPO/work/rbpi4b-pi4.tgz"
+echo "built: $REPO/work/$TARBALL_NAME"
+echo "next:  sh $REPO/scripts/device/install.sh $REPO/work/$TARBALL_NAME"

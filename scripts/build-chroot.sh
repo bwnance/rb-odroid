@@ -63,6 +63,10 @@ SHIMS="${SHIMS:-$HERE/shims}"
 DFB_MODDIR="${DFB_MODDIR:-/usr/lib/directfb-1.4-6}"
 CONF="${CONF:-$HERE/device/rb.conf}"
 OUT="${OUT:-$REPO/work}"
+# The tarball's file name. Its CONTENTS are the same for every board (the board
+# is picked at run time from the device tree, rb.conf RB_BOARD), so this is only
+# a label; scripts/odroid/build-on-odroid.sh sets rb-odroid.tgz.
+TARBALL_NAME="${TARBALL_NAME:-rbpi4b-pi4.tgz}"
 
 # The four gui asset directories are split across two roots, and neither root is
 # a gui tree on its own -- so they are resolved one directory at a time.
@@ -360,11 +364,11 @@ if command -v file >/dev/null 2>&1; then
   file "$CHROOT/lib/ld-2.13.so" "$CHROOT/bin/busybox" "$CHROOT/root/pdj/rbp" | sed 's#.*: #  #'
 fi
 
-echo "== tar -> $OUT/rbpi4b-pi4.tgz =="
+echo "== tar -> $OUT/$TARBALL_NAME =="
 mkdir -p "$OUT"
-tar -C "$STAGE" -czf "$OUT/rbpi4b-pi4.tgz" .
-echo "== done: $(du -h "$OUT/rbpi4b-pi4.tgz" | cut -f1) =="
+tar -C "$STAGE" -czf "$OUT/$TARBALL_NAME" .
+echo "== done: $(du -h "$OUT/$TARBALL_NAME" | cut -f1) =="
 echo
 echo "deploy on the Pi:"
-echo "  scp $OUT/rbpi4b-pi4.tgz pi@<host>:/tmp/"
-echo "  ssh pi@<host> 'sudo sh /path/to/install.sh /tmp/rbpi4b-pi4.tgz'"
+echo "  scp $OUT/$TARBALL_NAME pi@<host>:/tmp/"
+echo "  ssh pi@<host> 'sudo sh /path/to/install.sh /tmp/$TARBALL_NAME'"

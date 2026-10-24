@@ -69,8 +69,8 @@ whole build there, as root from the repo root, with `extracted/` in place:
 
 ```sh
 fsck.cramfs --extract=extracted/XDJRX3-rootfs extracted/XDJRX3/images/rootfs.cramfs
-sh scripts/odroid/build-on-odroid.sh         # -> work/rbpi4b-pi4.tgz
-sh scripts/device/install.sh work/rbpi4b-pi4.tgz
+sh scripts/odroid/build-on-odroid.sh         # -> work/rb-odroid.tgz
+sh scripts/device/install.sh work/rb-odroid.tgz
 ```
 
 It builds inside a **Debian bookworm** chroot (`/srv/rb-bookworm`, made with
