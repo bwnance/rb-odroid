@@ -166,9 +166,13 @@ The surface this fork is ultimately for. No map yet; facts measured on the N2+:
 | sequencer port | `DDJ-FLX10 MIDI 1` (client 20) | `DDJ-FLX4 MIDI 1` |
 | playback | 4 ch, `S24_3LE`, 44100 only, async, high speed; channel map FL FR FC LFE | 4 ch, `S24_3LE`, 44100 |
 
-The playback format is the FLX4's exactly, so audioshim's `hw:` path, `S24_3LE`
-packing and 4-channel map should carry over unchanged. Which pair is master and
-which is headphones has not been confirmed by ear yet.
+The playback format is the FLX4's exactly, so audioshim's `hw:` path and
+`S24_3LE` packing carry over. **The headphone pair is reversed:**
+`speaker-test -c 4` put channel 2 (FC) in the RIGHT ear and channel 3 (LFE) in the
+LEFT, so the FLX10 wants `headphones=3,2` where the FLX4 default is `2,3`
+(audioshim's pair is `left,right`, any order). Master on 0,1 is still to be heard.
+Until the FLX10 has its own row, the per-device memory carries it, keyed by USB id:
+`RB_AUDIO_PAIRS_MEMORY='2b73:0041=headphones=3,2'` in rb.local.conf.
 
 No published MIDI message list for the FLX10 was found, so the bindings are
 recorded from the hardware with `scripts/odroid/midi-learn.py`. It is a guided
