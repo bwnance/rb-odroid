@@ -42,85 +42,168 @@ import time
 import tty
 
 # (group, id, prompt, kind). kind: "button" or "move".
+#
+# The list follows the DDJ-FLX10's own panel labels (the SHIFT functions are the
+# small grey labels under each button). Ids that the first deck-1 pass already
+# recorded keep their names, so `--resume` asks only for what is new:
+# mode_2/3/4 are PAD FX1 / BEAT JUMP / SAMPLER by position.
 def controls():
     out = []
+
     def deck(n):
         g = "deck%d" % n
-        b = lambda i, p: out.append((g, "d%d_%s" % (n, i), "DECK %d: %s" % (n, p), "button"))
-        m = lambda i, p: out.append((g, "d%d_%s" % (n, i), "DECK %d: %s" % (n, p), "move"))
+        side = "3/1" if n == 1 else "2/4"
+
+        def b(i, p):
+            out.append((g, "d%d_%s" % (n, i), "DECK %d: %s" % (n, p), "button"))
+
+        def m(i, p):
+            out.append((g, "d%d_%s" % (n, i), "DECK %d: %s" % (n, p), "move"))
+
+        # transport
         b("play", "press PLAY/PAUSE")
         b("cue", "press CUE")
         b("shift", "press SHIFT")
-        b("shift_play", "hold SHIFT and press PLAY/PAUSE")
-        b("shift_cue", "hold SHIFT and press CUE")
+        b("shift_play", "hold SHIFT + press PLAY/PAUSE")
+        b("shift_cue", "hold SHIFT + press CUE")
+        # sync / tempo / key
         b("sync", "press BEAT SYNC (short)")
-        b("sync_long", "press and HOLD BEAT SYNC for 2 s")
-        b("master", "press MASTER (tempo master), if the deck has one")
-        b("keylock", "press KEY LOCK / MASTER TEMPO, if present")
-        b("tempo_range", "press the TEMPO RANGE button, if present")
-        b("loop_in", "press loop IN")
-        b("loop_out", "press loop OUT")
-        b("loop_4beat", "press 4 BEAT / RELOOP-EXIT (or AUTO LOOP)")
-        b("call_prev", "press CUE/LOOP CALL < (or loop 1/2X)")
-        b("call_next", "press CUE/LOOP CALL > (or loop 2X)")
-        b("jog_touch", "touch the TOP of the jog platter, then let go")
-        m("jog_top", "spin the jog by its TOP (while touching) both ways")
-        m("jog_side", "spin the jog by its SIDE ring both ways")
-        m("shift_jog", "hold SHIFT and spin the jog top")
+        b("shift_sync", "hold SHIFT + press BEAT SYNC (MASTER)")
+        b("sync_long", "press and HOLD BEAT SYNC 2 s (SYNC RATE)")
+        b("tempo_reset", "press TEMPO RESET")
+        b("shift_tempo_reset", "hold SHIFT + press TEMPO RESET (TEMPO RANGE)")
+        b("key_sync", "press KEY SYNC (short)")
+        b("key_sync_long", "press and HOLD KEY SYNC 2 s (MASTER TEMPO)")
+        b("shift_key_sync", "hold SHIFT + press KEY SYNC (KEY RESET)")
         m("tempo", "move the TEMPO fader end to end")
-        b("deck_select", "press the DECK 1/3 or 2/4 select button for this side (then back)")
+        # loop
+        b("loop_in", "press IN / 1/2X")
+        b("loop_out", "press OUT / 2X")
+        b("loop_4beat", "press 4 BEAT / EXIT")
+        b("shift_loop_in", "hold SHIFT + press IN (IN ADJUST)")
+        b("shift_loop_out", "hold SHIFT + press OUT (OUT ADJUST / RELOOP)")
+        b("shift_4beat", "hold SHIFT + press 4 BEAT/EXIT (ACTIVE)")
+        # cue/loop call, mix point, beat jump
+        b("call_prev", "press CUE/LOOP CALL <")
+        b("call_next", "press CUE/LOOP CALL >")
+        b("shift_call_prev", "hold SHIFT + press CALL < (MEMORY)")
+        b("shift_call_next", "hold SHIFT + press CALL > (DELETE)")
+        b("mixpoint_prev", "press MIX POINT SELECT <")
+        b("mixpoint_next", "press MIX POINT SELECT >")
+        b("link", "press LINK")
+        b("shift_mixpoint_prev", "hold SHIFT + press MIX POINT < (EXIT)")
+        b("shift_mixpoint_next", "hold SHIFT + press MIX POINT > (DECK)")
+        b("shift_link", "hold SHIFT + press LINK (SILENT)")
+        b("beatjump_prev", "press 4 BEAT JUMP <")
+        b("beatjump_next", "press 4 BEAT JUMP >")
+        b("shift_beatjump_prev", "hold SHIFT + press BEAT JUMP < (SEARCH)")
+        b("shift_beatjump_next", "hold SHIFT + press BEAT JUMP > (SEARCH)")
+        # slip / quantize / reverse
+        b("slip_reverse", "press SLIP REVERSE")
+        b("shift_slip_reverse", "hold SHIFT + press SLIP REVERSE (REVERSE)")
+        b("quantize", "press QUANTIZE")
+        b("shift_quantize", "hold SHIFT + press QUANTIZE (WAKE UP)")
+        b("slip", "press SLIP")
+        b("shift_slip", "hold SHIFT + press SLIP (VINYL)")
+        # this deck's browse knob (top corner) and BACK / VIEW
+        m("browse", "turn this deck's top-corner BROWSE knob a few clicks each way")
+        m("shift_browse", "hold SHIFT + turn the BROWSE knob a few clicks")
+        b("browse_push", "push the BROWSE knob once (LOAD)")
+        b("browse_push_double", "push the BROWSE knob TWICE quickly (INST. DOUBLES)")
+        b("browse_push_hold", "push and HOLD the BROWSE knob 2 s (TAG TRACK)")
+        b("back", "press BACK")
+        b("view", "press VIEW")
+        b("shift_back", "hold SHIFT + press BACK (PLAYLIST PALETTE)")
+        b("shift_view", "hold SHIFT + press VIEW (RELATED TRACKS)")
+        # stems
+        b("part_drums", "press ACTIVE PART: DRUMS")
+        b("part_vocal", "press ACTIVE PART: VOCAL")
+        b("part_inst", "press ACTIVE PART: INST")
+        b("shift_part_vocal", "hold SHIFT + press VOCAL (PART INSTANT DOUBLES)")
+        # deck select, jog
+        b("deck_select", "press DECK SELECT %s (then press it again to come back)" % side)
+        b("jog_touch", "press DOWN on the jog platter top, then let go")
+        m("jog_top", "press the platter top and spin it both ways")
+        m("jog_side", "spin the jog by its SIDE ring both ways")
+        m("shift_jog", "hold SHIFT + press the platter top and spin it (top ONLY)")
+        m("shift_jog_side", "hold SHIFT + spin the SIDE ring only")
+        # pad modes and pages
         b("mode_hotcue", "press pad mode HOT CUE")
-        b("mode_2", "press the 2nd pad mode button (whatever it is labelled)")
-        b("mode_3", "press the 3rd pad mode button")
-        b("mode_4", "press the 4th pad mode button")
-        b("mode_shift", "hold SHIFT and press HOT CUE mode (secondary mode)")
-        b("pad1_hot", "in HOT CUE mode: press pad 1")
-        b("pad8_hot", "in HOT CUE mode: press pad 8")
-        b("shift_pad1_hot", "in HOT CUE mode: hold SHIFT and press pad 1")
-        b("pad1_mode2", "in the 2nd pad mode: press pad 1")
-        b("pad1_mode3", "in the 3rd pad mode: press pad 1")
-        b("pad1_mode4", "in the 4th pad mode: press pad 1")
-        b("ch_cue", "press this deck's channel headphone CUE")
-        m("trim", "turn this channel's TRIM end to end")
-        m("eq_hi", "turn this channel's EQ HI end to end")
-        m("eq_mid", "turn this channel's EQ MID end to end")
-        m("eq_low", "turn this channel's EQ LOW end to end")
-        m("cfx", "turn this channel's SOUND COLOR FX / FILTER knob end to end")
-        m("fader", "move this channel's FADER end to end")
+        b("mode_2", "press pad mode PAD FX1")
+        b("mode_3", "press pad mode BEAT JUMP")
+        b("mode_4", "press pad mode SAMPLER")
+        b("shift_mode_hotcue", "hold SHIFT + press HOT CUE (KEYBOARD)")
+        b("shift_mode_2", "hold SHIFT + press PAD FX1 (PAD FX2)")
+        b("shift_mode_3", "hold SHIFT + press BEAT JUMP (BEAT LOOP)")
+        b("shift_mode_4", "hold SHIFT + press SAMPLER (KEY SHIFT)")
+        b("page_prev", "press PAGE <")
+        b("page_next", "press PAGE >")
+        # pads
+        b("pad1_hot", "in HOT CUE mode: press pad 1 (top left)")
+        b("pad8_hot", "in HOT CUE mode: press pad 8 (bottom right)")
+        b("shift_pad1_hot", "in HOT CUE mode: hold SHIFT + press pad 1")
+        b("pad1_mode2", "in PAD FX1 mode: press pad 1")
+        b("pad1_mode3", "in BEAT JUMP mode: press pad 1")
+        b("pad1_mode4", "in SAMPLER mode: press pad 1")
+        b("pad1_beatloop", "in BEAT LOOP mode (SHIFT + BEAT JUMP): press pad 1")
+        b("pad1_keyboard", "in KEYBOARD mode (SHIFT + HOT CUE): press pad 1")
+        # this deck's mixer channel (channel %d)
+        b("ch_cue", "press channel %d's CUE (headphone cue)" % n)
+        b("shift_ch_cue", "hold SHIFT + press channel %d's CUE (PART ISO)" % n)
+        m("trim", "turn channel %d's TRIM end to end" % n)
+        m("eq_hi", "turn channel %d's HI end to end" % n)
+        m("eq_mid", "turn channel %d's MID end to end" % n)
+        m("eq_low", "turn channel %d's LOW end to end" % n)
+        m("cfx", "turn channel %d's COLOR knob end to end" % n)
+        m("fader", "move channel %d's FADER end to end" % n)
+        m("xf_assign", "move channel %d's crossfader assign switch A-THRU-B-THRU-A" % n)
     deck(1)
     deck(2)
 
     g = "mixer"
-    b = lambda i, p: out.append((g, i, "MIXER: " + p, "button"))
-    m = lambda i, p: out.append((g, i, "MIXER: " + p, "move"))
+
+    def b(i, p):
+        out.append((g, i, "MIXER: " + p, "button"))
+
+    def m(i, p):
+        out.append((g, i, "MIXER: " + p, "move"))
     m("xfader", "move the CROSSFADER end to end")
     m("master_level", "turn MASTER LEVEL end to end")
-    m("booth_level", "turn BOOTH LEVEL end to end, if present")
+    m("booth_level", "turn BOOTH LEVEL end to end")
+    b("master_cue", "press the master CUE (under the level meter)")
     m("hp_mix", "turn HEADPHONES MIX end to end")
     m("hp_level", "turn HEADPHONES LEVEL end to end")
-    b("master_cue", "press MASTER CUE")
-    m("browse", "turn the BROWSE knob a few clicks each way")
-    m("shift_browse", "hold SHIFT and turn BROWSE a few clicks")
-    b("browse_push", "push the BROWSE knob")
-    b("shift_browse_push", "hold SHIFT and push BROWSE")
-    b("back", "press BACK / VIEW, if present")
-    b("load1", "press LOAD for deck 1")
-    b("load2", "press LOAD for deck 2")
-    b("shift_load1", "hold SHIFT and press LOAD deck 1")
-    b("cfx_select", "press a SOUND COLOR FX select button (any one)")
-    b("ch3_cue", "press channel 3's headphone CUE (to learn the 3/4 strips)")
+    b("sampler_cue", "press SAMPLER CUE")
+    m("sampler_vol", "turn SAMPLER VOL end to end")
+    b("scfx_space", "press SOUND COLOR FX: SPACE")
+    b("scfx_decho", "press SOUND COLOR FX: D.ECHO")
+    b("scfx_crush", "press SOUND COLOR FX: CRUSH")
+    b("scfx_pitch", "press SOUND COLOR FX: PITCH")
+    b("scfx_noise", "press SOUND COLOR FX: NOISE")
+    b("scfx_filter", "press SOUND COLOR FX: FILTER")
+    b("ch3_cue", "press channel 3's CUE (to learn the 3/4 strips)")
     m("ch3_fader", "move channel 3's FADER")
+    b("ch4_cue", "press channel 4's CUE")
 
     g = "fx"
-    b = lambda i, p: out.append((g, i, "BEAT FX: " + p, "button"))
-    m = lambda i, p: out.append((g, i, "BEAT FX: " + p, "move"))
-    b("fx_select", "press FX SELECT / the effect selector")
+
+    def b(i, p):
+        out.append((g, i, "BEAT FX: " + p, "button"))
+
+    def m(i, p):
+        out.append((g, i, "BEAT FX: " + p, "move"))
+    b("part_vocal", "press FX PART SELECT: VOCAL (on the ring)")
+    b("part_drums", "press FX PART SELECT: DRUMS")
+    b("part_inst", "press FX PART SELECT: INST")
     b("beat_prev", "press BEAT <")
     b("beat_next", "press BEAT >")
-    m("fx_channel", "move the FX CHANNEL SELECT switch through every position")
+    b("shift_beat_prev", "hold SHIFT + press BEAT < (AUTO)")
+    b("shift_beat_next", "hold SHIFT + press BEAT > (TAP)")
+    m("fx_select", "turn the effect selector knob through every effect")
+    m("fx_channel", "turn the channel selector (3 2 1 MIC SP MST) through every position")
     m("fx_level", "turn LEVEL/DEPTH end to end")
     b("fx_on", "press BEAT FX ON/OFF")
-    b("shift_fx_on", "hold SHIFT and press BEAT FX ON/OFF")
+    b("shift_fx_on", "hold SHIFT + press ON/OFF (RELEASE FX)")
     return out
 
 

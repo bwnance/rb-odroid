@@ -81,3 +81,7 @@ __pycache__/
 
 # This machine's unit address and ssh key, read by tools/fbwatch.py
 /tools/unit.local.conf
+
+# Per-unit MIDI measurements from scripts/odroid/midi-learn.py (docs/21).
+/flx10-learn.json
+/flx10-learn.json.tmp
