@@ -61,6 +61,27 @@ The same as the Pi: an extracted **XDJ-RX3 v1.20** tree (see
 address in the shims are for the v1.20 `rbp`. The rx3-pi project's recovery script
 fetches **v1.19**, so its output cannot be used here as-is.
 
+## Building on the board
+
+The N2+ is fast enough to be its own build machine, and its arm64 kernel runs
+the armel build outputs natively. `scripts/odroid/build-on-odroid.sh` does the
+whole build there, as root from the repo root, with `extracted/` in place:
+
+```sh
+fsck.cramfs --extract=extracted/XDJRX3-rootfs extracted/XDJRX3/images/rootfs.cramfs
+sh scripts/odroid/build-on-odroid.sh         # -> work/rbpi4b-pi4.tgz
+sh scripts/device/install.sh work/rbpi4b-pi4.tgz
+```
+
+It builds inside a **Debian bookworm** chroot (`/srv/rb-bookworm`, made with
+debootstrap the first time), not the board's trixie. Bookworm is the toolchain
+every recipe here was measured with (gcc 12, glibc 2.36 headers, the same base as
+`tools/build-toolchain/Dockerfile`). Trixie's gcc 14 rejects DirectFB 1.4's
+implicit declarations, and glibc 2.38+ headers redirect `strtol` and friends to
+`__isoc23_*` symbols that glibc 2.13 lacks. That kind of failure builds cleanly
+and then fails to load. The DirectFB steps and checks are
+`tools/build-directfb/README.md`'s, unchanged.
+
 ## Bring-up checks (O0–O7)
 
 Run in order. Each one rules out a whole class of later failure.
