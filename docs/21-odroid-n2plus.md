@@ -24,7 +24,7 @@ list it was on the Pi:
 ## The image
 
 Armbian for the **ODROID N2 / N2+** (not the N2L), **Debian 13 trixie Minimal**,
-**current** kernel (6.18.x at the time of writing). Flash it to microSD or eMMC,
+**current** kernel (6.18.x at the time of writing; measured on 6.18.43). Flash it to microSD or eMMC,
 set the boot switch to **MMC**, and finish Armbian's first-login setup.
 
 Install what the deploy needs, as on the Pi:
@@ -139,6 +139,7 @@ On the unit, Armbian `6.18.43-current-meson64`, with a 1024×768 bench monitor
   pitch=5120 bpp=32 pages=1 pan=0 (logical 1280x800)`. rbp's 32 bpp layer *is*
   the fb page, with no convert pass. This is better than the Pi, whose 16 bpp
   panel needs a 32→16 convert every frame.
+  The rekordbox UI is on the monitor (confirmed by eye, 2026-10-24).
 * With no FLX4 attached, `rbp.log` repeats `ALSA lib pcm_hw.c:1401:(_snd_pcm_hw_open)
   Invalid value for card`. That is audioshim retrying `hw:CARD=DDJFLX4,DEV=0` (the
   controller table's card), and it is expected until the controller is plugged in.
