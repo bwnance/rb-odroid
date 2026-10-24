@@ -135,6 +135,13 @@ On the unit, Armbian `6.18.43-current-meson64`, with a 1024×768 bench monitor
   32 bpp**, and `rblive4.service` is active with `edb_streamd`, `rbp -a`,
   `usb-watch` and `display-watch` running (~500 MB RSS). The `PRESENT:` line is
   in `/tmp/dfbdig9.log`, not `rbp.log`.
+* **Display: zero-copy confirmed.** `PRESENT: mode=off angle=0 real_fb=1280x800
+  pitch=5120 bpp=32 pages=1 pan=0 (logical 1280x800)`. rbp's 32 bpp layer *is*
+  the fb page, with no convert pass. This is better than the Pi, whose 16 bpp
+  panel needs a 32→16 convert every frame.
+* With no FLX4 attached, `rbp.log` repeats `ALSA lib pcm_hw.c:1401:(_snd_pcm_hw_open)
+  Invalid value for card`. That is audioshim retrying `hw:CARD=DDJFLX4,DEV=0` (the
+  controller table's card), and it is expected until the controller is plugged in.
 * **Audio.** The board's own ALSA card is `ODROIDN2` (`axg-sound-card`), which is
   the candidate for the HDMI mirror later. `/dev/snd/seq` is present without a
   modprobe.
