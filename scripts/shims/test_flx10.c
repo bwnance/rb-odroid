@@ -125,11 +125,14 @@ int main(void)
      reset(); ON(2, 12); OFF(2, 12);
      CHECK(sent_n == 2 && is(0, K_CUE, OP_PRESS, 2), "deck 2 CUE on player 2");
 
-     /* KEY SYNC toggles MASTER TEMPO; its long press does nothing */
+     /* KEY SYNC: short press nothing (rbp has no key sync), hold = MASTER TEMPO */
      reset(); ON(1, 101); OFF(1, 101);
-     CHECK(sent_n == 2 && is(0, K_MT, OP_PRESS, 1) && is(1, K_MT, OP_RELEASE, 1), "KEY SYNC -> MT");
+     CHECK(sent_n == 0, "KEY SYNC short press sends nothing (%d sent)", sent_n);
      reset(); ON(1, 26); OFF(1, 26); OFF(1, 101);
-     CHECK(sent_n == 0, "KEY SYNC held sends nothing (%d sent)", sent_n);
+     CHECK(sent_n == 2 && is(0, K_MT, OP_PRESS, 1) && is(1, K_MT, OP_RELEASE, 1),
+           "KEY SYNC held -> MT, once (%d sent)", sent_n);
+     reset(); ON(2, 26); OFF(2, 26); OFF(2, 101);
+     CHECK(sent_n == 2 && is(0, K_MT, OP_PRESS, 2), "deck 2 KEY SYNC held -> MT on deck 2");
 
      /* SHIFT + BEAT SYNC = MASTER; TEMPO RESET nothing, SHIFT = TEMPO RANGE */
      reset(); ON(1, 92);

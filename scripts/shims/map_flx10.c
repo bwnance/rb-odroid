@@ -84,7 +84,7 @@
 #define N_SYNC_SHIFT    92    /* SHIFT + BEAT SYNC = MASTER */
 #define N_SYNC_LONG    120    /* long press (SYNC RATE): nothing on the RX3 */
 #define N_KEYSYNC      101    /* KEY SYNC, short press */
-#define N_KEYSYNC_LONG  26    /* KEY SYNC held: nothing for now (operator) */
+#define N_KEYSYNC_LONG  26    /* KEY SYNC held: MASTER TEMPO */
 #define N_TEMPO_RESET   65
 #define N_TEMPO_RANGE   96    /* SHIFT + TEMPO RESET */
 #define N_IN            16    /* IN / 1/2X */
@@ -1057,7 +1057,20 @@ static void flx10_note(int ch, int note, int on)
                if (on)
                     flx10_tempo_reset(deck);
                return;
-          case N_KEYSYNC:                    /* KEY SYNC toggles MASTER TEMPO */
+          /* KEY SYNC (operator, 2026-10-25). The unit decides short from long
+           * itself: a short press sends 101 on/off, a hold sends 26 on at the
+           * threshold and 26 off + 101 off on release (no 101 on) -- measured
+           * with midi-learn.py. The hold is MASTER TEMPO. The short press is
+           * KEY SYNC, which rbp does not have: no key sync or key shift exists
+           * anywhere in its engine (DjEngineIF has no key/pitch-shift call;
+           * the RX3 has no KEY SYNC on its panel), so it is logged and does
+           * nothing. The KEY SYNC LED keeps following master tempo. */
+          case N_KEYSYNC:
+               if (on)
+                    klog("knobshim2: flx10 deck%d KEY SYNC: rbp has no key sync; "
+                         "hold the button for MASTER TEMPO\n", sch);
+               return;
+          case N_KEYSYNC_LONG:
                if (on)
                     pulse(K_MT, sch);
                return;
@@ -1317,7 +1330,6 @@ static void flx10_build(void)
           /* The pad-mode buttons are named cases in flx10_note()
            * (flx10_set_mode()). Known and deliberately unbound (key 0): logged,
            * nothing sent. */
-          add_note(rch, N_KEYSYNC_LONG, 0, sch);
           add_note(rch, N_SYNC_LONG, 0, sch);
           add_note(rch, N_4BEAT_SHIFT, 0, sch);
 
@@ -1789,7 +1801,7 @@ static const struct led_notes flx10_leds = {
      .n_sync = N_SYNC,
      .n_cue = N_CUE,
      .n_play = N_PLAY,
-     .n_keylock = N_KEYSYNC,       /* KEY SYNC is MASTER TEMPO here */
+     .n_keylock = N_KEYSYNC,       /* KEY SYNC's LED shows MASTER TEMPO */
      .n_vinyl = -1,                /* no VINYL LED */
      .n_slip = N_SLIP,
      .n_loopin = N_IN,
