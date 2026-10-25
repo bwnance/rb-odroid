@@ -47,7 +47,7 @@ ask() {
   log "$1 | heard=$a"
 }
 for r in 44100 48000; do
-  for f in S16_LE S32_LE; do
+  for f in S16_LE S24_LE; do
     log "== tone $DEV ${r} Hz $f"
     echo "playing a tone on HDMI ($r Hz, $f)..."
     timeout 4 speaker-test -D "$DEV" -c 2 -r "$r" -F "$f" -t sine -f 440 -l 1 -p 100000 >> "$OUT" 2>&1
