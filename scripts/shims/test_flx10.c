@@ -69,6 +69,8 @@ void flx10_set_reverse(int d, int on) { reversing[d] = on; rev_sets++; }
 static int bj_n, bj_deck[16], bj_t[16];
 static int goes_back[2];
 int flx10_trrev_goes_back(int d) { return goes_back[d]; }
+static int second_press[2];
+void flx10_trrev_as_second_press(int d) { second_press[d]++; }
 static int bpm_auto_n;
 void flx10_bfx_bpm_auto(void) { bpm_auto_n++; }
 void flx10_beat_jump(int d, int type) { if (bj_n < 16) { bj_deck[bj_n] = d; bj_t[bj_n] = type; } bj_n++; }
@@ -643,12 +645,13 @@ int main(void)
           memset(&di, 0, sizeof di);
           di.loaded = 1; di.elapsed_ms = 60000; di.total_ms = 200000;
           n->deck_display(1, &di);
-          reset(); ON(2, 72); OFF(2, 72);
-          CHECK(sent_n == 1 && is(0, K_TRREV, OP_PRESS, 2), "SHIFT+CUE mid-track -> TRACK SEARCH < held");
-          ms(60); map_flx10.tick();
-          CHECK(sent_n == 1, "...still held at 60 ms");
-          ms(60); map_flx10.tick();
-          CHECK(sent_n == 2 && is(1, K_TRREV, OP_RELEASE, 2), "...released after ~100 ms");
+          reset(); ON(2, 72);
+          CHECK(sent_n == 1 && is(0, K_TRREV, OP_PRESS, 2), "SHIFT+CUE mid-track -> TRACK SEARCH < pressed");
+          ms(150); map_flx10.tick();
+          CHECK(sent_n == 1, "...held while the button is");
+          OFF(2, 72);
+          CHECK(sent_n == 2 && is(1, K_TRREV, OP_RELEASE, 2), "...released with it");
+          CHECK(second_press[1] == 0, "SHIFT+CUE is a first press (to the top)");
           reset(); ON(2, 72); OFF(2, 72);
           CHECK(sent_n == 0, "SHIFT+CUE again within 600 ms: nothing (rbp would load the previous track)");
           ms(650); goes_back[1] = 1;
@@ -660,24 +663,17 @@ int main(void)
           di.loaded = 1; n->deck_display(1, &di);
      }
 
-     /* MIX POINT >: next track; <: previous track -- TRACK SEARCH held 100 ms;
-      * < once when rbp would go back already, else twice, 250 ms apart */
-     reset(); ON(1, 90); OFF(1, 90);
-     CHECK(sent_n == 1 && is(0, K_TRFWD, OP_PRESS, 1), "MIX POINT > -> TRACK SEARCH > held");
-     ms(120); map_flx10.tick();
-     CHECK(sent_n == 2 && is(1, K_TRFWD, OP_RELEASE, 1), "...and released");
-     goes_back[0] = 1;
-     reset(); ON(1, 89); OFF(1, 89);
-     for (int i = 0; i < 4; i++) { ms(100); map_flx10.tick(); }
-     CHECK(sent_n == 2 && is(0, K_TRREV, OP_PRESS, 1) && is(1, K_TRREV, OP_RELEASE, 1),
-           "MIX POINT < at the start: one held TRREV (%d)", sent_n);
-     goes_back[1] = 0; ms(650);
+     /* MIX POINT >: next track; <: previous track, one press stamped as rbp's
+      * "second press"; both held with the button */
+     reset(); ON(1, 90);
+     CHECK(sent_n == 1 && is(0, K_TRFWD, OP_PRESS, 1), "MIX POINT > -> TRACK SEARCH > pressed");
+     OFF(1, 90);
+     CHECK(sent_n == 2 && is(1, K_TRFWD, OP_RELEASE, 1), "...released with the button");
+     ms(650); second_press[1] = 0;
      reset(); ON(2, 89); OFF(2, 89);
-     for (int i = 0; i < 5; i++) { ms(100); map_flx10.tick(); }
-     CHECK(sent_n == 4 && is(0, K_TRREV, OP_PRESS, 2) && is(1, K_TRREV, OP_RELEASE, 2) &&
-           is(2, K_TRREV, OP_PRESS, 2) && is(3, K_TRREV, OP_RELEASE, 2),
-           "MIX POINT < mid-track: two held TRREVs (%d)", sent_n);
-     goes_back[0] = 0;
+     for (int i = 0; i < 4; i++) { ms(100); map_flx10.tick(); }
+     CHECK(sent_n == 2 && is(0, K_TRREV, OP_PRESS, 2) && is(1, K_TRREV, OP_RELEASE, 2) &&
+           second_press[1] == 1, "MIX POINT <: one TRREV, stamped as a second press (%d)", sent_n);
 
      /* the jog screens' HID packets (flx10_hid.c) */
      {

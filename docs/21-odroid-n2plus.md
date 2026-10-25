@@ -310,7 +310,7 @@ are the operator's table, agreed control by control on 2026-10-24:
 | SLIP REVERSE / SHIFT | momentary reverse that always slips / latching reverse that never slips (LED lit while held or reversing) |
 | QUANTIZE; SLIP / SHIFT | QUANTIZE; SLIP / nothing (VINYL disabled: no light on the button) |
 | CUE/LOOP CALL < > and SHIFT | not mapped |
-| MIX POINT SELECT < > | previous / next track (TRACK SEARCH; < sent twice when the deck is past its start) |
+| MIX POINT SELECT < > | previous / next track (TRACK SEARCH, held with the button; < stamped as rbp's "second press" so one press loads the previous track) |
 | SHIFT + MIX POINT, LINK, ACTIVE PART, PAGE, DECK SELECT, SAMPLER, BOOTH | nothing |
 | browse knobs (one shared message) / SHIFT | scroll / 8 steps per detent |
 | browse push (per deck) / held 0.5 s / double | on a track row LOAD that deck, on anything else SELECT (opens the folder/playlist/category) -- the row type is rbp's own `UiBrowseComm_IsTrackList` (@0x105e60) / **rbp's own long press of the selector = FAST SCROLL** (selector PRESS + op 1, held until the knob comes up; TAG TRACK is unmapped) / twice; **on the SOURCE screen with a stick in slot 1: open USB 1** (rbp ignores the knob there) |
