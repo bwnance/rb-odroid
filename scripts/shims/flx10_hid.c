@@ -29,10 +29,11 @@
  *   [0]      deck 0x10/0x20/0x30/0x40          [1] 0x21
  *   [2]      0x02 paused away from the cue point; 0x00 playing, or paused on
  *            it (cue standby) -- the capture shows 0x00 after a load and a cue
- *   [3]      0x08 (+0x10 while the jog is touched -- not sent)
+ *   [3]      0x08, +0x10 while the jog is touched, +0x02 remaining time
+ *            (0x0a showed -mm:ss in the probe rounds; rekordbox sent 0x08)
  *   [4]      tempo range box 0x10 +-6, 0x20 +-10, 0x30 +-16, 0x40 WIDE;
  *            0x04 master tempo
- *   [5]      0x01, +0x10 SYNC on
+ *   [5]      0x01, +0x10 SYNC on, +0x80 tempo MASTER (second capture)
  *   [6]      0x02          [7] 0x02 decks 1/3, 0x01 decks 2/4
  *   [8]      0x80          [9] 0xb4 loaded (0x10 empty; 0xbc while looping)
  *   [11..14] position: minutes, seconds, milliseconds (LE16)
@@ -40,8 +41,10 @@
  *   [21]     BPM, whole number (low 8 bits)
  *   [22]     tenths << 4 | whole number >> 8
  *   [23..24] tempo % x100, signed LE16
- *   [25..30] loop in / out, ms LE24 each; [27] 0x80 = no loop
- *   [10]     0x0e while looping (as captured; meaning not known)
+ *   [25..30] the last loop's in / out, ms LE24 each; [27] (in's top byte)
+ *            0x80 while no loop is playing
+ *   [10]     the playing loop's size code (flx10_loop_code), 0 when none
+ *   [9]      0xbc once the track has a loop
  *   [31..33] the cue point, ms LE24 (the cue arm); again at [55..57]
  *   [43..44] 0xff 0xff     [45] 0x02     [58] 0x01
  *   [49]     hundredths << 4
@@ -73,6 +76,28 @@ int flx10_key_shifted(int code, int k)
           return 0;
      idx = (((code - 1) / 2 + k) % 12 + 12) % 12;   /* one step = one semitone */
      return idx * 2 + 1 + ((code - 1) & 1);
+}
+
+int flx10_loop_code(int len_ms, int bpm_x100, int tempo_x100)
+{
+     /* beats, as a power of two: exponent -6..9 and the code for it */
+     static const signed char code[16] = {
+          0x04, 0x05, 0x06, 0x07, 0x08, 0x0a,               /* 1/64 .. 1/2 */
+          0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15 };
+     double beat_ms, want;
+
+     if (len_ms <= 0 || bpm_x100 <= 0 || tempo_x100 <= -10000)
+          return 0x01;
+     /* one beat of the track, in track ms; the loop's ends are whole ms, so a
+      * 1/64-beat loop (~6 ms) is off by up to a ms: 3%, or 1.5 ms */
+     beat_ms = 60000.0 * (1.0 + tempo_x100 / 10000.0) / (bpm_x100 / 100.0);
+     want = beat_ms / 64.0;
+     for (int i = 0; i < 16; i++, want *= 2.0) {
+          double tol = want * 0.03 > 1.5 ? want * 0.03 : 1.5;
+          if (len_ms > want - tol && len_ms < want + tol)
+               return code[i];
+     }
+     return 0x01;
 }
 
 static void put_time(unsigned char *p, int ms)
@@ -126,8 +151,14 @@ void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
           return;
 
      p[2] = (!s->playing && !s->cue_standby) ? 0x02 : 0x00;
+     if (s->jog_touch)
+          p[3] |= 0x10;
+     if (s->time_remain)
+          p[3] |= 0x02;
      if (s->sync)
           p[5] |= 0x10;
+     if (s->master)
+          p[5] |= 0x80;
      p[9] = 0xb4;
      put_time(p + 11, s->elapsed_ms);
      put_time(p + 15, s->total_ms);
@@ -140,10 +171,12 @@ void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
      if (s->loop_in_ms >= 0 && s->loop_out_ms > s->loop_in_ms) {
           put_le24(p + 25, s->loop_in_ms);
           put_le24(p + 28, s->loop_out_ms);
-     }
-     if (s->looping) {
           p[9] = 0xbc;
-          p[10] = 0x0e;
+          if (s->looping)
+               p[10] = (unsigned char)flx10_loop_code(s->loop_out_ms - s->loop_in_ms,
+                                                       s->bpm_x100, s->tempo_x100);
+          else
+               p[27] = 0x80;
      }
      if (s->cue_ms >= 0) {
           put_le24(p + 31, s->cue_ms);

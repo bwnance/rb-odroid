@@ -775,11 +775,26 @@ int main(void)
           /* the loop: in / out ms at [25..30] as captured (12648 -> 14107),
            * looping -> [9] bc, [10] 0e; none -> [27] 80 */
           hs.loop_in_ms = 12648; hs.loop_out_ms = 14107; hs.looping = 1;
+          hs.bpm_x100 = 16456; hs.tempo_x100 = 0;      /* capture 1's 164.56 BPM */
           flx10_hid_state_pkt(p, 0, &hs);
           CHECK(p[25] == 0x68 && p[26] == 0x31 && p[27] == 0x00 && p[28] == 0x1b && p[29] == 0x37 &&
-                p[30] == 0x00 && p[9] == 0xbc && p[10] == 0x0e, "loop 12648..14107 looping -> captured bytes");
+                p[30] == 0x00 && p[9] == 0xbc && p[10] == 0x0e, "4-beat loop 12648..14107 -> captured bytes");
           hs.looping = 0; flx10_hid_state_pkt(p, 0, &hs);
-          CHECK(p[25] == 0x68 && p[9] == 0xb4 && p[10] == 0, "loop kept after exit, not looping -> b4");
+          CHECK(p[25] == 0x68 && p[27] == 0x80 && p[9] == 0xbc && p[10] == 0,
+                "loop exited: kept, [27] 80, [10] 00, [9] stays bc (capture 2)");
+          /* loop sizes: capture 2's doubling / halving */
+          CHECK(flx10_loop_code(1459, 16456, 0) == 0x0e && flx10_loop_code(2917, 16456, 0) == 0x0f &&
+                flx10_loop_code(1459 * 128, 16456, 0) == 0x15 && flx10_loop_code(365, 16456, 0) == 0x0c &&
+                flx10_loop_code(182, 16456, 0) == 0x0a && flx10_loop_code(91, 16456, 0) == 0x08 &&
+                flx10_loop_code(46, 16456, 0) == 0x07 && flx10_loop_code(6, 16456, 0) == 0x04,
+                "loop size codes 512 .. 1/64");
+          CHECK(flx10_loop_code(1000, 16456, 0) == 0x01, "2.74 beats -> 01 (the screen's --)");
+          CHECK(flx10_loop_code(1459, 16456 * 11 / 10, 1000) == 0x0e, "track-time loop at +10%% still 4 beats");
+          hs.master = 1; hs.sync = 1; hs.jog_touch = 1; flx10_hid_state_pkt(p, 0, &hs);
+          CHECK(p[5] == 0x91 && p[3] == 0x18, "MASTER + SYNC -> 91, jog touched -> 18 (capture 2)");
+          hs.jog_touch = 0; hs.time_remain = 1; flx10_hid_state_pkt(p, 0, &hs);
+          CHECK(p[3] == 0x0a, "rbp's time mode remaining -> [3] 0a");
+          hs.master = 0; hs.sync = 0; hs.jog_touch = 0; hs.time_remain = 0;
           hs.loop_in_ms = hs.loop_out_ms = -1; flx10_hid_state_pkt(p, 0, &hs);
           CHECK(p[25] == 0 && p[27] == 0x80 && p[28] == 0, "no loop -> 00 00 80");
           /* position between rbp's readings */

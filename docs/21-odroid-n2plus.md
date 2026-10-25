@@ -263,8 +263,11 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   above are superseded where they differ. Loop in/out ([25..30], from
   PlayEngine::getCurrentLoopTime) and looping ([9] bc, [10] 0e) are sent; the
   screens go out at 100 Hz with the position carried forward between rbp's
-  20 Hz readings (the arm stepped). Not sent: jog touch; not in the capture:
-  MASTER, BEAT SYNC (a second capture is planned).
+  20 Hz readings (the arm stepped). A second capture gave MASTER ([5] 0x80),
+  the loop-size code ([10], computed from the loop's length and the track's
+  BPM) and jog touch ([3] 0x10); [3] 0x02 shows remaining time and follows
+  rbp's own time mode (UiGetKeyTimeMode). A loop cut short by the track's end
+  shows "--" here where rekordbox keeps the size.
 * **HID jog screens, to do** (operator, 2026-10-25) -- the capture
   (`tools/flx10-pcap-decode.py`) should show most of these. (Empty decks now
   carry the range box and tempo % too -- byte 4 and 23..24 of the empty packet.)

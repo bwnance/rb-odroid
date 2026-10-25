@@ -146,6 +146,7 @@ struct deck_info {
      int mt, sync, master;
      int cue_standby;       /* paused on the cue point (PE_ISINCUESTANDBY) */
      int looping;           /* PE_ISLOOPING */
+     int time_remain;       /* rbp's time mode: 1 remaining, 0 elapsed */
      int loop_in_ms, loop_out_ms;  /* the current loop (PE_GETCURLOOPTIME), -1 = none */
      char key[16];          /* rbp's deck-panel key text, ASCII ("" = none) */
 };

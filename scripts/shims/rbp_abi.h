@@ -904,6 +904,11 @@ static const signed char bfx_type_to_pos[15] = {
  * @0x659cc fills +792 with the loop's IN and +804 with its OUT, in ms
  * (samples x 1000/44100), both -1 (DjEngineIF::INVALID_TIME) with no loop. */
 #define PE_GETCURLOOPTIME  0x5eb34
+/* The deck's time display mode, rbp's own (the RX3's TIME MODE, also in its
+ * shortcut menu): UiGetKeyTimeMode(deck) @0xfe0c8, an exported C function --
+ * 1 = REMAINING, 0 = elapsed (ComputePlayAddRemain @0x12419c counts down when
+ * it is non-zero; ComputeDispTime blinks the remaining time only on 1). */
+#define UI_GET_KEYTIMEMODE 0x000fe0c8
 #define CUEINFO_SIZE       824
 #define CUEINFO_IN_MS      792
 #define CUEINFO_OUT_MS     804

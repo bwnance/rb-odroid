@@ -748,6 +748,7 @@ static void led_deck_display(const struct led_notes *n, void *pe)
           di.sync    = ((int (*)(void *, int))PE_ISSYNCON)(pe, i) != 0;
           di.cue_standby = ((int (*)(void *, int))PE_ISINCUESTANDBY)(pe, i) != 0;
           di.looping = ((int (*)(void *, int))PE_ISLOOPING)(pe, i) != 0;
+          di.time_remain = ((int (*)(int))UI_GET_KEYTIMEMODE)(i) == 1;
           di.loop_in_ms = di.loop_out_ms = -1;
           if (di.loaded) {
                static unsigned char ci[CUEINFO_SIZE] __attribute__((aligned(8)));

@@ -293,6 +293,8 @@ struct jog_ctrl {
      double fpos;                    /* rbp position, JOG_POS_PPR per rev */
 };
 static struct jog_ctrl jog_state[2] = { { .sch = 1 }, { .sch = 2 } };
+/* the platter pressed (N_JOG_TOUCH / N_JOG_TOUCH_SH), for the jog screen */
+static int flx10_jog_touched[2];
 
 static unsigned long long now_us(void)
 {
@@ -1473,6 +1475,8 @@ static void flx10_note(int ch, int note, int on)
                     flx10_set_page(deck, pg);
           }
 
+          if (note == N_JOG_TOUCH || note == N_JOG_TOUCH_SH)
+               flx10_jog_touched[deck] = on;     /* and on to its table row */
           switch (note) {
           case N_SHIFT:
                shift_down[deck] = on;
@@ -2240,7 +2244,9 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
                .mt = di->mt, .sync = di->sync,
                .key_code = flx10_key_code(di->key),
                .cue_ms = di->loaded ? flx10_cue_ms(deck, di->total_ms) : -1,
-               .looping = di->looping,
+               .looping = di->looping, .master = di->master,
+               .jog_touch = flx10_jog_touched[deck],
+               .time_remain = di->time_remain,
                .loop_in_ms = di->loop_in_ms, .loop_out_ms = di->loop_out_ms,
           };
           flx10_hid_update(deck, &hs);
@@ -2287,7 +2293,7 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
           }
      }
      flx10_jog_values(di, &bpm10, &speed10, &min, &sec, &deg);
-     jd_note(deck, 4, 0x14 + d, 0x7F, force);            /* remaining */
+     jd_note(deck, 4, 0x14 + d, di->time_remain ? 0x7F : 0x00, force);   /* rbp's time mode */
      jd_cc(deck, 5, 0x42 + 2 * d, min, force);
      jd_cc(deck, 6, 0x43 + 2 * d, sec, force);
      /* The CC BPM (x10, tenths only). Kept: on its own the BPM SysEx is

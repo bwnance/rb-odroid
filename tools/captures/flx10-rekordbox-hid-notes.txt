@@ -43,3 +43,21 @@
 #   [43..44] ff ff  [45] 02 (deck 2's second load: 00)  [58] 01
 #   [60] 0x80 | key code (8B = 0x81, 3B = 0x83, 7B = 0x8b, 5B = 0x87)
 #   [61] 0x0d + key shift (MT off): +33.78% -> 0x12 = +5, +3.38% -> 0x0e = +1
+
+# ---- capture 2, 2026-10-25 18:55-18:58 (operator's ~/Downloads capture_2) ----
+# Operator's notes: loaded deck 1 then deck 2; deck 1 MASTER, SYNC on both;
+# deck 2 MASTER; paused; played both; deck 1 MASTER; set a "weird" loop (the
+# jog showed the loop icon and "--"); doubled 4 -> 512 (each step on the jog);
+# halved to 4, 2, 1, 1/2 ... 1/64; paused, played, loop to 1/2, touched the jog
+# a few times; finished 6:58.
+#
+#   [5]  +0x80 = tempo MASTER (moves deck 1 -> 2 -> 1 with the notes); +0x10
+#        SYNC; 0x91 a synced master. (+0x20 flickers on the other deck while a
+#        loop changes -- not used.)
+#   [10] loop size while a loop plays: 1/64 04, 1/32 05, 1/16 06, 1/8 07,
+#        1/4 08, 1/2 0a, 1 0c, 2 0d, 4 0e, 8 0f, 16 10 ... 512 15; 01 = not a
+#        beat size ("--"); 00 no loop playing (01 for a packet while it changes)
+#   [25..30] loop in / out ms LE24; [27] 0x80 while no loop is playing
+#        (512 beats stayed 0x15 although the loop was cut at the track's end)
+#   [9]  0xbc once a loop has been set, and stays
+#   [3]  0x18 while the jog is touched (0x08 otherwise)
