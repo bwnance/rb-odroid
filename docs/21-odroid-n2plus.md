@@ -393,6 +393,7 @@ documents a display channel, **MIDI ch 16**, whose fields the unit renders itsel
 | master tempo | Note 0x20+d | on/off |
 | key | CC 0x49 on the deck channel | 0x00..0x18 (table is a picture in the PDF) |
 | key change | CC 0x4A on the deck channel | 0x0D = 0 |
+| key display format | Note 0x5B on the deck channel (the list prints 9F; only the deck channel works) | 0x00 classic, 0x7F Camelot; follows rbp's notation |
 | show info | Note 0x5D+d | 0x00 show, 0x7F hide (shows the rekordbox logo) |
 
 **The vendor unlock.** Until it gets seven vendor control requests (bmRequestType
