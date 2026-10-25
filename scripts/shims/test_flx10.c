@@ -224,7 +224,7 @@ int main(void)
      ON(7, 99);
      CHECK(mcue == 1, "master CUE on");
 
-     /* browse: both knobs scroll; pushes load their own deck; hold = TAG TRACK */
+     /* browse: both knobs scroll; pushes load their own deck; hold = fast scroll */
      reset(); CC(7, 64, 1); CC(7, 64, 127);
      CHECK(sent_n == 2 && sent[0].key == K_SELECTOR && sent[0].param == 1 && sent[1].param == -1, "browse");
      reset(); CC(7, 100, 127);
@@ -243,9 +243,17 @@ int main(void)
      CHECK(sent_n == 4 && is(0, K_LOAD, OP_PRESS, 2) && is(2, K_SELECTOR, OP_PRESS, 1),
            "push on SOURCE, slot 1 empty -> LOAD + SELECT as elsewhere");
      usb1 = 1; browse_mode = 1;
-     reset(); ON(7, 70); ms(650); map_flx10.tick(); OFF(7, 70);
-     CHECK(sent_n == 2 && is(0, 0x420e, OP_PRESS, 1) && is(1, 0x420e, OP_RELEASE, 1),
-           "held push -> TAG TRACK 0x420e, and no LOAD (%d)", sent_n);
+     reset(); ON(7, 70); ms(450); map_flx10.tick();
+     CHECK(sent_n == 0, "push held 0.45 s: nothing yet (%d)", sent_n);
+     ms(100); map_flx10.tick();
+     CHECK(sent_n == 2 && is(0, K_SELECTOR, OP_PRESS, 1) && is(1, K_SELECTOR, OP_REPEAT, 1),
+           "push held 0.5 s: rbp's long press (selector PRESS + op 1), held (%d)", sent_n);
+     CC(7, 64, 1);
+     CHECK(sent_n == 3 && sent[2].key == K_SELECTOR && sent[2].op == OP_ROTATE,
+           "turning while held scrolls (rbp makes it fast)");
+     OFF(7, 70);
+     CHECK(sent_n == 4 && is(3, K_SELECTOR, OP_RELEASE, 1),
+           "release: selector up, no LOAD (%d)", sent_n);
      /* SAMPLER VOL -> SCFX PARAMETER 0x50a7 on both mixer channels */
      reset(); CC(7, 3, 127); CC(7, 35, 9);
      CHECK(sent_n == 2 && sent[0].key == 0x50a7 && sent[0].ch == 1 && sent[1].ch == 2 &&

@@ -219,7 +219,7 @@ are the operator's table, agreed control by control on 2026-10-24:
 | CUE/LOOP CALL < > and SHIFT | not mapped |
 | MIX POINT, LINK, ACTIVE PART, PAGE, DECK SELECT, SAMPLER, BOOTH | nothing |
 | browse knobs (one shared message) / SHIFT | scroll / 8 steps per detent |
-| browse push (per deck) / held 0.6 s / double | LOAD that deck **then SELECT** (loads a track, opens a playlist/folder; at the top menu it also opens the category's first row) / TAG TRACK (0x420e) / twice; **on the SOURCE screen with a stick in slot 1: open USB 1** (rbp ignores the knob there) |
+| browse push (per deck) / held 0.5 s / double | LOAD that deck **then SELECT** (loads a track, opens a playlist/folder; at the top menu it also opens the category's first row) / **rbp's own long press of the selector = FAST SCROLL** (selector PRESS + op 1, held until the knob comes up; TAG TRACK is unmapped) / twice; **on the SOURCE screen with a stick in slot 1: open USB 1** (rbp ignores the knob there) |
 | BACK / VIEW; SHIFT+BACK / SHIFT+VIEW | BACK / SOURCE; TAG LIST / SHORTCUT |
 | SHIFT + deck 1's browse push | TRACK FILTER (deck 2's SHIFT push not yet recorded) |
 | pad modes HOT CUE / PAD FX1 / BEAT JUMP / SAMPLER | HOT CUE / SLIP LOOP / BEAT JUMP / BEAT LOOP 2 |
@@ -272,13 +272,16 @@ confirmed on the unit):
   `MixerChInnards` vtable +0x40 `onEv_ColorFxParameter(float)`, the slot after
   COLOR's (0x509d → 0x100b → +0x3c `onEv_ColorFxVolume`). It is per channel, so it
   is sent to 1 and 2.
-- **TAG TRACK = 0x420e.** `BrowseUiIfDpl::onKey` → `InputKey(UKEY 16)`, and
+- **Fast scroll = the selector held.** rbp's long press for 0x420c is 500 ms
+  (`KeyInput::getLongPressTime` @0x37de18) and arrives as op 1 (`isLongEnter`
+  @0x37e1cc); while scrolling rbp asks `isRotarySelectorPressed` (@0x37e028).
+- **TAG TRACK = 0x420e** (unmapped since 2026-10-25). `BrowseUiIfDpl::onKey` → `InputKey(UKEY 16)`, and
   `InitUiBrowseKey` installs `UiKey_AddTag` (→ `TagTrack`) in slot 16. The same
   path takes BACK 0x420d to UKEY 17 `UiKey_Back`.
 - (Booth: `MasterInnards::onEv_BoothLevel` exists; its key, likely 0x4404, is not
   traced. The FLX10's own booth output and knob are expected to cover it.)
 
-`RB_FLX10_KEYS` still overrides `callprev`, `callnext`, `param` and `tagtrack`.
+`RB_FLX10_KEYS` still overrides `callprev`, `callnext` and `param`.
 `gatecue`/`releasefx`/`beatjump2` are no longer keys and are ignored with a log
 line.
 

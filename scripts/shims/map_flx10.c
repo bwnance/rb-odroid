@@ -22,7 +22,7 @@
  * still be overridden from the environment (FLX10_KEYS, flx10_keys_parse()), so
  * a correction is a line in rb.local.conf and a restart, not a rebuild:
  *
- *   RB_FLX10_KEYS="param=0x50a7,tagtrack=0x420e"
+ *   RB_FLX10_KEYS="param=0x50a7"
  *
  *   callprev, callnext  rbp's CUE/LOOP CALL < / >: IN/OUT inside a loop send
  *                       these, which is how the RX3 halves and doubles a loop.
@@ -41,11 +41,6 @@
  *                       (float) -- the slot after +0x3c onEv_ColorFxVolume,
  *                       which is where COLOR (0x509d, event 0x100b) lands.
  *                       Per mixer channel, so it is sent to channels 1 and 2.
- *   tagtrack            TAG TRACK (holding a browse knob down): 0x420e.
- *                       BrowseUiIfDpl::onKey @0x3315d0 turns it into
- *                       InputKey(UKEY 16), and InitUiBrowseKey @0x120510 puts
- *                       UiKey_AddTag (which calls TagTrack) in slot 16 -- the
- *                       same path takes BACK 0x420d to UKEY 17, UiKey_Back.
  *
  * GATE CUE, RELEASE FX and BEAT JUMP 2 NEED NO KEYCODE: on the RX3 they are a
  * second press of the same pad-mode button (see flx10_set_mode()).
@@ -191,11 +186,12 @@ static int jog_idle_ms = 120;
 static int jog_verbose = 0;
 static int tempo_verbose = 0;
 static int tempo_rev = 0;
-static int browse_hold_ms = 600;     /* a browse push held this long = TAG TRACK */
+static int browse_hold_ms = 500;     /* a browse push held this long = rbp's
+                                      * own long press (fast scroll) */
 static double mastervol_mid = MIRROR_GAIN_MID_DEFAULT;
 
 static int k_callprev = 0x4323, k_callnext = 0x4322;   /* see the header */
-static int k_param = 0x50a7, k_tagtrack = 0x420e;       /* see the header */
+static int k_param = 0x50a7;                            /* see the header */
 
 /* FLX10_KEYS: "name=0xNNNN,name=0xNNNN". Unknown names are logged and skipped,
  * so a typo is visible rather than silently ignored. */
@@ -222,7 +218,6 @@ static void flx10_keys_parse(void)
           if      (!strcmp(tok, "callprev"))  slot = &k_callprev;
           else if (!strcmp(tok, "callnext"))  slot = &k_callnext;
           else if (!strcmp(tok, "param"))     slot = &k_param;
-          else if (!strcmp(tok, "tagtrack"))  slot = &k_tagtrack;
           if (!slot && (!strcmp(tok, "gatecue") || !strcmp(tok, "releasefx") ||
                         !strcmp(tok, "beatjump2"))) {
                klog("knobshim2: FLX10_KEYS: '%s' is no longer a keycode (the SHIFT "
@@ -533,9 +528,18 @@ __attribute__((weak)) int flx10_usb1_present(void)
 /* ---- the browse knobs' pushes --------------------------------------------
  * Both knobs TURN with the same message (ch 7 CC 64), so they scroll one list;
  * only the pushes say which deck: 70 = deck 1, 71 = deck 2. A push is LOAD on
- * release, unless it was held browse_hold_ms, which is TAG TRACK -- decided in
- * tick() so the hold fires while the knob is still down. A double push is two
- * LOADs, which the operator chose over an instant-doubles gesture.
+ * release. A double push is two LOADs, which the operator chose over an
+ * instant-doubles gesture.
+ *
+ * HELD browse_hold_ms, it is the RX3's own long press of the rotary selector,
+ * which is rbp's FAST SCROLL (the fast-forward icon). rbp's long press for
+ * 0x420c is 500 ms (KeyInput::getLongPressTime @0x37de18) and arrives as the
+ * selector with op 1 (KeyInput::isLongEnter @0x37e1cc tests keycode | 1 << 24,
+ * byte 11 being the op); while scrolling rbp asks whether the selector is
+ * still down (isRotarySelectorPressed @0x37e028). So at 500 ms tick() sends
+ * the selector PRESS then op 1 and keeps it held, and the release goes out
+ * when the knob comes up -- nothing else on that release. The hold used to be
+ * TAG TRACK (0x420e); the operator unmapped it (2026-10-25).
  *
  * ON THE SOURCE SCREEN a push opens USB 1 instead (operator, 2026-10-24), when
  * slot 1 has a rekordbox stick: LOAD means nothing there, and rbp ignores the
@@ -543,7 +547,7 @@ __attribute__((weak)) int flx10_usb1_present(void)
  * glass. A slot-2-only stick is still opened from the glass, as in map_jp21.c:
  * no USB2 keycode has been measured. */
 static unsigned long long push_at[2];
-static int push_fired[2];
+static int push_fired[2];            /* the long press went out; selector held */
 
 static void flx10_push(int deck, int on)
 {
@@ -555,8 +559,11 @@ static void flx10_push(int deck, int on)
      if (!push_at[deck])
           return;
      push_at[deck] = 0;
-     if (push_fired[deck])
+     if (push_fired[deck]) {
+          push_fired[deck] = 0;
+          send_rx_key(K_SELECTOR, OP_RELEASE, CH_GLOBAL, 0);   /* fast scroll off */
           return;
+     }
      if (flx10_browse_mode() == BROWSE_MODE_SOURCE && flx10_usb1_present()) {
           pulse(K_USB1, CH_GLOBAL);
           klog("knobshim2: flx10 browse push on SOURCE -> open USB1 (0x%04x)\n", K_USB1);
@@ -579,10 +586,9 @@ static void flx10_push_tick(unsigned long long t)
               t - push_at[d] < (unsigned long long)browse_hold_ms)
                continue;
           push_fired[d] = 1;
-          if (k_tagtrack)
-               pulse(k_tagtrack, CH_GLOBAL);
-          else
-               not_yet("TAG TRACK (browse held)", d + 1);
+          /* rbp's long press of the selector: fast scroll until the release */
+          send_rx_key(K_SELECTOR, OP_PRESS, CH_GLOBAL, 0);
+          send_rx_key(K_SELECTOR, OP_REPEAT, CH_GLOBAL, 0);
      }
 }
 
