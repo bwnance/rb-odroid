@@ -211,18 +211,20 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   rekordbox. Today it is rbp's TRACK SEARCH < (K_TRREV), which on the RX3 is the
   previous-track / track-start key; check what rbp does with it mid-track and, if
   it is not "restart this track", find rbp's own jump-to-start.
-* **Waveform jittering** (operator, 2026-10-25): uneven scrolling on the HDMI screen.
-  Measured: rbp paces on FBIO_WAITFORVSYNC, which meson's drm_fbdev does not really
-  wait in, so it free-ran at 57.7 fps (FB_VSYNC_RATE) on a 60 Hz panel -- frames
-  every ~17.0 ms drifting past the 16.67 ms refresh (`scripts/odroid/fbpace.py`),
-  ~2 repeated refreshes a second; a slow-mo video showed the same 1/2-refresh beat.
-  strace of the render thread: FBIO_WAITFORVSYNC returns ENOTTY, the frame draws in
-  ~12.7 ms, then rbp's own limiter nanosleeps ~4.7 ms to a ~17.4 ms (57.5 fps) frame.
-  A real vblank wait alone gave 30 fps (the limiter pushed each frame past one
-  refresh). Fix (2026-10-25, to confirm): fb_shim does DRM_IOCTL_WAIT_VBLANK there
-  AND skips the render thread's short sleeps while it does (RB_FB_VBLANK, default 1).
-  Note: `pgrep -f ld-linux` also matches the chroot launcher (1 thread); the player is
-  the ld-linux process with ~80 threads.
+* **Waveform smoothness** (parked, good enough 2026-10-25). Fixed the main cause: rbp
+  paced on FBIO_WAITFORVSYNC, which meson's drm_fbdev answers ENOTTY, so its own
+  limiter ran it at 57.7 fps against 60 Hz (~2 repeated refreshes a second). fb_shim
+  now does a real DRM vblank wait there and skips the render thread's limiter sleeps
+  (RB_FB_VBLANK, default 1). Measured after (FB_VSYNC_RATE `frame:` lines): 60-61 fps,
+  draw 13.3-13.6 ms avg, our per-frame work <0.05 ms, ~2 frames in 10 s miss when
+  rbp's own draw spikes to 17-20 ms. Left for later: 1280x800@57 (17.5 ms budget,
+  absorbs most spikes; `video=...@57` in armbianEnv.txt, if the meson clock and the
+  monitor take it), and double-buffering if tearing (rbp draws the band in two
+  passes ~2 ms apart into the scanned-out buffer) is ever visible.
+* **Clock arm** (2026-10-25): sent again; it showed on deck 2 after switching the
+  FLX10 over from rekordbox with the A/B switch. Check after a power cycle with only
+  the Odroid: if it is gone, replay rekordbox's connect messages (startup capture) at
+  start -- and retry the two-decimal BPM SysEx in that state.
 * **Later, maybe:** RX3 effects matching the FLX10's (ENIGMA JET, MOBIUS, ...).
 
 ## DDJ-FLX10
