@@ -307,6 +307,8 @@ surface and the screen's drawers alike. The source is rbp's back-cue state,
 | CUE held (previewing) | solid | flashing |
 | playing | solid | solid |
 
+PLAY flashes 0.5 s on / 0.5 s off, CUE at twice that rate (0.25 / 0.25), on one clock.
+
 The SHIFT mode notes light their parent button *flashing* (105 flashes HOT CUE, 109
 BEAT JUMP, 107 PAD FX1, 111 SAMPLER) -- the unit's own way of showing a shifted
 mode. BEAT LOOP 2 lights SAMPLER solid (34).
@@ -328,7 +330,7 @@ Sound Color FX, master CUE, master meter. Left dark on purpose: stems/PART, PAGE
 LINK, TEMPO RESET, SLIP REVERSE, sampler CUE, channels 3/4.
 
 **Still to check on the unit:** how the jog feels
-after the fix; LEDs against the tables above; the loop-in flash rate (0.3 s per flash) against rekordbox's. Also,
+after the fix; LEDs against the tables above; the loop-in flash (0.3 s off / 0.3 s on, four times) against rekordbox's. Also,
 once on the audio system: master and booth output by ear.
 
 **Later, maybe:** RX3 effects matching the FLX10's (ENIGMA JET, MOBIUS, ...).

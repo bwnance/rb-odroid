@@ -66,7 +66,7 @@ int led_loop_flash[2];
 
 /* LED_LOOP_REKORDBOX's loop-in flash: four cycles of this, off half first so
  * the first flash is visible against the solid LED. */
-#define LED_LOOP_FLASH_MS     300
+#define LED_LOOP_FLASH_MS     600     /* 0.3 s off, 0.3 s on (operator) */
 #define LED_LOOP_FLASH_COUNT  4
 static unsigned long long led_loop_flash_t0[2];
 static int led_loop_flashing[2];
@@ -515,7 +515,6 @@ static void led_transport_update(void)
           return;
      }
      for (i = 0; i < 2; i++) {
-          unsigned int ch = (unsigned int)i + 1;
           int playing = ((int (*)(void *, int))PE_ISPLAYING)(pe, i) != 0;
           int loaded  = ((int (*)(void *, int))PE_ISLOADED)(pe, i) != 0;
           int sync    = ((int (*)(void *, int))PE_ISSYNCON)(pe, i) != 0;
@@ -525,7 +524,13 @@ static void led_transport_update(void)
           /* Holding CUE plays the track, but it is a preview and not play: the
            * CDJ / rekordbox convention lights it as paused-on-cue. */
           int real_play = playing && !sampling;
-          int ph      = led_blink_for(LEDSTAT_PLAY, ch);
+          /* Fixed cadences, the operator's against rekordbox (2026-10-24):
+           * PLAY 0.5 s on / 0.5 s off, CUE twice that rate. One clock, so the
+           * two stay in step. rbp's own PLAY period (500 / 250 ms by deck) is
+           * not used: it differed between the decks. */
+          unsigned long long now = shim_now_ms();
+          int ph      = (now % 1000) < 500;    /* PLAY */
+          int cph     = (now % 500) < 250;     /* CUE */
           int bits    = 0;
 
           /* Each is computed into a local and the four are stored ONCE, at the end,
@@ -539,8 +544,8 @@ static void led_transport_update(void)
            *   paused on the cue point          CUE solid    PLAY blinks
            *   CUE held (previewing)            CUE solid    PLAY blinks
            *   playing                          CUE solid    PLAY solid
-           * The two blink in step, at rbp's own PLAY period. */
-          if (loaded && (real_play || standby || sampling || ph))
+           * PLAY blinks 0.5 s on / off, CUE at twice that rate. */
+          if (loaded && (real_play || standby || sampling || cph))
                bits |= RBP_TRANSPORT_CUE;
           if (real_play || (loaded && ph))
                bits |= RBP_TRANSPORT_PLAY;
