@@ -991,14 +991,16 @@ static void flx10_note(int ch, int note, int on)
                return;
           }
           /* VIEW (operator, 2026-10-25): from the player it opens SOURCE;
-           * from anywhere else (a browse list, the SOURCE menu) it is the
-           * RX3's BROWSE key, which toggles back to the player. Decided on
+           * on the SOURCE menu it is BACK (BROWSE there opened the source's
+           * browser, not the player); from anywhere else (a browse list) it is
+           * the RX3's BROWSE key, which toggles back to the player. Decided on
            * the press, and the release goes to the same key. */
           if (note == N_VIEW) {
                static int view_key;
                if (on) {
-                    view_key = flx10_browse_mode() == BROWSE_MODE_PLAY
-                               ? K_SOURCE : K_BROWSE;
+                    int bm = flx10_browse_mode();
+                    view_key = bm == BROWSE_MODE_PLAY ? K_SOURCE
+                             : bm == BROWSE_MODE_SOURCE ? K_BACK : K_BROWSE;
                     send_rx_key(view_key, OP_PRESS, CH_GLOBAL, 0);
                } else if (view_key) {
                     send_rx_key(view_key, OP_RELEASE, CH_GLOBAL, 0);
