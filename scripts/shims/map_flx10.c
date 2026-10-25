@@ -157,7 +157,7 @@
 /* ---- Beat FX (ch 5) ---- */
 #define N_FX_BEATPREV   74
 #define N_FX_BEATNEXT   75
-#define N_FX_AUTO      102    /* SHIFT + BEAT <: nothing */
+#define N_FX_AUTO      102    /* SHIFT + BEAT <: BPM back to AUTO */
 #define N_FX_TAP       107    /* SHIFT + BEAT > */
 #define N_FX_ONOFF      71
 #define N_FX_RELEASE    67    /* SHIFT + ON/OFF: nothing */
@@ -701,6 +701,18 @@ static void flx10_track_tick(unsigned long long t)
                prev_second_at[d] = 0;
                trrev(d);
           }
+}
+
+/* ---- Beat FX AUTO (SHIFT + BEAT <) -------------------------------------------
+ * Puts the Beat FX BPM back to AUTO after TAP (operator, 2026-10-25), what the
+ * RX3 does for TAP with SHIFT held (rbp_abi.h, BPMMGR_SET_DETECTMODE). Called
+ * directly: the RX3 gets there through a SHIFT held on its own panel, which
+ * this map cannot hold for it. */
+__attribute__((weak)) void flx10_bfx_bpm_auto(void)
+{
+     void *mgr = ((void *(*)(void))BPMMGR_GET_INSTANCE)();
+     if (mgr)
+          ((int (*)(void *, int))BPMMGR_SET_DETECTMODE)(mgr, BFX_BPM_AUTO);
 }
 
 /* ---- the loop section ----------------------------------------------------
@@ -1393,6 +1405,13 @@ static void flx10_note(int ch, int note, int on)
                     flx10_fxch(note);
                return;
           }
+          if (note == N_FX_AUTO) {
+               if (on) {
+                    flx10_bfx_bpm_auto();
+                    klog("knobshim2: flx10 Beat FX BPM -> AUTO\n");
+               }
+               return;
+          }
           if (note == N_FX_BEATPREV || note == N_FX_BEATNEXT) {
                if (on) {
                     long d = (note == N_FX_BEATPREV) ? -1 : 1;
@@ -1625,7 +1644,6 @@ static void flx10_build(void)
      /* Beat FX. */
      add_note(CH_FX, N_FX_ONOFF, K_BFX, CH_GLOBAL);
      add_note(CH_FX, N_FX_TAP, K_TAP, CH_GLOBAL);
-     add_note(CH_FX, N_FX_AUTO, 0, CH_GLOBAL);
      add_note(CH_FX, N_FX_RELEASE, 0, CH_GLOBAL);
 }
 

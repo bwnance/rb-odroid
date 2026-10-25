@@ -69,6 +69,8 @@ void flx10_set_reverse(int d, int on) { reversing[d] = on; rev_sets++; }
 static int bj_n, bj_deck[16], bj_t[16];
 static int goes_back[2];
 int flx10_trrev_goes_back(int d) { return goes_back[d]; }
+static int bpm_auto_n;
+void flx10_bfx_bpm_auto(void) { bpm_auto_n++; }
 void flx10_beat_jump(int d, int type) { if (bj_n < 16) { bj_deck[bj_n] = d; bj_t[bj_n] = type; } bj_n++; }
 /* the rbp mode each FLX10 pad page belongs to */
 static int pmode(int pg) { static const int m[8] = { 0, 2, 3, 5, 4, 6, 1, 7 }; return pg < 0 ? 0 : m[(pg >> 4) & 7]; }
@@ -431,6 +433,8 @@ int main(void)
                           "channel selector note %d -> target %d", ch[i].note, ch[i].target);
           }
      }
+     reset(); bpm_auto_n = 0; ON(5, 102); OFF(5, 102);
+     CHECK(bpm_auto_n == 1 && sent_n == 0, "SHIFT + BEAT < -> Beat FX BPM AUTO, once");
      reset(); ON(5, 107); ON(5, 74);
      CHECK(is(0, K_TAP, OP_PRESS, 1) && sent[1].key == K_BEATPREV, "TAP, BEAT <");
 

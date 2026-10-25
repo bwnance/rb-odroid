@@ -816,6 +816,13 @@ static const signed char bfx_type_to_pos[15] = {
 #define UI_GET_PLAYTIME        0x000fcf7c   /* UiGetPlayTime(deck) */
 #define UI_GET_CUE_BY_AUTOCUE  0x000fdca8   /* UiGetCueSetByAutoCue(deck) */
 #define CMN_GET_PLAYSTATUS     0x00184a28   /* CmnFunc_CmnInfo_GetLocalNowPlayPlayStatus(deck) */
+/* Beat FX BPM: AUTO (0) or TAP (1). ui::MasterInnards::onEv_Tap(bool) @0x3437c8
+ * sets AUTO when its argument is true -- the RX3's TAP with SHIFT held -- and
+ * TAP otherwise, through DjEngineIF::setBfxBpmDetectMode, which is
+ * BpmManager::setBfxBpmDetectMode on the BpmManager singleton. */
+#define BPMMGR_GET_INSTANCE    0x000516b4   /* dsp::BpmManager::getInstance() */
+#define BPMMGR_SET_DETECTMODE  0x00051784   /* dsp::BpmManager::setBfxBpmDetectMode(mode) */
+#define BFX_BPM_AUTO 0
 #define BEATJUMP_M4  7
 #define BEATJUMP_P4  8
 #define BEATJUMP_M16 11
