@@ -717,7 +717,8 @@ static int deck_bpm[2], deck_tempo[2], deck_range[2], deck_sync[2], deck_master[
 
 /* BEAT SYNC turned on: the tempo range set first to the smallest that holds
  * the tempo the sync needs (operator, 2026-10-25) -- a 100 BPM track synced
- * to a 250 BPM master goes to WIDE. The need is the master's playing BPM over
+ * to a 250 BPM master goes to WIDE. It only ever widens: a range already
+ * wide enough is kept (operator, 2026-10-25). The need is the master's playing BPM over
  * this track's own (its playing BPM at its tempo %). Ranges +-6/10/16/WIDE
  * (100%) are getTempoRange 0..3, stepped by rbp's TEMPO RANGE key, which
  * goes round them in that order. Nothing when there is no other deck that is
@@ -739,9 +740,9 @@ static void flx10_sync_fit_range(int deck)
           need = -need;
      for (int i = 0; i < 4; i++)
           if (need <= limit[i]) { want = i; break; }
-     n = (want - cur + 4) % 4;
-     if (!n)
-          return;
+     if (want <= cur)
+          return;                     /* wide enough already: only ever widen */
+     n = want - cur;
      klog("knobshim2: flx10 deck%d BEAT SYNC: needs %+lld.%02lld%%, range %d -> %d\n",
           deck + 1, need / 100, need % 100, cur, want);
      while (n--)

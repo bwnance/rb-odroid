@@ -925,8 +925,13 @@ int main(void)
           d1.bpm_raw = 24500; d1.tempo_raw = 0; d1.tempo_range = 3;    /* 2.04%% away */
           n->deck_display(1, &d1);
           reset(); ON(2, 88); OFF(2, 88);
-          CHECK(sent_n == 4 && is(0, K_TEMPO_RANGE, OP_PRESS, 2) && is(2, K_SYNC, OP_PRESS, 2),
-                "2%% from WIDE: one step round to +-6, then SYNC");
+          CHECK(sent_n == 2 && is(0, K_SYNC, OP_PRESS, 2),
+                "2%% away on WIDE: kept (only ever widens), just SYNC");
+          d1.tempo_range = 0; d1.bpm_raw = 22000;                       /* 13.6%% away */
+          n->deck_display(1, &d1);
+          reset(); ON(2, 88); OFF(2, 88);
+          CHECK(sent_n == 6 && is(0, K_TEMPO_RANGE, OP_PRESS, 2) && is(2, K_TEMPO_RANGE, OP_PRESS, 2) &&
+                is(4, K_SYNC, OP_PRESS, 2), "13.6%% on +-6: two steps to +-16, then SYNC");
           d1.sync = 1; n->deck_display(1, &d1);
           reset(); ON(2, 88); OFF(2, 88);
           CHECK(sent_n == 2 && is(0, K_SYNC, OP_PRESS, 2), "turning sync off: no range change");
