@@ -40,6 +40,8 @@ int led_loop_flash[2];
 int midi_cc(int ch, int cc, int v) { (void)ch; (void)cc; (void)v; return 1; }
 int midi_note(int ch, int n, int v) { (void)ch; (void)n; (void)v; return 1; }
 int midi_sysex_out(const unsigned char *b, unsigned n) { (void)b; (void)n; return 1; }
+int midi_surface_generation(void) { return 1; }
+int midi_out_ready(void) { return 1; }
 volatile int led_kick;
 static int cue[4], mcue, deleted_deck = -1, deleted_pad = -1;
 int me_get_cue(int idx) { return cue[idx]; }

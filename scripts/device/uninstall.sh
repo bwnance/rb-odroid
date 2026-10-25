@@ -128,7 +128,7 @@ MOUNTS_NOW=$(_mounts_under | wc -l | tr -d ' ')
 echo
 say "this will remove rbpi4b from this unit:"
 echo "    deploy root   $DEPLOY   ($MOUNTS_NOW mount(s) under it will be unmounted first)"
-echo "    units         rblive4.service, healthwatch.service, rblive4-vnc.service, rblive4-boot.service (stopped and disabled)"
+echo "    units         rblive4.service, healthwatch.service, rblive4-vnc.service, rblive4-boot.service (stopped and disabled), the FLX10 udev rule"
 echo "    unit files    /etc/systemd/system/{rblive4,healthwatch,rblive4-vnc,rblive4-boot}.service"
 echo "    state         /var/lib/rblive4"
 echo "    journal drop-in  /etc/systemd/journald.conf.d/persistent.conf"
@@ -284,6 +284,7 @@ x_rm /etc/systemd/system/rblive4-boot.service
 # Removing the file stops it being made; the directory itself is in /run (tmpfs)
 # and goes on the next reboot, so it is not deleted here.
 x_rm /etc/tmpfiles.d/rblive4.conf
+x_rm /etc/udev/rules.d/99-flx10-unlock.rules
 # boot-trim's `revert unit` drop-in, if a revert left it behind.
 x_rm /etc/systemd/system/rblive4.service.d
 x_systemctl daemon-reload

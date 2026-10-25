@@ -93,6 +93,8 @@ static const char *surface_hint(const char *env_name)
  * that goes away and comes back (new client number) is re-subscribed, and so the
  * per-second lookup can tell "nothing changed" from "this is a new surface". */
 static int sub_in_client = -1, sub_in_port = -1;
+/* midi_surface_generation(): +1 every time the surface is (re)subscribed. */
+static volatile int surface_gen;
 static int sub_out_client = -1, sub_out_port = -1;
 
 enum { ROUTE_NONE = 0, ROUTE_SEQ, ROUTE_RAW };
@@ -307,6 +309,7 @@ static void midi_connect_try(void)
      if (r == SUB_FAILED)
           return;
      if (r == SUB_NEW) {
+          surface_gen++;
           if (sub_in_client >= 0)
                klog("knobshim2: control surface: RE-subscribed to %d:%d '%s' -- "
                     "the old subscription was gone\n", in_c, in_p, in_name);
@@ -467,6 +470,16 @@ int midi_out_ready(void)
 const char *midi_surface_name(void)
 {
      return surface_name;
+}
+
+int midi_surface_generation(void)
+{
+     return surface_gen;
+}
+
+int midi_surface_present(void)
+{
+     return sub_in_client >= 0;
 }
 
 /* Write one three-byte MIDI message, over whichever route is up. */

@@ -86,4 +86,20 @@ int midi_out_ready(void);
  * wants no keepalive anyway. */
 const char *midi_surface_name(void);
 
+/* Connection bookkeeping, for whoever has to react to a replug.
+ *
+ * midi_surface_generation() goes up by one each time the surface's input is
+ * subscribed -- the first time, and again after every disappearance or
+ * re-enumeration (a sub-second replug that was never sampled absent still shows
+ * as a new subscription, see midi_connect_try). 0 means never connected. A
+ * caller keeps the last value it saw and acts when it differs: the FLX10 map
+ * replays rekordbox's display connect sequence, the pause watcher in ctrlshim.c
+ * knows a reconnect implies a loss.
+ *
+ * midi_surface_present() is 1 while a surface is subscribed, 0 from the poll
+ * that finds it gone (within ~1 s of the unplug: the lookup runs on the idle
+ * timeout) until it is found again. */
+int midi_surface_generation(void);
+int midi_surface_present(void);
+
 #endif /* RBPI4B_MIDI_IO_H */

@@ -1513,9 +1513,12 @@ void flx10_jog_values(const struct deck_info *di, int *bpm10, int *speed10,
  * the marker CCs move nothing; with the unit switched over from rekordbox it
  * was there (operator, 2026-10-25). Which of these turns the arm on is not
  * narrowed down -- all of it is what rekordbox sends, so all of it is sent,
- * once the route is up and again every FLX10_INIT_EVERY_MS (so a power-cycled
- * unit comes back on its own). The 11..14 0F x6 SysEx blank the per-deck BPM
- * fields as rekordbox does. */
+ * each time the unit is (re)connected -- midi_surface_generation() moving --
+ * FLX10_INIT_DELAY1_MS and again FLX10_INIT_DELAY2_MS after it is seen: the
+ * first gives udev's flx10-unlock.py run (99-flx10-unlock.rules) time to land,
+ * the second covers a unit still booting its displays. Not on a timer: a replay
+ * while connected blanks the BPM fields for a tick for nothing. The 11..14 0F x6
+ * SysEx blank the per-deck BPM fields as rekordbox does. */
 static const unsigned char flx10_init_sx_0a[] = {
      0xF0, 0x00, 0x40, 0x05, 0x00, 0x00, 0x04, 0x01, 0x00, 0x00, 0x0A, 0x00, 0x28,
      0x00, 0x26, 0x00, 0x1A, 0x3D, 0x12, 0x14, 0x29, 0x55, 0x29, 0x20, 0x28, 0x49,
@@ -1541,16 +1544,33 @@ static const unsigned char flx10_init_short[][3] = {
      { 0xBF, 0x47, 0x20 }, { 0xBF, 0x49, 0x20 }, { 0xBF, 0x48, 0x40 },
      { 0xBF, 0x4A, 0x20 },
 };
-#define FLX10_INIT_EVERY_MS 10000
+#define FLX10_INIT_DELAY1_MS 1000
+#define FLX10_INIT_DELAY2_MS 4000
 
 static void flx10_display_init(unsigned long long now)
 {
-     static unsigned long long next;
+     static int seen_gen;                    /* 0: never connected */
+     static unsigned long long at1, at2;     /* 0: nothing pending */
+     int gen = midi_surface_generation();
      unsigned char sx[17];
 
-     if (now < next)
+     if (gen != seen_gen) {
+          seen_gen = gen;
+          at1 = now + FLX10_INIT_DELAY1_MS;
+          at2 = now + FLX10_INIT_DELAY2_MS;
+          klog("knobshim2: FLX10: connection %d; display connect sequence in "
+               "%d and %d ms\n", gen, FLX10_INIT_DELAY1_MS, FLX10_INIT_DELAY2_MS);
+     }
+     if (at1 && now >= at1)
+          at1 = 0;
+     else if (at2 && !at1 && now >= at2)
+          at2 = 0;
+     else
           return;
-     next = now + FLX10_INIT_EVERY_MS;
+     if (!midi_out_ready()) {                /* route not up yet: try next tick */
+          if (!at2) at2 = now + 100;
+          return;
+     }
      midi_sysex_out(flx10_init_sx_0a, sizeof flx10_init_sx_0a);
      midi_sysex_out(flx10_init_sx_0b, sizeof flx10_init_sx_0b);
      midi_sysex_out(flx10_init_sx_0c, sizeof flx10_init_sx_0c);

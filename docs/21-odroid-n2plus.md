@@ -223,9 +223,15 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   passes ~2 ms apart into the scanned-out buffer) is ever visible.
 * **Clock arm** (2026-10-25): it needs rekordbox's connect sequence -- after a power
   cycle with only the Odroid it was gone. map_flx10.c now replays that sequence (the
-  0A/0B/0C SysEx, ~25 ch-16 notes/CCs, the 11-14 blanks) once the route is up and
-  every 10 s. To confirm on the unit; then narrow which message does it, and retry
+  0A/0B/0C SysEx, ~25 ch-16 notes/CCs, the 11-14 blanks) 1 s and 4 s after each
+  (re)connect -- `midi_surface_generation()` moving -- not on a timer. With it, deck
+  2's arm came back but deck 1's did not; narrow which message does it, and retry
   the two-decimal BPM SysEx in that state.
+* **Replug** (2026-10-25): a FLX10 that is power cycled or replugged gets the vendor
+  unlock from udev (`99-flx10-unlock.rules`, installed by install.sh), the display
+  connect sequence from the map, and every deck that was playing is paused when the
+  surface is found gone (`CTRL_PAUSE_ON_LOSS=1`, any surface; ctrlshim.c's
+  `pause_on_loss`). Decks stay paused on reconnect. To test on the unit.
 * **Later, maybe:** RX3 effects matching the FLX10's (ENIGMA JET, MOBIUS, ...).
 
 ## DDJ-FLX10
@@ -430,7 +436,9 @@ documents a display channel, **MIDI ch 16**, whose fields the unit renders itsel
 (0000,C02B) (0100,C026) (0000,C01D) (0100,C027), from the community USB captures) the
 FLX10's jogs say NO AUDIO DRIVER and ignore ch 16. `scripts/device/flx10-unlock.py`
 sends them (stdlib, USBDEVFS_CONTROL, no interface claim) and `start-rb.sh` runs it on
-every start before rbp opens the card; `--rebind` also rebinds snd-usb-audio.
+every start before rbp opens the card, and `99-flx10-unlock.rules` runs it again
+whenever the unit (2b73:0041) is added to the bus; `--rebind` also rebinds
+snd-usb-audio.
 
 `rbp_led.c` reads the deck values each tick (`PE_GETTOTALTIME`, `PE_GETPLAYINGTIME`
 -- ms --, `PE_GETQBPMDISPLAY`, `PE_GETTEMPOX100`, `PE_GETTEMPORANGE`, MT / SYNC /

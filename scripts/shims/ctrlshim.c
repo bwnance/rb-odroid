@@ -30,6 +30,8 @@
 
 #include "shimutil.h"
 #include "rbp_bridge.h"
+#include "rbp_abi.h"       /* K_PLAY, OP_PRESS: pause on loss */
+#include "rbp_transport.h" /* which decks are playing */
 #include "rbp_led.h"
 #include "rbp_vu.h"
 #include "rbp_load.h"      /* load a track onto a deck by its database id */
@@ -450,9 +452,41 @@ static void *midi_thread(void *arg)
  * still attached, still lit and still polled, which is the behaviour that
  * selection has always had. When nothing is attached the name is empty, the
  * lookup is NULL and the whole thing is one comparison. */
+/* PAUSE ON LOSS. A controller that drops off the bus mid-set leaves whatever
+ * was playing running with nobody able to stop it, so the decks that are
+ * playing are paused the moment the surface is found gone -- a PLAY press each,
+ * as if the operator had hit it -- and are NOT resumed when it comes back: the
+ * restart is the operator's, from a controller they can see is back. Found gone
+ * means midi_surface_present() going 0 (within ~1 s of the unplug), or the
+ * generation moving with no absence seen (a replug faster than the poll), which
+ * is a loss all the same. CTRL_PAUSE_ON_LOSS=0 turns it off. Any surface, not
+ * only the FLX10. */
+static void pause_on_loss(void)
+{
+     static int was_present, last_gen;
+     int present = midi_surface_present();
+     int gen = midi_surface_generation();
+     int lost = (was_present && !present) ||
+                (present && was_present && gen != last_gen);
+
+     was_present = present;
+     last_gen = gen;
+     if (!lost)
+          return;
+     for (int d = 0; d < 2; d++) {
+          int t = rbp_transport_get(d);
+          if (t < 0 || !(t & RBP_TRANSPORT_PLAY_SOLID))
+               continue;
+          send_rx_key(K_PLAY, OP_PRESS, d + 1, 0);
+          send_rx_key(K_PLAY, OP_RELEASE, d + 1, 0);
+          klog("knobshim2: control surface lost; paused deck %d\n", d + 1);
+     }
+}
+
 static void *tick_thread(void *arg)
 {
      const int ka_on = env_on("CTRL_KEEPALIVE", 1);
+     const int pause_on = env_on("CTRL_PAUSE_ON_LOSS", 1);
      unsigned long long last_ka = 0;
      int ka_announced = 0;
      (void)arg;
@@ -471,6 +505,8 @@ static void *tick_thread(void *arg)
                g_midi->tick();
           if (g_evdev && g_evdev != g_midi && g_evdev->tick)
                g_evdev->tick();
+          if (pause_on)
+               pause_on_loss();
 
           if (!ka_on)
                continue;

@@ -453,6 +453,19 @@ else
   warn "rblive4.service is not in $HERE -- the player will NOT start at boot"
 fi
 
+# The FLX10's vendor unlock on replug (99-flx10-unlock.rules): start-rb.sh sends
+# it once per start, which leaves a unit power-cycled mid-set at NO AUDIO DRIVER.
+# The rule names the deploy root, so it is written with this install's $DEPLOY.
+RULE=/etc/udev/rules.d/99-flx10-unlock.rules
+if [ -f "$HERE/99-flx10-unlock.rules" ]; then
+  sed "s|/opt/rblive4/|$DEPLOY/|" "$HERE/99-flx10-unlock.rules" > "$RULE"
+  chmod 644 "$RULE"
+  udevadm control --reload-rules 2>/dev/null || true
+  say "installed $RULE"
+else
+  warn "99-flx10-unlock.rules is not in $HERE -- a replugged FLX10 stays locked"
+fi
+
 # The health watchdog, a unit of its own on purpose: it exists to keep recording
 # while everything else on the box is starved (healthwatch.sh's header), so it has
 # to be a process the player cannot take down with it -- which is exactly what it
