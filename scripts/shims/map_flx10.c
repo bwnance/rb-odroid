@@ -1376,8 +1376,8 @@ static void flx10_event(const struct snd_seq_event *ev)
  *   playing speed  CC 0x18+d / 0x38+d   (percent + 100) x 10, 14-bit
  *   time           CC 0x42+2d minutes, 0x43+2d seconds, 0..99 each
  *   time mode      Note 0x14+d          0x7F = remaining (the unit draws the -)
- *   marker         CC 0x10+d / 0x30+d   0..359 degrees
- *   cue marker     CC 0x1C+d / 0x3C+d   0..359; 0x7F/0x7F hides it
+ *   (marker CC 0x10+d / 0x30+d and cue marker CC 0x1C+d / 0x3C+d are in the
+ *   list too, but this firmware ignores them; see flx10_deck_display())
  *   MASTER / SYNC  Note 0x18+d / 0x1C+d
  *   master tempo   Note 0x20+d
  *   show info      Note 0x5D+d          0x00 show, 0x7F hide
@@ -1455,8 +1455,11 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
      jd_cc(deck, 6, 0x43 + 2 * d, sec, force);
      jd_cc14(deck, 7, 0x14 + d, 0x34 + d, bpm10, force);
      jd_cc14(deck, 8, 0x18 + d, 0x38 + d, speed10, force);
-     jd_cc14(deck, 9, 0x10 + d, 0x30 + d, deg, force);
-     jd_cc14(deck, 10, 0x1C + d, 0x3C + d, 0x3FFF, force);  /* no cue marker yet */
+     /* No marker or cue marker: the list documents both (CC 0x10+d / 0x1C+d,
+      * 0..359 deg) but this firmware draws neither from MIDI -- sent by hand
+      * on the unit 2026-10-25, nothing moved. rekordbox's clock arm comes from
+      * its HID state packet (the HID phase, docs/21). */
+     (void)deg;
 }
 
 /* ---- LEDs -----------------------------------------------------------------

@@ -185,8 +185,8 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
 * **Booth and master outputs**, by ear, once on the audio system.
 * **Jog wheel displays.** Phase 1 done (vendor unlock + MIDI ch 16: BPM, tempo %,
   time remaining, marker, MT, MASTER, SYNC). Left: key (rbp's source + the 0..0x18
-  code table), the cue marker, then the HID phase (tempo range box, waveform,
-  two-decimal BPM, artwork) -- see "FLX10 jog displays" above.
+  code table), then the HID phase (tempo range box, waveform, clock arm and cue
+  marker, two-decimal BPM, artwork) -- see "FLX10 jog displays" above.
 * **TEMPO RESET** (operator, 2026-10-25): the FLX10's TEMPO RESET button (deck note
   65, unbound today, its LED dark) should reset the deck's tempo to 0% the way
   rekordbox does -- find whether rbp has a reset of its own, else hold the tempo at
@@ -387,13 +387,13 @@ documents a display channel, **MIDI ch 16**, whose fields the unit renders itsel
 | playing speed | CC 0x18+d / 0x38+d | (percent + 100) x 10, 14-bit |
 | time | CC 0x42+2d min, 0x43+2d sec | 0..99 |
 | time mode | Note 0x14+d | 0x7F remaining |
-| marker | CC 0x10+d / 0x30+d | 0..359 deg |
-| cue marker | CC 0x1C+d / 0x3C+d | 0..359; 0x7F/0x7F hides |
+| marker | CC 0x10+d / 0x30+d | 0..359 deg -- **ignored by this firmware** |
+| cue marker | CC 0x1C+d / 0x3C+d | 0..359; 0x7F/0x7F hides -- **ignored** |
 | MASTER / SYNC | Note 0x18+d / 0x1C+d | on/off |
 | master tempo | Note 0x20+d | on/off |
 | key | CC 0x49 on the deck channel | 0x00..0x18 (table is a picture in the PDF) |
 | key change | CC 0x4A on the deck channel | 0x0D = 0 |
-| show info | Note 0x5D+d | 0x00 show, 0x7F hide |
+| show info | Note 0x5D+d | 0x00 show, 0x7F hide (shows the rekordbox logo) |
 
 **The vendor unlock.** Until it gets seven vendor control requests (bmRequestType
 0x40, bRequest 3, wLength 0; (wValue, wIndex) = (0100,C028) (0000,C029) (0200,C013)
@@ -405,7 +405,9 @@ every start before rbp opens the card; `--rebind` also rebinds snd-usb-audio.
 `rbp_led.c` reads the deck values each tick (`PE_GETTOTALTIME`, `PE_GETPLAYINGTIME`
 -- ms --, `PE_GETQBPMDISPLAY`, `PE_GETTEMPOX100`, `PE_GETTEMPORANGE`, MT / SYNC /
 MASTER) and hands them to the map's `deck_display` hook; `map_flx10.c` sends them.
-The marker turns like a record at 33 1/3 rpm. BPM is rbp's own screen value (StatWatcher getPlayBpm, x100) sent x10 and
+Neither marker is sent: both were sent by hand with `aseqsend` on 2026-10-25 and
+nothing moved, though rekordbox shows a rotating clock arm -- it comes from the HID
+state packet. BPM is rbp's own screen value (StatWatcher getPlayBpm, x100) sent x10 and
 TRUNCATED like rbp's screen; tried x100 on 2026-10-25 -- the firmware rounds it to tenths
 (105.69 -> 105.70), so a true second decimal needs the HID path. `JOG_DISPLAY_VERBOSE=1` logs the raw
 readings once a second (the BPM x100 and tempo x100 units are to be confirmed against
