@@ -256,7 +256,8 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   [2] 00 playing / 02 paused; [4] 0x04 MT, 0x70 range box (0x10 +-6, 0x20 +-10,
   0x30 +-16, 0x40 WIDE, 0x00/0x60 none; 0x80 moved the blue tone arm);
   [9] b4, 00 = Not Loaded;
-  [11..12] elapsed s BE, [13] fraction /256 (moves the arm); [16] key (only 00 =
+  [11..12] elapsed s BE, [13] fraction /256 (moves the arm); [18] BPM hundredths
+  (was the captured 03 -- every BPM read .03); [16] key (only 00 =
   blank found -- sent blank); [21..22] BPM whole number LE; [23..24] tempo % x100
   signed LE; [3] 0a shows remaining time (-02:38 with elapsed 0 -- from what
   total, not found; 08 hid the white edge arcs). Round 3: under HID the unit

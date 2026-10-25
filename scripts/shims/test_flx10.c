@@ -551,6 +551,7 @@ int main(void)
           CHECK(p[11] == 0x01 && p[12] == 0x2C && p[13] == 64,
                 "elapsed 300.25 s -> 01 2C, fraction 64/256 (%02x %02x %d)", p[11], p[12], p[13]);
           CHECK(p[21] == 124 && p[22] == 0, "BPM 124.03 -> 7C 00 (%02x %02x)", p[21], p[22]);
+          CHECK(p[18] == 3, "BPM 124.03 -> hundredths 3 in byte 18 (%d)", p[18]);
           CHECK(p[23] == 0x64 && p[24] == 0x00, "tempo +1.00%% -> 64 00");
           CHECK(p[4] == 0x2C, "MT on, range +-10 -> byte 4 = 2C as captured (%02x)", p[4]);
           CHECK(p[16] == 0, "key blank until decoded");
@@ -561,7 +562,10 @@ int main(void)
           flx10_hid_state_pkt(p, 0, &hs);
           CHECK(p[2] == 0x00 && p[11] == 0xFF && p[12] == 0xFF, "playing -> 00; elapsed clamps at FFFF");
           CHECK(p[23] == 0x9C && p[24] == 0xFF, "tempo -1.00%% -> 9C FF");
-          CHECK(p[21] == 0x7C && p[22] == 0x01, "BPM 380 -> 7C 01");
+          CHECK(p[21] == 0x7C && p[22] == 0x01 && p[18] == 0, "BPM 380.00 -> 7C 01, hundredths 0");
+          hs.bpm_x100 = 10447;
+          flx10_hid_state_pkt(p, 0, &hs);
+          CHECK(p[21] == 104 && p[18] == 47, "BPM 104.47 -> 104 / 47");
           CHECK(p[4] == 0x38, "MT off, range +-16 -> 38 (%02x)", p[4]);
           hs.range = 3;
           flx10_hid_state_pkt(p, 0, &hs);
