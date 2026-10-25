@@ -85,3 +85,5 @@ __pycache__/
 # Per-unit MIDI measurements from scripts/odroid/midi-learn.py (docs/21).
 /flx10-learn.json
 /flx10-learn.json.tmp
+/flx10-leds.json
+/flx10-leds.json.tmp
