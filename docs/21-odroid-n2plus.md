@@ -282,7 +282,8 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   unlock from udev (`99-flx10-unlock.rules`, installed by install.sh), the display
   connect sequence from the map, and every deck that was playing is paused when the
   surface is found gone (`CTRL_PAUSE_ON_LOSS=1`, any surface; ctrlshim.c's
-  `pause_on_loss`). Decks stay paused on reconnect. To test on the unit.
+  `pause_on_loss`). Decks stay paused on reconnect. Works on the unit
+  (operator, 2026-10-25).
 * **Later, maybe:** RX3 effects matching the FLX10's (ENIGMA JET, MOBIUS, ...).
 
 ## DDJ-FLX10
