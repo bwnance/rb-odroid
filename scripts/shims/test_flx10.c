@@ -258,6 +258,14 @@ int main(void)
      reset(); CC(7, 3, 127); CC(7, 35, 9);
      CHECK(sent_n == 2 && sent[0].key == 0x50a7 && sent[0].ch == 1 && sent[1].ch == 2 &&
            sent[0].param == 1023, "SAMPLER VOL -> PARAMETER on ch 1 and 2 (%d)", sent_n);
+     browse_mode = 4;
+     reset(); ON(7, 122); OFF(7, 122);
+     CHECK(sent_n == 2 && is(0, K_BROWSE, OP_PRESS, 1) && is(1, K_BROWSE, OP_RELEASE, 1),
+           "VIEW while browsing -> BROWSE (back to the player)");
+     browse_mode = 12;
+     reset(); ON(7, 122); OFF(7, 122);
+     CHECK(sent_n == 2 && is(0, K_BROWSE, OP_PRESS, 1), "VIEW on SOURCE -> BROWSE");
+     browse_mode = 1;
      reset(); ON(7, 122); ON(7, 104); ON(7, 93);
      CHECK(is(0, K_SOURCE, OP_PRESS, 1) && is(1, K_SHORTCUT, OP_PRESS, 1) &&
            is(2, K_TRACKFILTER, OP_PRESS, 1) && is(3, K_TRACKFILTER, OP_REPEAT, 1),

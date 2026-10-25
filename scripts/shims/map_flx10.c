@@ -969,6 +969,22 @@ static void flx10_note(int ch, int note, int on)
                     me_set_master_cue(me_get_master_cue() == 0 ? 1 : 0);
                return;
           }
+          /* VIEW (operator, 2026-10-25): from the player it opens SOURCE;
+           * from anywhere else (a browse list, the SOURCE menu) it is the
+           * RX3's BROWSE key, which toggles back to the player. Decided on
+           * the press, and the release goes to the same key. */
+          if (note == N_VIEW) {
+               static int view_key;
+               if (on) {
+                    view_key = flx10_browse_mode() == BROWSE_MODE_PLAY
+                               ? K_SOURCE : K_BROWSE;
+                    send_rx_key(view_key, OP_PRESS, CH_GLOBAL, 0);
+               } else if (view_key) {
+                    send_rx_key(view_key, OP_RELEASE, CH_GLOBAL, 0);
+                    view_key = 0;
+               }
+               return;
+          }
           if (note == N_LOAD1 || note == N_LOAD2) {
                flx10_push(note - N_LOAD1, on);
                return;
@@ -1212,10 +1228,8 @@ static void flx10_build(void)
      add_abs(CH_MIX, CC_HP_LEVEL, K_HPLEVEL, CH_GLOBAL);
      add_note(CH_MIX, N_BACK, K_BACK, CH_GLOBAL);
      add_note(CH_MIX, N_BACK_SHIFT, K_TAGLIST, CH_GLOBAL);
-     /* VIEW opens SOURCE (operator, 2026-10-24): the FLX10 has no SOURCE button,
-      * and without one the USB stick is unreachable from the surface. SHIFT +
-      * VIEW is SHORTCUT. */
-     add_note(CH_MIX, N_VIEW, K_SOURCE, CH_GLOBAL);
+     /* VIEW is a named case in flx10_note() (SOURCE from the player, BROWSE
+      * from anywhere else). SHIFT + VIEW is SHORTCUT. */
      add_note(CH_MIX, N_VIEW_SHIFT, K_SHORTCUT, CH_GLOBAL);
      /* SHIFT + browse push: TRACK FILTER. It needs the second edge --
       * map_flx4.c's add_note_repeat() note and rbp_abi.h's OP_REPEAT explain
