@@ -686,6 +686,34 @@ static void flx10_fxsel(int note)
      klog("knobshim2: flx10 Beat FX %s -> RX3 position %d\n", fxsel_name[i], pos);
 }
 
+/* The channel selector: one note per position, MEASURED on the unit
+ * 2026-10-24 by stepping it counter-clockwise to clockwise -- 22 21 18 16 17
+ * 19 20 under the printed SP MIC 3 1 2 4 MST, i.e. 16..19 = channels 1..4,
+ * 20 = MST, 21 = MIC, 22 = SP. rbp's EnBeatEffectSelectChannel (rbp_abi.h):
+ * 0 PLAYER_0, 1 PLAYER_1, 2 MIC, 3 ASSIGN_A, 4 ASSIGN_B, 5 MASTER, 6 AUX.
+ * 3, 4 and SP select nothing and leave rbp's target where it was (operator,
+ * 2026-10-24: crossfader A/B on 3/4 would contradict the deck's own channel
+ * lights). The unit sends a position only when the knob moves, so after a start
+ * rbp keeps its own default until it is turned. */
+static const signed char fxch_target[7] = {
+     0, 1, -1, -1, BFX_CH_MASTER, 2, -1,   /* notes 16..22: 1 2 3 4 MST MIC SP */
+};
+static const char *const fxch_name[7] = { "1", "2", "3", "4", "MST", "MIC", "SP" };
+
+static void flx10_fxch(int note)
+{
+     int i = note - N_FX_CH_FIRST;
+
+     if (fxch_target[i] < 0) {
+          klog("knobshim2: flx10 Beat FX channel %s: no RX3 target, unchanged\n",
+               fxch_name[i]);
+          return;
+     }
+     send_rx_key(K_BFXCH, OP_VALUE, CH_GLOBAL, fxch_target[i]);
+     klog("knobshim2: flx10 Beat FX channel %s -> RX3 target %d\n",
+          fxch_name[i], fxch_target[i]);
+}
+
 /* LEVEL/DEPTH (ch 5 CC 2, MSB of a 14-bit pair): DEPTH, or with SHIFT held the
  * RX3's TIME, which the FLX10 has no knob for. TIME is a relative control in rbp
  * (map_jp21.c's handle_fx_time()), so each MSB step while SHIFT is down is one
@@ -847,11 +875,8 @@ static void flx10_note(int ch, int note, int on)
                return;
           }
           if (note >= N_FX_CH_FIRST && note <= N_FX_CH_LAST) {
-               /* Which note is which label (3/1/2/MIC/SP/MST) is still to be read
-                * off the panel, so the position is logged and nothing is sent. */
                if (on)
-                    klog("knobshim2: flx10 Beat FX channel selector note %d "
-                         "(label not yet mapped)\n", note);
+                    flx10_fxch(note);
                return;
           }
           if (note == N_FX_BEATPREV || note == N_FX_BEATNEXT) {

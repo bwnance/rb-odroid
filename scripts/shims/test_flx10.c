@@ -286,6 +286,20 @@ int main(void)
      reset(); ON(1, 63); CC(5, 2, 65); CC(5, 2, 63); OFF(1, 63);
      CHECK(sent_n == 2 && sent[0].key == K_TIME && sent[0].param == 1 && sent[1].param == -1,
            "SHIFT + LEVEL -> TIME steps");
+     /* the channel selector: 1 2 MST MIC send rbp's target; 3 4 SP send nothing */
+     {
+          static const struct { int note, target; } ch[] = {
+               { 16, 0 }, { 17, 1 }, { 18, -1 }, { 19, -1 }, { 20, 5 }, { 21, 2 }, { 22, -1 },
+          };
+          for (unsigned i = 0; i < 7; i++) {
+               reset(); ON(5, ch[i].note); OFF(5, ch[i].note);
+               if (ch[i].target < 0)
+                    CHECK(sent_n == 0, "channel selector note %d: nothing", ch[i].note);
+               else
+                    CHECK(sent_n == 1 && sent[0].key == K_BFXCH && sent[0].param == ch[i].target,
+                          "channel selector note %d -> target %d", ch[i].note, ch[i].target);
+          }
+     }
      reset(); ON(5, 107); ON(5, 74);
      CHECK(is(0, K_TAP, OP_PRESS, 1) && sent[1].key == K_BEATPREV, "TAP, BEAT <");
 

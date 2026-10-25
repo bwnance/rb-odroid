@@ -213,7 +213,7 @@ are the operator's table, agreed control by control on 2026-10-24:
 | SAMPLER VOL | SCFX PARAMETER (0x50a7, channels 1 and 2) |
 | BEAT < > / SHIFT; LEVEL/DEPTH / SHIFT; ON/OFF | BEAT < > / TAP; DEPTH / TIME; Beat FX ON/OFF |
 | effect selector | by name: ECHO, MT DELAY→DELAY, SPIRAL, REVERB, TRANS, FLANGER, PHASER, SLIP ROLL, ROLL; others nothing. Note 32 is fully counter-clockwise (confirmed). rbp's positions are its own order, not the RX3 knob's printing (docs/13 S5.9) |
-| channel selector | logged only, until its labels are read off the panel |
+| channel selector (SP MIC 3 1 2 4 MST = notes 22 21 18 16 17 19 20) | 1 → player 1, 2 → player 2, MIC → MIC, MST → MASTER; 3, 4, SP → nothing (rbp's target unchanged; crossfader A/B on 3/4 would contradict the deck lights). Sent only when the knob moves |
 
 **Loops**, decided against rbp's `isLooping` at the moment of the press:
 
@@ -278,7 +278,7 @@ and sends at most one update per 4 ms, with speed = counts / real elapsed time o
 microsecond clock. rbp's position is fed at the FLX4's 720 per revolution.
 `RB_JOG_PPR` overrides the count.
 
-**Still to check on the unit:** the channel selector's labels; how the jog feels
+**Still to check on the unit:** how the jog feels
 after the fix; LEDs (none driven yet). Also,
 once on the audio system: master and booth output by ear.
 
