@@ -264,8 +264,10 @@ confirmed on the unit):
 `gatecue`/`releasefx`/`beatjump2` are no longer keys and are ignored with a log
 line.
 
-**Jog (2026-10-24).** The platter is **13083 counts/rev** (five marked turns gave
-65416 net counts in 7103 messages), about 18× the FLX4's 720. It also reports in
+**Jog (2026-10-24).** The platter is about **13083 counts/rev**: five hand-counted
+turns gave 65416 net counts in 7103 messages, about 18× the FLX4's 720. Turns by
+hand are good to about ±2%, and no design value is published, so the map uses the
+round number in that range, **13000**. It also reports in
 bursts, several messages per millisecond. The FLX4's per-message speed therefore
 saw 0 ms gaps and pinned nearly every update at the 8 rev/s clamp, so the jog
 "moved at one speed whatever the hand did". `map_flx10.c` now accumulates counts

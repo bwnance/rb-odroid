@@ -172,10 +172,13 @@
 static int knob_scale = 1;
 static int browse_shift_steps = 8;   /* SHIFT + browse: steps per detent */
 static int jog_scale = 1;
-/* MEASURED on the unit 2026-10-24: five marked turns of deck 1's platter top
- * gave 65416 net counts in 7103 messages, 13083 per revolution -- about 18x the
- * FLX4's 720. JOG_PPR overrides. */
-#define FLX10_JOG_PPR 13083
+/* MEASURED on the unit 2026-10-24: five hand-counted turns of deck 1's platter
+ * top gave 65416 net counts in 7103 messages, 13083 per revolution -- about 18x
+ * the FLX4's 720. Five turns by hand are good to roughly a tenth of a turn
+ * (+-2%, so 12820..13350), and no design value is published, so the default is
+ * the round number inside that range: 13000 (0.6% from the measurement). It is a
+ * choice, not a finding -- JOG_PPR overrides it, and a longer count would pin it. */
+#define FLX10_JOG_PPR 13000
 #define JOG_WINDOW_US 4000           /* one jog update per window at most */
 #define JOG_POS_PPR   720            /* the resolution rbp's position is fed at */
 static int jog_ppr = FLX10_JOG_PPR;
