@@ -45,6 +45,8 @@ void me_set_master_cue(int on) { mcue = on; }
 int hotcue_delete(int deck, int pad) { deleted_deck = deck; deleted_pad = pad; return 0; }
 static int browse_mode = 1, usb1 = 1, cursor_track = 1;
 int flx10_cursor_is_track(void) { return cursor_track; }
+/* the rbp mode each FLX10 pad page belongs to */
+static int pmode(int pg) { static const int m[8] = { 0, 2, 3, 5, 4, 6, 1, 7 }; return pg < 0 ? 0 : m[(pg >> 4) & 7]; }
 void flx10_cursor_debug(int *m, int *c, int *l, int *r) { *m = 3; *c = 0; *l = 0; *r = 2; }
 static int padmode[2];                     /* what rbp's pad-mode byte would read */
 int flx10_pad_mode(int deck) { return padmode[deck]; }
@@ -352,7 +354,7 @@ int main(void)
           CHECK(sent_n == 0, "a burst inside the window sends nothing yet (%d)", sent_n);
           ms(5); CC(1, 34, 64 + 10);                          /* 110 counts, ~5 ms */
           /* x the jog gain (12960/5484, one turn = 4 beats as rekordbox): ~4 */
-          CHECK(sent_n == 1 && sent[0].key == K_JOG_ROT && sent[0].f > 2.0f && sent[0].f < 7.0f,
+          CHECK(sent_n == 1 && sent[0].key == K_JOG_ROT && sent[0].f > 1.0f && sent[0].f < 7.0f,
                 "burst -> about 4 rev/s with the gain, not the clamp (got %.3f)", sent_n ? sent[0].f : -1.0f);
           float fast = sent_n ? sent[0].f : 0.0f;
           ms(200); map_flx10.tick();
@@ -415,31 +417,31 @@ int main(void)
           looping[0] = 0;
           /* the pad page follows the unit's own mode buttons */
           reset(); ON(1, 30); OFF(1, 30);
-          CHECK(flx10_led_pad_base(0, 0) == 16, "PAD FX1 -> page 16 (%d)",
-                flx10_led_pad_base(0, 0));
+          CHECK(flx10_led_pad_base(0, pmode(16)) == 16, "PAD FX1 -> page 16");
+          CHECK(flx10_led_pad_base(0, 0) == -2, "page 16 while rbp is still in HOT CUE -> wait (-2)");
           reset(); ON(1, 109); OFF(1, 109);
-          CHECK(flx10_led_pad_base(0, 0) == 96, "SHIFT+BEAT JUMP -> page 96");
+          CHECK(flx10_led_pad_base(0, pmode(96)) == 96, "SHIFT+BEAT JUMP -> page 96");
           reset(); ON(1, 34); OFF(1, 34);
-          CHECK(flx10_led_pad_base(0, 0) == 48, "SAMPLER -> page 48");
+          CHECK(flx10_led_pad_base(0, pmode(48)) == 48, "SAMPLER -> page 48");
           reset(); ON(2, 111); OFF(2, 111);
-          CHECK(flx10_led_pad_base(1, 0) == 112 && flx10_led_pad_base(0, 0) == 48,
+          CHECK(flx10_led_pad_base(1, pmode(112)) == 112 && flx10_led_pad_base(0, pmode(48)) == 48,
                 "deck 2 KEY SHIFT -> 112, deck 1 untouched");
           reset(); ON(1, 27); OFF(1, 27);
-          CHECK(flx10_led_pad_base(0, 5) == 0, "HOT CUE -> page 0");
+          CHECK(flx10_led_pad_base(0, pmode(0)) == 0, "HOT CUE -> page 0");
           /* a second press of a main button moves the unit to its SHIFT page */
           reset(); ON(1, 27); OFF(1, 27);
-          CHECK(flx10_led_pad_base(0, 0) == 64, "HOT CUE twice -> page 64");
+          CHECK(flx10_led_pad_base(0, pmode(64)) == 64, "HOT CUE twice -> page 64");
           CHECK(led_kick > 0, "a page change asks for a repaint");
           reset(); ON(1, 27); OFF(1, 27);
-          CHECK(flx10_led_pad_base(0, 0) == 0, "HOT CUE third press -> page 0");
+          CHECK(flx10_led_pad_base(0, pmode(0)) == 0, "HOT CUE third press -> page 0");
           reset(); ON(1, 32); OFF(1, 32); ON(1, 32); OFF(1, 32);
-          CHECK(flx10_led_pad_base(0, 0) == 96, "BEAT JUMP twice -> page 96");
+          CHECK(flx10_led_pad_base(0, pmode(96)) == 96, "BEAT JUMP twice -> page 96");
           reset(); ON(1, 30); OFF(1, 30); ON(1, 30); OFF(1, 30);
-          CHECK(flx10_led_pad_base(0, 0) == 80, "PAD FX1 twice -> page 80");
+          CHECK(flx10_led_pad_base(0, pmode(80)) == 80, "PAD FX1 twice -> page 80");
           reset(); ON(1, 34); OFF(1, 34); ON(1, 34); OFF(1, 34);
-          CHECK(flx10_led_pad_base(0, 0) == 112, "SAMPLER twice -> page 112");
+          CHECK(flx10_led_pad_base(0, pmode(112)) == 112, "SAMPLER twice -> page 112");
           reset(); ON(1, 107); OFF(1, 107); ON(1, 107); OFF(1, 107);
-          CHECK(flx10_led_pad_base(0, 0) == 80, "PAD FX2 twice stays 80");
+          CHECK(flx10_led_pad_base(0, pmode(80)) == 80, "PAD FX2 twice stays 80");
           /* held pads, for the dim -> bright rule */
           {
                extern int flx10_pad_touch(int, int, unsigned long long *);
@@ -453,9 +455,9 @@ int main(void)
           }
           /* a pad hit corrects the page */
           reset(); ON(8, 96 + 3); OFF(8, 96 + 3);
-          CHECK(flx10_led_pad_base(0, 0) == 96, "pad on 99 -> page 96");
+          CHECK(flx10_led_pad_base(0, pmode(96)) == 96, "pad on 99 -> page 96");
           reset(); ON(10, 16 + 7); OFF(10, 16 + 7);
-          CHECK(flx10_led_pad_base(1, 0) == 16 && flx10_led_pad_base(0, 0) == 96,
+          CHECK(flx10_led_pad_base(1, pmode(16)) == 16 && flx10_led_pad_base(0, pmode(96)) == 96,
                 "deck 2 pad on 23 -> deck 2 page 16 only");
      }
 

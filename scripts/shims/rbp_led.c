@@ -151,6 +151,17 @@ static const struct led_notes *led_notes_sel(void)
 static int led_pad_last[2][LED_PAD_COUNT];  /* last MIDI velocity, -1 unknown */
 static int led_pad_base[2] = { -1, -1 };    /* note base the eight were sent at */
 
+/* A page change on a pad_base surface waits for rbp's pad entries to SETTLE:
+ * entering HOT CUE, rbp briefly shows all eight pads white before it fills in
+ * the cues (operator, 2026-10-25: "briefly flashes all the pads white"). The
+ * new page is painted only once two consecutive refreshes read the same eight
+ * entries, or LED_PAGE_SETTLE_MS after the change, whichever is first. */
+#define LED_PAGE_SETTLE_MS 300
+static int led_pad_pend_base[2] = { -1, -1 };
+static unsigned long long led_pad_pend_t[2];
+static unsigned int led_pad_pend_sig[2];
+
+
 static unsigned char *ledstat_ptr(void)
 {
      void *holder = *(void **)LEDMGR_HOLDER_GLOBAL;
@@ -264,6 +275,24 @@ static void led_snapshot(void)
 static const unsigned char *led_entry(unsigned int id, unsigned int ch)
 {
      return led_find(led_snap, led_snap_count, id, ch);
+}
+
+static unsigned int led_pad_sig(int deck)
+{
+     unsigned int h = 2166136261u;
+     for (int p = 0; p < LED_PAD_COUNT; p++) {
+          unsigned int id = LED_PAD_FIRST + (unsigned)p, ch = (unsigned)deck + 1;
+          const unsigned char *e = led_entry(id, ch);
+          unsigned int v[3] = { 0xffffffffu, 0, 0 };
+          if (e) {
+               v[0] = *(const unsigned int *)(e + LED_ENTRY_OFF_STATE);
+               v[1] = *(const unsigned int *)(e + LED_ENTRY_OFF_UNASSIGNED);
+               v[2] = (unsigned)e[40] << 16 | (unsigned)e[41] << 8 | e[42];
+          }
+          for (int k = 0; k < 3; k++)
+               h = (h ^ v[k]) * 16777619u;
+     }
+     return h;
 }
 
 /* rbp's real per-deck pad mode -- 0 HOT CUE / 1 AUTO BEAT LOOP / 2 SLIP BEAT
@@ -850,6 +879,29 @@ static void led_refresh(void)
                     int base = n->pad_base ? n->pad_base(i, m)
                                            : n->n_pad_base[m];
 
+                    /* -2 from a pad_base() hook: the page has changed but rbp
+                     * is not in its mode yet -- leave the pads as they are. */
+                    if (base == -2)
+                         goto pads_done;
+                    if (n->pad_base && base >= 0 && base != led_pad_base[i]) {
+                         unsigned long long now = shim_now_ms();
+                         unsigned int sig = led_pad_sig(i);
+                         if (led_pad_pend_base[i] != base) {
+                              led_pad_pend_base[i] = base;
+                              led_pad_pend_t[i] = now;
+                              led_pad_pend_sig[i] = sig;
+                              led_kick = led_kick > 1 ? led_kick : 1;  /* look again soon */
+                              goto pads_done;
+                         }
+                         if (sig != led_pad_pend_sig[i] &&
+                             now - led_pad_pend_t[i] < LED_PAGE_SETTLE_MS) {
+                              led_pad_pend_sig[i] = sig;
+                              led_kick = led_kick > 1 ? led_kick : 1;
+                              goto pads_done;
+                         }
+                         led_pad_pend_base[i] = -1;          /* settled */
+                    }
+
                     /* A mode change moves the note each pad answers to, so the
                      * eight notes the LAST mode used have to be cleared before
                      * the new ones are sent: rbp's state for a pad can be the
@@ -944,6 +996,7 @@ static void led_refresh(void)
                }
           }
 
+pads_done:
           /* The four pad-mode buttons: exactly one lit, the one for the mode
            * rbp is actually in. Read rather than remembered, so a mode changed
            * from rbp's own screen lights the right button too -- the same reason

@@ -853,6 +853,16 @@ static const int mode_key[4] = { K_HOTCUE, K_ALOOP, K_SLIPLOOP, K_BEATJUMP };
  * rbp's mode would suggest. -1 = no mode button seen yet (the bridge then goes by
  * rbp's mode, below). */
 static int flx10_page[2] = { -1, -1 };
+static unsigned long long flx10_page_t[2];   /* when the page last changed */
+
+static void flx10_set_page(int deck, int pg)
+{
+     if (flx10_page[deck] != pg) {
+          flx10_page[deck] = pg;
+          flx10_page_t[deck] = shim_now_ms();
+          led_kick = 3;                          /* repaint the new page soon */
+     }
+}
 
 /* Which pads are under a finger, and when each was last pressed -- the LED
  * bridge's pad_touch hook (LED_PAD_DIM_BRIGHT). */
@@ -903,8 +913,16 @@ int flx10_led_pad_base(int deck, int rbp_mode)
      if (deck < 0 || deck > 1)
           return -1;
      pg = flx10_page[deck];
-     if (pg >= 0)
+     if (pg >= 0) {
+          /* Wait (up to 300 ms) for rbp to be in this page's mode before the
+           * bridge paints it: painting first shows the old mode's lights on
+           * the new page for a moment (operator, 2026-10-25). */
+          static const int page_mode[8] = { 0, 2, 3, 5, 4, 6, 1, 7 };
+          if (rbp_mode != page_mode[(pg >> 4) & 7] &&
+              shim_now_ms() - flx10_page_t[deck] < 300)
+               return -2;
           return pg;
+     }
      return (rbp_mode >= 0 && rbp_mode < 8) ? flx10_page_for_rbp[rbp_mode] : -1;
 }
 
@@ -947,9 +965,7 @@ static void flx10_note(int ch, int note, int on)
           ch == CH_PADS2S) && (note & 15) < 8) {
           int d = (ch == CH_PADS1 || ch == CH_PADS1S) ? 0 : 1, p = note & 7;
           if (on) {
-               if (flx10_page[d] != (note & 0x70))
-                    led_kick = 3;
-               flx10_page[d] = note & 0x70;
+               flx10_set_page(d, note & 0x70);
                led_kick = led_kick > 1 ? led_kick : 1;   /* held / flash: show it now */
                pad_held[d] |= 1u << p;
                pad_press_ms[d][p] = shim_now_ms();
@@ -964,10 +980,8 @@ static void flx10_note(int ch, int note, int on)
 
           if (on) {
                int pg = flx10_mode_page(note, flx10_page[deck]);
-               if (pg != -1) {
-                    flx10_page[deck] = pg;
-                    led_kick = 3;              /* repaint the new page now */
-               }
+               if (pg != -1)
+                    flx10_set_page(deck, pg);
           }
 
           switch (note) {
