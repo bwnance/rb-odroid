@@ -55,6 +55,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>         /* access() */
+#include <time.h>           /* clock_gettime() */
 #include <sound/asequencer.h>
 
 #include "shimutil.h"
@@ -171,8 +172,13 @@
 static int knob_scale = 1;
 static int browse_shift_steps = 8;   /* SHIFT + browse: steps per detent */
 static int jog_scale = 1;
-static int jog_ppr = 720;            /* the FLX4's measured value; the FLX10's
-                                      * platter is unmeasured (JOG_PPR) */
+/* MEASURED on the unit 2026-10-24: five marked turns of deck 1's platter top
+ * gave 65416 net counts in 7103 messages, 13083 per revolution -- about 18x the
+ * FLX4's 720. JOG_PPR overrides. */
+#define FLX10_JOG_PPR 13083
+#define JOG_WINDOW_US 4000           /* one jog update per window at most */
+#define JOG_POS_PPR   720            /* the resolution rbp's position is fed at */
+static int jog_ppr = FLX10_JOG_PPR;
 static int jog_rev = 0;
 static int jog_idle_ms = 120;
 static int jog_verbose = 0;
@@ -247,60 +253,103 @@ static int shift_down[2];
 static int any_shift(void) { return shift_down[0] || shift_down[1]; }
 
 /* ---- the jog, the pitch fader, MASTER LEVEL ------------------------------
- * The same contracts as map_flx4.c's -- see that file for why each is shaped
- * the way it is. Copied rather than shared because each map owns its dispatch. */
+ * The pitch fader and MASTER LEVEL follow map_flx4.c. The jog does not, and the
+ * difference is measured: the FLX10's platter reports at 13083 counts/rev and in
+ * BURSTS -- several messages land in the same millisecond on the sequencer -- so
+ * map_flx4.c's per-message speed (counts / ms since the last message) saw dt = 0
+ * inside every burst, fell back to its 0.5 ms floor, and pinned nearly every
+ * update at the 8 rev/s clamp: the jog moved at one speed whatever the hand did
+ * (operator, 2026-10-24).
+ *
+ * So counts are accumulated and sent at most once per JOG_WINDOW_US, the speed
+ * being the window's counts over its real length on a microsecond clock. The
+ * position rbp is given is scaled to JOG_POS_PPR counts/rev -- the FLX4's 720,
+ * the resolution that contract was measured against -- so a turn of this
+ * platter moves rbp's position as far as a turn of the FLX4's did; the speed
+ * carries the true revolutions/second either way. tick() flushes a window that
+ * ends after the last message, and the idle edge (JOG_IDLE_MS) still sends 0. */
 struct jog_ctrl {
-     int sch, started, moving;
-     unsigned long long last_ms;
-     unsigned int vpos;
+     int sch, moving;
+     long pending;                   /* counts since the last update */
+     unsigned long long last_ms;     /* last MESSAGE, for the idle edge */
+     unsigned long long win_us;      /* start of the current window */
+     double fpos;                    /* rbp position, JOG_POS_PPR per rev */
 };
-static struct jog_ctrl jog_state[2] = { { 1, 0, 0, 0, 0 }, { 2, 0, 0, 0, 0 } };
+static struct jog_ctrl jog_state[2] = { { .sch = 1 }, { .sch = 2 } };
+
+static unsigned long long now_us(void)
+{
+     struct timespec ts;
+     clock_gettime(CLOCK_MONOTONIC, &ts);
+     return (unsigned long long)ts.tv_sec * 1000000ULL +
+            (unsigned long long)ts.tv_nsec / 1000ULL;
+}
+
+/* rbp's 16-bit position from fpos, rounded without libm. */
+static long jog_pos16(double f)
+{
+     long r = (long)(f >= 0.0 ? f + 0.5 : f - 0.5);
+     return (long)((unsigned long)r & 0xFFFFu);
+}
+
+static void jog_flush(struct jog_ctrl *s, unsigned long long t_us)
+{
+     double dt = (double)(t_us - s->win_us) / 1e6;
+     float speed;
+
+     if (!s->pending)
+          return;
+     if (dt < JOG_WINDOW_US / 1e6)
+          dt = JOG_WINDOW_US / 1e6;
+     speed = (float)((double)s->pending / (double)jog_ppr / dt);
+     if (speed > 8.0f) speed = 8.0f;
+     if (speed < -8.0f) speed = -8.0f;
+     s->fpos += (double)s->pending * jog_scale * JOG_POS_PPR / (double)jog_ppr;
+     s->pending = 0;
+     s->win_us = t_us;
+     send_rx_key_fl(K_JOG_ROT, OP_ROTATE, s->sch, 0, speed,
+                    jog_pos16(s->fpos));
+     if (jog_verbose)
+          klog("knobshim2: flx10 jog deck%d speed=%.3f rev/s\n", s->sch, (double)speed);
+}
 
 static void flx10_jog(int deck, int val)
 {
      struct jog_ctrl *s = &jog_state[deck];
      int d = val - 0x40;
-     unsigned long long t;
-     float dt, speed;
-     int dp;
+     unsigned long long t = now_us();
 
      if (d == 0)
           return;
-     t = shim_now_ms();
-     if (!s->started) {
-          s->started = 1;
-          s->last_ms = t;
-          return;
-     }
      if (jog_rev)
           d = -d;
-     dp = d * jog_scale;
-     if (dp > 4096) dp = 4096;
-     if (dp < -4096) dp = -4096;
-     dt = (float)(long long)(t - s->last_ms) / 1000.0f;
-     s->last_ms = t;
-     if (dt < 0.0005f)
-          dt = 0.0005f;
-     s->vpos = (s->vpos + (unsigned int)dp) & 0xFFFFu;
-     speed = (float)dp / (float)(jog_ppr * jog_scale) / dt;
-     if (speed > 8.0f) speed = 8.0f;
-     if (speed < -8.0f) speed = -8.0f;
-     s->moving = 1;
-     send_rx_key_fl(K_JOG_ROT, OP_ROTATE, s->sch, 0, speed, (long)s->vpos);
-     if (jog_verbose)
-          klog("knobshim2: flx10 jog deck%d delta=%d speed=%.2f\n",
-               deck + 1, d, (double)speed);
+     if (!s->moving) {               /* first count after a rest: open a window */
+          s->moving = 1;
+          s->pending = 0;
+          s->win_us = t;
+     }
+     s->pending += d;
+     s->last_ms = t / 1000ULL;
+     if (t - s->win_us >= JOG_WINDOW_US)
+          jog_flush(s, t);
 }
 
-static void flx10_jog_idle(unsigned long long t)
+static void flx10_jog_tick(void)
 {
+     unsigned long long t = now_us();
+
      for (int i = 0; i < 2; i++) {
           struct jog_ctrl *s = &jog_state[i];
-          if (!s->started || !s->moving ||
-              t - s->last_ms < (unsigned long long)jog_idle_ms)
+          if (!s->moving)
                continue;
-          s->moving = 0;
-          send_rx_key_fl(K_JOG_ROT, OP_ROTATE, s->sch, 0, 0.0f, (long)s->vpos);
+          if (s->pending && t - s->win_us >= JOG_WINDOW_US)
+               jog_flush(s, t);
+          if (t / 1000ULL - s->last_ms >= (unsigned long long)jog_idle_ms) {
+               jog_flush(s, t);
+               s->moving = 0;
+               send_rx_key_fl(K_JOG_ROT, OP_ROTATE, s->sch, 0, 0.0f,
+                              jog_pos16(s->fpos));
+          }
      }
 }
 
@@ -947,7 +996,7 @@ static void flx10_build(void)
      if (knob_scale < 1) knob_scale = 1;
      jog_scale = env_num("JOG_SCALE", 1);
      if (jog_scale < 1) jog_scale = 1;
-     jog_ppr = env_num("JOG_PPR", 720);
+     jog_ppr = env_num("JOG_PPR", FLX10_JOG_PPR);
      if (jog_ppr < 1) jog_ppr = 1;
      jog_rev = env_on("JOG_REV", 0);
      jog_idle_ms = env_num("JOG_IDLE_MS", 120);
@@ -1055,7 +1104,7 @@ static void flx10_tick(void)
 {
      unsigned long long t = shim_now_ms();
 
-     flx10_jog_idle(t);
+     flx10_jog_tick();
      flx10_push_tick(t);
      flx10_scfx_tick(t);
 }

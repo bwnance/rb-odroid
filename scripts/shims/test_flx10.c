@@ -48,17 +48,18 @@ int flx10_browse_mode(void) { return browse_mode; }
 int flx10_usb1_present(void) { return usb1; }
 int cc_to_10bit(int v) { if (v < 0) v = 0; if (v > 127) v = 127; return (v * 1023 + 63) / 127; }
 
-struct sent { int key, op, ch; long param; };
+struct sent { int key, op, ch; long param; float f; long l; };
 static struct sent sent[512];
 static int sent_n;
-static void rec(int key, int op, int ch, long param)
+static void rec(int key, int op, int ch, long param, float f, long l)
 {
      if (sent_n < 512) { sent[sent_n].key = key; sent[sent_n].op = op;
-          sent[sent_n].ch = ch; sent[sent_n].param = param; sent_n++; }
+          sent[sent_n].ch = ch; sent[sent_n].param = param;
+          sent[sent_n].f = f; sent[sent_n].l = l; sent_n++; }
 }
-void send_rx_key(int k, int op, int ch, long p) { rec(k, op, ch, p); }
-void send_rx_key_f(int k, int op, int ch, long p, float f) { (void)f; rec(k, op, ch, p); }
-void send_rx_key_fl(int k, int op, int ch, long p, float f, long l) { (void)f; (void)l; rec(k, op, ch, p); }
+void send_rx_key(int k, int op, int ch, long p) { rec(k, op, ch, p, 0.0f, 0); }
+void send_rx_key_f(int k, int op, int ch, long p, float f) { rec(k, op, ch, p, f, 0); }
+void send_rx_key_fl(int k, int op, int ch, long p, float f, long l) { rec(k, op, ch, p, f, l); }
 
 /* ---- driving the map ---- */
 static void ev(int type, int ch, int a, int b)
@@ -290,6 +291,40 @@ int main(void)
      /* faders: MSB drives, LSB dropped; strip 3 ignored; booth ignored */
      reset(); CC(1, 19, 127); CC(1, 51, 5); CC(3, 19, 64); CC(7, 9, 64); CC(7, 41, 1);
      CHECK(sent_n == 1 && sent[0].key == K_FADER && sent[0].ch == 1, "fader 1 only (%d)", sent_n);
+
+     /* the jog: a BURST inside one millisecond must not read as the 8 rev/s clamp
+      * (the bug the operator felt), a slow turn must read slow, and the idle edge
+      * must still send 0. 13083 counts/rev, measured. */
+     {
+          ms(200); map_flx10.tick();          /* let any earlier motion go idle */
+          reset();
+          for (int i = 0; i < 10; i++) CC(1, 34, 64 + 10);   /* 100 counts at once */
+          CHECK(sent_n == 0, "a burst inside the window sends nothing yet (%d)", sent_n);
+          ms(5); CC(1, 34, 64 + 10);                          /* 110 counts, ~5 ms */
+          CHECK(sent_n == 1 && sent[0].key == K_JOG_ROT && sent[0].f > 0.8f && sent[0].f < 3.0f,
+                "burst -> about 1.7 rev/s, not the clamp (got %.3f)", sent_n ? sent[0].f : -1.0f);
+          float fast = sent_n ? sent[0].f : 0.0f;
+          ms(200); map_flx10.tick();
+          CHECK(sent_n >= 2 && sent[sent_n - 1].f == 0.0f, "idle edge sends speed 0");
+          reset();
+          CC(1, 34, 64 + 1);
+          for (int i = 0; i < 4; i++) { ms(10); CC(1, 34, 64 + 1); }
+          CHECK(sent_n >= 3 && sent[sent_n - 1].f > 0.0f && sent[sent_n - 1].f < 0.05f,
+                "slow turn -> slow (got %.4f)", sent_n ? sent[sent_n - 1].f : -1.0f);
+          CHECK(fast > 20.0f * (sent_n ? sent[sent_n - 1].f : 1.0f), "fast is much faster than slow");
+          ms(200); map_flx10.tick();
+          /* one full revolution of counts moves rbp's position by 720 */
+          reset();
+          long before = -1;
+          CC(2, 35, 64 + 1); ms(5); CC(2, 35, 64 + 1);
+          before = sent_n ? sent[sent_n - 1].l : -1;
+          for (int n = 0; n < 13083; n += 21) { CC(2, 35, 64 + 21); }
+          ms(5); CC(2, 35, 64 + 1); ms(30); map_flx10.tick();
+          long after = sent[sent_n - 1].l;
+          long moved = (after - before) & 0xFFFF;
+          CHECK(sent[0].ch == 2 && moved > 700 && moved < 740, "one rev moves rbp's position ~720 (%ld)", moved);
+          ms(200); map_flx10.tick();
+     }
 
      printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);
      return failures ? 1 : 0;

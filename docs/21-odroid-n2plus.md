@@ -264,8 +264,17 @@ confirmed on the unit):
 `gatecue`/`releasefx`/`beatjump2` are no longer keys and are ignored with a log
 line.
 
-**Still to check on the unit:** the channel selector's labels; the jog's counts per
-revolution (`JOG_PPR`, the FLX4's 720 for now); LEDs (none driven yet). Also,
+**Jog (2026-10-24).** The platter is **13083 counts/rev** (five marked turns gave
+65416 net counts in 7103 messages), about 18× the FLX4's 720. It also reports in
+bursts, several messages per millisecond. The FLX4's per-message speed therefore
+saw 0 ms gaps and pinned nearly every update at the 8 rev/s clamp, so the jog
+"moved at one speed whatever the hand did". `map_flx10.c` now accumulates counts
+and sends at most one update per 4 ms, with speed = counts / real elapsed time on a
+microsecond clock. rbp's position is fed at the FLX4's 720 per revolution.
+`RB_JOG_PPR` overrides the count.
+
+**Still to check on the unit:** the channel selector's labels; how the jog feels
+after the fix; LEDs (none driven yet). Also,
 once on the audio system: master and booth output by ear.
 
 **Later, maybe:** RX3 effects matching the FLX10's (ENIGMA JET, MOBIUS, ...).
