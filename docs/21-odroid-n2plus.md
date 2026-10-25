@@ -171,6 +171,12 @@ On the unit, Armbian `6.18.43-current-meson64`, with a 1024×768 bench monitor
 * **Booth and master outputs**, by ear, once on the audio system.
 * **Master level meter**: no address found on the FLX10 yet.
 * **Jog feel** after the 12960 PPR fix.
+* **Jog wheel displays** on the FLX10 do nothing yet (probe: note 54 lit nothing;
+  the displays are probably fed by SysEx, not notes).
+* **"Deck playing" icons on the HDMI screen flash at start-up.** They should start
+  off; moving that channel's fader corrects them. Likely an initial-state read
+  (fader / on-air) before the first real value arrives.
+* **Hot cue initial state** is similarly odd at start-up.
 * **Later, maybe:** RX3 effects matching the FLX10's (ENIGMA JET, MOBIUS, ...).
 
 ## DDJ-FLX10
