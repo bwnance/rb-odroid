@@ -1470,7 +1470,8 @@ int flx10_key_code(const char *k)
  *   F0 00 40 05 00 00 04 01 00 <0x11 + deck> n5 n4 n3 n2 n1 n0 F7
  * where n5..n0 are the hex digits of BPM x 100, high first (82.00 =
  * 00 00 02 00 00 08), and 0F x6 blanks it. This is what carries the second
- * decimal -- the CC field (BPM x 10) cannot. bpm_x100 <= 0 = blank. Fills 17
+ * decimal -- the CC field (BPM x 10) cannot. Ignored outside rekordbox's HID
+ * session, so unused until the HID phase. bpm_x100 <= 0 = blank. Fills 17
  * bytes; pure, for the test. */
 void flx10_bpm_sysex(int deck, int bpm_x100, unsigned char *out)
 {
@@ -1531,17 +1532,10 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
                     jd[deck].v[11] = v;
           }
      }
-     /* BPM, two decimals, as rekordbox sends it (flx10_bpm_sysex); blank when
-      * the deck is empty. Slot 14. */
-     {
-          int v = di->loaded ? di->bpm_raw : 0;
-          if (force || jd[deck].v[14] != v) {
-               unsigned char sx[17];
-               flx10_bpm_sysex(deck, v, sx);
-               if (midi_sysex_out(sx, sizeof sx))
-                    jd[deck].v[14] = v;
-          }
-     }
+     /* The two-decimal BPM SysEx (flx10_bpm_sysex) is NOT sent: the unit
+      * ignores it outside rekordbox's HID session -- tried alone and after
+      * rekordbox's 00 0A / 0B / 0C setup messages, 2026-10-25. Kept for the
+      * HID phase. */
      if (!di->loaded)
           return;
      /* key (CC 0x49) and key change amount (CC 0x4A, 0x0D = 0) on the deck's
