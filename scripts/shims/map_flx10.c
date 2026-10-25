@@ -21,10 +21,18 @@
  * environment (FLX10_KEYS, see flx10_keys_parse()), so each one is a line in
  * rb.local.conf and a restart -- no rebuild -- while they are being identified:
  *
- *   RB_FLX10_KEYS="callprev=0x4118,callnext=0x4119"
+ *   RB_FLX10_KEYS="gatecue=0x....,param=0x...."
  *
  *   callprev, callnext  rbp's CUE/LOOP CALL < / >: IN/OUT inside a loop send
- *                       these, which is how the RX3 halves and doubles a loop
+ *                       these, which is how the RX3 halves and doubles a loop.
+ *                       FOUND, and built in (0x4323 / 0x4322): ui::Player::
+ *                       asEventCode @0x2f16d4 turns 0x4322 into event 32 and
+ *                       0x4323 into event 33, which PlayerSkeleton::onKeyEvent
+ *                       dispatches (PRESS only) to PlayerInnards vtable +0xf0
+ *                       onEv_CallNext and +0xf4 onEv_CallPrev; both call
+ *                       DjEngineIF::setLoopCutterDouble when looping. Confirmed
+ *                       on the unit 2026-10-24: halve and double both work.
+ *                       The names still override them.
  *   gatecue, releasefx, beatjump2
  *                       the RX3's SHIFT pad modes, from SHIFT + HOT CUE /
  *                       PAD FX1 / SAMPLER; their pads are bound only once the
@@ -163,12 +171,11 @@ static int jog_idle_ms = 120;
 static int jog_verbose = 0;
 static int tempo_verbose = 0;
 static int tempo_rev = 0;
-static int fourbeat_ms = 1100;       /* how long the simulated IN hold lasts */
 static int browse_hold_ms = 600;     /* a browse push held this long = TAG TRACK */
 static double mastervol_mid = MIRROR_GAIN_MID_DEFAULT;
 
-static int k_callprev, k_callnext, k_gatecue, k_releasefx, k_beatjump2,
-           k_param, k_tagtrack;
+static int k_callprev = 0x4323, k_callnext = 0x4322;   /* see the header */
+static int k_gatecue, k_releasefx, k_beatjump2, k_param, k_tagtrack;
 
 /* FLX10_KEYS: "name=0xNNNN,name=0xNNNN". Unknown names are logged and skipped,
  * so a typo is visible rather than silently ignored. */
@@ -353,7 +360,7 @@ static void flx10_mastervol(int cc, int val)
  *   control         not in a loop            in a loop
  *   IN / 1/2X       loop IN                  halve  (rbp's CALL <)
  *   OUT / 2X        loop OUT                 double (rbp's CALL >)
- *   4 BEAT / EXIT   4-beat loop, one press   exit   (RELOOP/EXIT)
+ *   4 BEAT / EXIT   4-beat loop, at once     exit   (RELOOP/EXIT)
  *   SHIFT + IN      loop IN                  IN ADJUST  (IN held)
  *   SHIFT + OUT     RELOOP (last loop)       OUT ADJUST (OUT held)
  *
@@ -362,10 +369,15 @@ static void flx10_mastervol(int cc, int val)
  * key the press went to -- so a loop that ends while the button is held cannot
  * leave an rbp key half-pressed.
  *
- * The 4-beat loop is the RX3's own gesture, "hold IN for about a second", made
- * by pressing rbp's IN and releasing it fourbeat_ms later from tick(). */
+ * The 4-beat loop is the RX3's own "hold IN" gesture with the wait taken out.
+ * In ui::PlayerInnards::onKey_LoopIn @0x303b18 the PRESS sets the loop-in point,
+ * and the REPEAT edge (op 1, which rbp's key manager produces only after about a
+ * second of holding) is the branch at 0x303c98 that calls
+ * DjEngineIF::setAutoBeatLoop(ch, {4, 1}, 3, ...) when the deck is not already
+ * looping or in cue standby. Sending press, repeat and release together is that
+ * same sequence, so the loop starts on the press instead of a beat later. The
+ * first version held IN for 1.1 s and waited for rbp's own repeat. */
 static int loop_key[2][3];                   /* [deck][IN, OUT, SHIFT-OUT/IN] */
-static unsigned long long fourbeat_until[2]; /* 0 = no simulated hold running */
 
 static void loop_press(int deck, int slot, int key, int sch)
 {
@@ -416,26 +428,14 @@ static void flx10_loop(int deck, int note, int on)
                return;                       /* the press is the whole gesture */
           if (looping) {
                pulse(K_RELOOP, sch);         /* exit */
-          } else if (!fourbeat_until[deck]) {
+          } else {
                send_rx_key(K_LOOPIN, OP_PRESS, sch, 0);
-               fourbeat_until[deck] = shim_now_ms() + (unsigned)fourbeat_ms;
+               send_rx_key(K_LOOPIN, OP_REPEAT, sch, 0);
+               send_rx_key(K_LOOPIN, OP_RELEASE, sch, 0);
           }
           return;
      default:
           return;
-     }
-}
-
-static void flx10_fourbeat_tick(unsigned long long t)
-{
-     for (int d = 0; d < 2; d++) {
-          if (fourbeat_until[d] && t >= fourbeat_until[d]) {
-               fourbeat_until[d] = 0;
-               send_rx_key(K_LOOPIN, OP_RELEASE, d + 1, 0);
-               if (verbose)
-                    klog("knobshim2: flx10 4 BEAT deck%d: IN held %d ms\n",
-                         d + 1, fourbeat_ms);
-          }
      }
 }
 
@@ -1006,7 +1006,6 @@ static void flx10_tick(void)
      unsigned long long t = shim_now_ms();
 
      flx10_jog_idle(t);
-     flx10_fourbeat_tick(t);
      flx10_push_tick(t);
      flx10_scfx_tick(t);
 }

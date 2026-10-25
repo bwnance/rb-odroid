@@ -755,9 +755,9 @@ test_plinn_scan: test_plinn_scan.c plinn_scan.c plinn_scan.h
 # controllers_cli.c below, which doctor.sh and install.sh read instead of keeping
 # their own copy of the list.
 # test_flx10 links the PRODUCTION map_flx10.c and pins it against the operator's
-# FLX10 table (docs/21); rbp is stubbed in the test file. Two of its cases run
-# against the real clock (4 BEAT's simulated hold, the SCFX deselect window), so
-# it takes about two seconds.
+# FLX10 table (docs/21); rbp is stubbed in the test file. A few cases run against
+# the real clock (the SCFX deselect window, the browse-push hold), so it takes
+# about a second.
 FLX10_TEST_OBJS := test_flx10.o map_flx10.o ctrl_map.o shimutil.o shmstate.o pitch_state.o
 
 test_flx10: $(FLX10_TEST_OBJS)

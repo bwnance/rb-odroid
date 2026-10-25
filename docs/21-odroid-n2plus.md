@@ -219,15 +219,28 @@ are the operator's table, agreed control by control on 2026-10-24:
 
 | | not in a loop | in a loop |
 |---|---|---|
-| IN · 1/2X | loop IN | halve (rbp's CALL <) ⚠ |
-| OUT · 2X | loop OUT | double (rbp's CALL >) ⚠ |
-| 4 BEAT / EXIT | 4-beat loop (IN held 1.1 s) | exit |
+| IN · 1/2X | loop IN | halve (rbp's CALL <, 0x4323) |
+| OUT · 2X | loop OUT | double (rbp's CALL >, 0x4322) |
+| 4 BEAT / EXIT | 4-beat loop, immediately | exit |
 | SHIFT + IN | loop IN | IN ADJUST |
 | SHIFT + OUT | RELOOP | OUT ADJUST |
 
+Both loop findings come from the player binary, read with `objdump`, and are
+confirmed on the unit (2026-10-24):
+
+- **CALL < / >.** `ui::Player::asEventCode` @0x2f16d4 maps key 0x4322 → event
+  32 and 0x4323 → event 33. `PlayerSkeleton::onKeyEvent` sends those (PRESS only)
+  to `PlayerInnards` vtable +0xf0 `onEv_CallNext` and +0xf4 `onEv_CallPrev`. Both
+  call `DjEngineIF::setLoopCutterDouble` while looping. (0x4124 is event 34 =
+  `onEv_DeleteCue`, and 0x4125 is event 31.)
+- **4 BEAT.** `onKey_LoopIn` @0x303b18 starts the 4-beat auto loop on the key's
+  REPEAT edge (op 1, branch at 0x303c98 → `setAutoBeatLoop(ch, {4,1}, 3, …)`).
+  rbp's key manager only produces that edge after about a second of holding, so
+  the map sends press + repeat + release together.
+
 **⚠ = an RX3 keycode not yet identified.** These come from `RB_FLX10_KEYS` in
-rb.local.conf (`callprev`, `callnext`, `gatecue`, `releasefx`, `beatjump2`,
-`param`, `tagtrack`), so finding one is a config line and a restart. Until then
+rb.local.conf (`gatecue`, `releasefx`, `beatjump2`, `param`, `tagtrack`; also
+`callprev`/`callnext`, which now default to the found codes), so finding one is a config line and a restart. Until then
 each logs `RX3 keycode not yet mapped`. The SHIFT pad modes' pads are bound only
 once their mode key is set.
 

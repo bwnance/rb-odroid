@@ -4,8 +4,8 @@
  * the unit was measured to send (scripts/odroid/midi-learn.py).
  *
  * Pure host C: it links the production map, ctrl_map.c, shimutil.c, shmstate.c
- * and pitch_state.c, and nothing that carries an rbp address. The two timed
- * gestures (4 BEAT's simulated hold, the SCFX deselect window) are run against
+ * and pitch_state.c, and nothing that carries an rbp address. The timed
+ * gestures (the SCFX deselect window, the browse-push hold) are run against
  * the real clock with short sleeps.
  *
  *   cc -std=gnu11 -Wall -o test_flx10 test_flx10.c map_flx10.c ctrl_map.c \
@@ -127,15 +127,12 @@ int main(void)
      reset(); ON(1, 77); OFF(1, 77);
      CHECK(sent_n == 2 && is(0, K_RELOOP, OP_PRESS, 1) && is(1, K_RELOOP, OP_RELEASE, 1), "SHIFT+OUT, no loop -> RELOOP");
 
-     /* 4 BEAT, not looping: IN pressed now, released ~1.1 s later from tick */
+     /* 4 BEAT, not looping: IN press + REPEAT + release at once, nothing later */
      reset(); ON(1, 20); OFF(1, 20);
-     CHECK(sent_n == 1 && is(0, K_LOOPIN, OP_PRESS, 1), "4 BEAT presses IN");
-     ON(1, 20); OFF(1, 20);
-     CHECK(sent_n == 1, "a second 4 BEAT during the hold is ignored");
-     ms(300); map_flx10.tick();
-     CHECK(sent_n == 1, "IN still held at 300 ms");
-     ms(900); map_flx10.tick();
-     CHECK(sent_n == 2 && is(1, K_LOOPIN, OP_RELEASE, 1), "IN released after the hold");
+     CHECK(sent_n == 3 && is(0, K_LOOPIN, OP_PRESS, 1) && is(1, K_LOOPIN, OP_REPEAT, 1) &&
+           is(2, K_LOOPIN, OP_RELEASE, 1), "4 BEAT -> IN press/repeat/release immediately");
+     ms(50); map_flx10.tick();
+     CHECK(sent_n == 3, "nothing follows from the tick");
 
      /* in a loop */
      looping[0] = 1;
@@ -146,7 +143,10 @@ int main(void)
      reset(); ON(1, 76); OFF(1, 76);
      CHECK(sent_n == 2 && is(0, K_LOOPIN, OP_PRESS, 1), "SHIFT+IN -> IN (adjust)");
      reset(); ON(1, 16); OFF(1, 16);
-     CHECK(sent_n == 0, "IN in a loop, CALL code unset: nothing (%d)", sent_n);
+     CHECK(sent_n == 2 && is(0, 0x4323, OP_PRESS, 1),
+           "IN in a loop -> built-in CALL < (0x4323) halves (%d)", sent_n);
+     reset(); ON(1, 17); OFF(1, 17);
+     CHECK(sent_n == 2 && is(0, 0x4322, OP_PRESS, 1), "OUT in a loop -> built-in CALL > (0x4322)");
 
      /* with the CALL codes configured: halve/double, release follows the press */
      build("callprev=0x4118,callnext=0x4119,gatecue=0x4130");
