@@ -1315,6 +1315,11 @@ static void flx10_main_mode(int deck, int a, int b)
 
 /* ---- notes ---------------------------------------------------------------- */
 
+/* SHIFT + BACK's way back from the playlist view (see flx10_note) */
+#define SB_AGAIN_MS 200
+static int sb_opened;
+static unsigned long long sb_again_at;
+
 static void flx10_note(int ch, int note, int on)
 {
      int deck = IS_DECK(ch) ? ch : -1;
@@ -1445,15 +1450,20 @@ static void flx10_note(int ch, int note, int on)
            * browse screen it stays TAG LIST. Decided on the press; the release
            * goes to the same key. */
           if (note == N_BACK_SHIFT) {
-               static int sb_key, sb_opened;
+               static int sb_key;
                if (on) {
                     int bm = flx10_browse_mode();
                     if (bm == BROWSE_MODE_PLAY) {
                          sb_key = K_PLAYLIST;
                          sb_opened = 1;
                     } else if (sb_opened) {
-                         sb_key = K_BROWSE;      /* back to the player */
+                         /* BROWSE from the playlist view opens the browse
+                          * screen (operator, 2026-10-25); a second BROWSE from
+                          * there is the player, so the tick sends it if the
+                          * first did not get there */
+                         sb_key = K_BROWSE;
                          sb_opened = 0;
+                         sb_again_at = shim_now_ms() + SB_AGAIN_MS;
                     } else {
                          sb_key = K_TAGLIST;
                     }
@@ -1754,12 +1764,22 @@ static void flx10_startup(void)
      klog("knobshim2: DDJ-FLX10: routed Ch1->Deck1, Ch2->Deck2; master level unity\n");
 }
 
+static void flx10_sb_tick(unsigned long long t)
+{
+     if (!sb_again_at || t < sb_again_at)
+          return;
+     sb_again_at = 0;
+     if (flx10_browse_mode() != BROWSE_MODE_PLAY)
+          pulse(K_BROWSE, CH_GLOBAL);
+}
+
 static void flx10_tick(void)
 {
      unsigned long long t = shim_now_ms();
 
      flx10_jog_tick();
      flx10_rev_tick(t);
+     flx10_sb_tick(t);
      flx10_push_tick(t);
      flx10_scfx_tick(t);
 }

@@ -453,7 +453,15 @@ int main(void)
      browse_mode = 3;                           /* the playlist view it opened */
      reset(); ON(7, 102); OFF(7, 102);
      CHECK(sent_n == 2 && is(0, K_BROWSE, OP_PRESS, 1) && is(1, K_BROWSE, OP_RELEASE, 1),
-           "SHIFT+BACK again from that list -> BROWSE (back to the player)");
+           "SHIFT+BACK again from that list -> BROWSE");
+     ms(250); map_flx10.tick();
+     CHECK(sent_n == 4 && is(2, K_BROWSE, OP_PRESS, 1), "...and BROWSE again while not on the player");
+     browse_mode = 1;
+     reset(); ON(7, 102); OFF(7, 102);         /* open again */
+     browse_mode = 3; ON(7, 102); OFF(7, 102);
+     browse_mode = 1; ms(250); map_flx10.tick();
+     CHECK(sent_n == 4, "no second BROWSE once the player is up (%d)", sent_n);
+     browse_mode = 3;
      reset(); ON(7, 102); OFF(7, 102);
      CHECK(sent_n == 2 && is(0, K_TAGLIST, OP_PRESS, 1), "SHIFT+BACK in a list it did not open -> TAG LIST");
      browse_mode = 1;
