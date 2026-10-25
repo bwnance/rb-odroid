@@ -811,6 +811,13 @@ int main(void)
                c.loop_in_ms = 100000; c.loop_out_ms = 101459; c.loop_num = 8;
                flx10_hid_state_pkt(p, 0, &c);
                CHECK(p[10] == 0x0e, "the length wins when it resolves (%02x)", p[10]);
+               c.on_air = 1; flx10_hid_state_pkt(p, 0, &c);
+               CHECK(p[3] == 0x08, "ON AIR not sent while FLX10_ONAIR is unset");
+               flx10_hid_set_onair(3, 0x04); flx10_hid_state_pkt(p, 0, &c);
+               CHECK(p[3] == 0x0c, "FLX10_ONAIR=3:04 -> [3] |= 04 on air");
+               c.on_air = 0; flx10_hid_state_pkt(p, 0, &c);
+               CHECK(p[3] == 0x08, "off air -> not set");
+               flx10_hid_set_onair(-1, 0);
           }
           CHECK(flx10_loop_code(1459, 16456 * 11 / 10, 1000) == 0x0e, "track-time loop at +10%% still 4 beats");
           hs.master = 1; hs.sync = 1; hs.jog_touch = 1; flx10_hid_state_pkt(p, 0, &hs);

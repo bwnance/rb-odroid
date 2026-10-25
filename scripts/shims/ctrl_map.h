@@ -149,6 +149,7 @@ struct deck_info {
      int time_remain;       /* rbp's time mode: 1 remaining, 0 elapsed */
      int loop_in_ms, loop_out_ms;  /* the current loop (PE_GETCURLOOPTIME), -1 = none */
      int loop_num, loop_den;       /* its size in beats as rbp shows it, 0 = unknown */
+     int on_air;                   /* rbp shows the deck's ON AIR icon */
      char key[16];          /* rbp's deck-panel key text, ASCII ("" = none) */
 };
 

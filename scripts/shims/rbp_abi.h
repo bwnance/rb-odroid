@@ -913,6 +913,13 @@ static const signed char bfx_type_to_pos[15] = {
  * change through ui::StatWatcher::setKeyTimeMode, as the RX3's shortcut menu
  * does, so rbp's own screen follows. */
 #define UI_SET_KEYTIMEMODE 0x000fe100
+/* The decks' ON AIR icons, as rbp draws them: OnAirIndicator(deck, ...)
+ * @0x12409c lights deck N's when UiGetUtilOnAirDisplay() @0xfe900 (the
+ * utility's ON AIR DISPLAY setting) is 1 and UiGetMixerOnAir(deck, 1)
+ * @0xfe34c (ui::StatWatcher::getMixerOnAir: the mixer's on-air bits) is
+ * non-zero. Exported C functions. */
+#define UI_GET_UTIL_ONAIR_DISP 0x000fe900
+#define UI_GET_MIXER_ONAIR     0x000fe34c
 /* The playing loop's size in beats as rbp's own screen shows it, numerator
  * and denominator (512/1 .. 1/128 on the RX3): UiGetPlayLoopBeatNumer(deck)
  * @0xfd4bc / UiGetPlayLoopBeatDenom(deck) @0xfd4e4, exported C functions

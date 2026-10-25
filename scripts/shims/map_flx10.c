@@ -2285,6 +2285,7 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
                .time_remain = di->time_remain,
                .loop_in_ms = di->loop_in_ms, .loop_out_ms = di->loop_out_ms,
                .loop_num = di->loop_num, .loop_den = di->loop_den,
+               .on_air = di->on_air,
           };
           flx10_hid_update(deck, &hs);
      }

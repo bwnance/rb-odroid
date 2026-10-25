@@ -53,6 +53,13 @@
  * The empty packet is the same header with [9] 0x10, no position/BPM, [27]
  * 0x80, [43..44] 0xff, [60] 0x80, [61] 0x0d, and the range box and tempo %. */
 static const unsigned char range_bits[4] = { 0x10, 0x20, 0x30, 0x40 };
+static int onair_byte = -1, onair_mask;
+
+void flx10_hid_set_onair(int byte, int mask)
+{
+     onair_byte = (byte >= 2 && byte < FLX10_HID_PKT && mask > 0) ? byte : -1;
+     onair_mask = mask & 0xff;
+}
 
 int flx10_key_shift(int tempo_x100)
 {
@@ -213,6 +220,8 @@ void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
           p[60] = (unsigned char)(0x80 | code);
           p[61] = (unsigned char)(0x0d + k);
      }
+     if (s->on_air && onair_byte >= 0)
+          p[onair_byte] |= (unsigned char)onair_mask;
 }
 
 void flx10_hid_heartbeat_pkt(unsigned char p[FLX10_HID_PKT], int n)
@@ -440,6 +449,14 @@ static void hid_start(void)
           klog("knobshim2: FLX10 HID: off (FLX10_HID=0); the jogs will say "
                "Not Loaded\n");
           return;
+     }
+     {
+          const char *oa = env_text("FLX10_ONAIR", NULL);
+          unsigned b, m;
+          if (oa && *oa && sscanf(oa, "%x:%x", &b, &m) == 2) {
+               flx10_hid_set_onair((int)b, (int)m);
+               klog("knobshim2: FLX10 HID: ON AIR -> byte %u |= 0x%02x\n", b, m);
+          }
      }
      if (pthread_create(&t, NULL, hid_thread, NULL) == 0)
           pthread_detach(t);
