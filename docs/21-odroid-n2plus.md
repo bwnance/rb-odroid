@@ -187,6 +187,10 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   the displays are fed by SysEx: the rekordbox capture has `... 04 01 00 0a ...`,
   `0b`, `0c`, `11`-`14` messages, `tools/captures/flx10-rekordbox-startup.txt`).
 * is similarly odd at start-up.
+* **TEMPO RESET** (operator, 2026-10-25): the FLX10's TEMPO RESET button (deck note
+  65, unbound today, its LED dark) should reset the deck's tempo to 0% the way
+  rekordbox does -- find whether rbp has a reset of its own, else hold the tempo at
+  centre until the fader is moved.
 * **Waveform jittering** (operator, 2026-10-25): details to collect.
 * **Later, maybe:** RX3 effects matching the FLX10's (ENIGMA JET, MOBIUS, ...).
 
