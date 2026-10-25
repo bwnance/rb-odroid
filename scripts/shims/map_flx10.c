@@ -882,11 +882,15 @@ static void flx10_note(int ch, int note, int on)
           ch == CH_PADS2S) && (note & 15) < 8) {
           int d = (ch == CH_PADS1 || ch == CH_PADS1S) ? 0 : 1, p = note & 7;
           if (on) {
+               if (flx10_page[d] != (note & 0x70))
+                    led_kick = 3;
                flx10_page[d] = note & 0x70;
+               led_kick = led_kick > 1 ? led_kick : 1;   /* held / flash: show it now */
                pad_held[d] |= 1u << p;
                pad_press_ms[d][p] = shim_now_ms();
           } else {
                pad_held[d] &= ~(1u << p);
+               led_kick = led_kick > 1 ? led_kick : 1;
           }
      }
 
@@ -895,8 +899,10 @@ static void flx10_note(int ch, int note, int on)
 
           if (on) {
                int pg = flx10_mode_page(note, flx10_page[deck]);
-               if (pg != -1)
+               if (pg != -1) {
                     flx10_page[deck] = pg;
+                    led_kick = 3;              /* repaint the new page now */
+               }
           }
 
           switch (note) {

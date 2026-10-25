@@ -36,6 +36,7 @@ int g_fader_seen[3];
 static int looping[2];
 int aloop_is_looping(int deck) { return looping[deck]; }
 int led_loop_flash[2];
+volatile int led_kick;
 static int cue[4], mcue, deleted_deck = -1, deleted_pad = -1;
 int me_get_cue(int idx) { return cue[idx]; }
 void me_set_cue(int idx, int on) { cue[idx] = on; }
@@ -400,6 +401,7 @@ int main(void)
           /* a second press of a main button moves the unit to its SHIFT page */
           reset(); ON(1, 27); OFF(1, 27);
           CHECK(flx10_led_pad_base(0, 0) == 64, "HOT CUE twice -> page 64");
+          CHECK(led_kick > 0, "a page change asks for a repaint");
           reset(); ON(1, 27); OFF(1, 27);
           CHECK(flx10_led_pad_base(0, 0) == 0, "HOT CUE third press -> page 0");
           reset(); ON(1, 32); OFF(1, 32); ON(1, 32); OFF(1, 32);

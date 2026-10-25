@@ -63,6 +63,7 @@
  * the LED bridge turns it into the SC Live 4 blink pattern. */
 int led_loop_armed[2];
 int led_loop_flash[2];
+volatile int led_kick;
 
 /* LED_LOOP_REKORDBOX's loop-in flash: four cycles of this, off half first so
  * the first flash is visible against the solid LED. */
@@ -858,7 +859,15 @@ static void led_refresh(void)
                      * them, so the new notes go out on the next tick rather than
                      * waiting for the resend timer. */
                     if (base != led_pad_base[i]) {
-                         if (led_pad_base[i] >= 0) {
+                         /* A surface that owns its pages (pad_base hook,
+                          * the FLX10) remembers each page's lights and shows
+                          * only the current page's, so the page being left is
+                          * NOT cleared: clearing it is what made it come back
+                          * dark for a tick (operator, 2026-10-25). The cache
+                          * is still dropped, so the new page is sent now. */
+                         if (n->pad_base && led_pad_base[i] >= 0) {
+                              memset(led_pad_last[i], -1, sizeof(led_pad_last[0]));
+                         } else if (led_pad_base[i] >= 0) {
                               for (int p = 0; p < LED_PAD_COUNT; p++)
                                    led_pad_apply(pch, led_pad_base[i] + p,
                                                  &led_pad_last[i][p], 0);
@@ -1136,7 +1145,14 @@ void *led_thread(void *arg)
                led_dump_scan();
           led_refresh();
           led_tick++;
-          usleep(50000);   /* 20 Hz */
+          /* 20 Hz, in 10 ms slices so a led_kick is answered within 10 ms */
+          for (int s = 0; s < 5; s++) {
+               usleep(10000);
+               if (led_kick > 0) {
+                    led_kick--;
+                    break;
+               }
+          }
      }
      return NULL;
 }

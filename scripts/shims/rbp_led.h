@@ -37,5 +37,10 @@ extern int led_loop_armed[2];
  * four times and clears it. */
 extern int led_loop_flash[2];
 
+/* "Repaint now": a map sets it (to a few ticks' worth) when the panel's pad
+ * page changes, and the LED loop, which otherwise refreshes every 50 ms,
+ * refreshes on its next 10 ms slice, once per count. */
+extern volatile int led_kick;
+
 #endif /* RBPI4B_RBP_LED_H */
 
