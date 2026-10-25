@@ -426,7 +426,10 @@ int main(void)
                di.loaded = 1; di.total_ms = 300000; di.elapsed_ms = 155000;
                di.bpm_raw = 8199; di.tempo_raw = -250;
                flx10_jog_values(&di, &b, &s, &mi, &se, &dg);
-               CHECK(b == 820, "BPM 81.99 -> 820 (x10) (%d)", b);
+               CHECK(b == 819, "BPM 81.99 -> 819 (x10, truncated as the RX3 shows) (%d)", b);
+               { struct deck_info d2 = di; int b2, s2, m2, e2, g2;
+                 d2.bpm_raw = 11669; flx10_jog_values(&d2, &b2, &s2, &m2, &e2, &g2);
+                 CHECK(b2 == 1166, "116.69 -> 116.6 like the RX3 screen (%d)", b2); }
                CHECK(s == 975, "tempo -2.50%% -> (pct+100)*10 = 975 (%d)", s);
                CHECK(mi == 2 && se == 25, "remaining 145 s -> 2:25 (%d:%d)", mi, se);
                CHECK(dg == 40, "155000 ms -> 200 ms into a 1.8 s turn = 40 deg (%d)", dg);

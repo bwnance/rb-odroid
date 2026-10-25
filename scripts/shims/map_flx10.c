@@ -1421,7 +1421,9 @@ void flx10_jog_values(const struct deck_info *di, int *bpm10, int *speed10,
      int rem = di->total_ms - di->elapsed_ms;
      if (rem < 0)
           rem = 0;
-     *bpm10 = (di->bpm_raw + 5) / 10;            /* x100 -> x10 */
+     /* x100 -> x10, TRUNCATED as rbp's own screen does: 100.6 at +16% is
+      * 116.69, which the RX3 shows as 116.6 (rounding gave 116.7) */
+     *bpm10 = di->bpm_raw / 10;
      if (*bpm10 > 9999)
           *bpm10 = 9999;
      *speed10 = di->tempo_raw / 10 + 1000;       /* % x100 -> (% + 100) x 10 */
