@@ -207,6 +207,10 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   - REVERSE (SHIFT): a latching plain reverse, on until pressed again, and NEVER
     slipping -- even with slip mode on, the playhead does not jump back.
   - LED (note 21, measured): lit while the button is held and while reverse is on.
+* **SHIFT + BEAT JUMP < = back to the track's start** (operator, 2026-10-25), as in
+  rekordbox. Today it is rbp's TRACK SEARCH < (K_TRREV), which on the RX3 is the
+  previous-track / track-start key; check what rbp does with it mid-track and, if
+  it is not "restart this track", find rbp's own jump-to-start.
 * **Waveform jittering** (operator, 2026-10-25): uneven scrolling on the HDMI screen.
   Measured: rbp paces on FBIO_WAITFORVSYNC, which meson's drm_fbdev does not really
   wait in, so it free-ran at 57.7 fps (FB_VSYNC_RATE) on a 60 Hz panel -- frames
