@@ -40,7 +40,8 @@
  *   [21]     BPM, whole number (low 8 bits)
  *   [22]     tenths << 4 | whole number >> 8
  *   [23..24] tempo % x100, signed LE16
- *   [25..30] loop in / out, ms LE24 each; [27] 0x80 = no loop  (not sent yet)
+ *   [25..30] loop in / out, ms LE24 each; [27] 0x80 = no loop
+ *   [10]     0x0e while looping (as captured; meaning not known)
  *   [31..33] the cue point, ms LE24 (the cue arm); again at [55..57]
  *   [43..44] 0xff 0xff     [45] 0x02     [58] 0x01
  *   [49]     hundredths << 4
@@ -136,6 +137,14 @@ void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
      p[21] = (unsigned char)(whole & 0xff);
      p[22] = (unsigned char)((((bpm / 10) % 10) << 4) | ((whole >> 8) & 0x0f));
      p[49] = (unsigned char)((bpm % 10) << 4);
+     if (s->loop_in_ms >= 0 && s->loop_out_ms > s->loop_in_ms) {
+          put_le24(p + 25, s->loop_in_ms);
+          put_le24(p + 28, s->loop_out_ms);
+     }
+     if (s->looping) {
+          p[9] = 0xbc;
+          p[10] = 0x0e;
+     }
      if (s->cue_ms >= 0) {
           put_le24(p + 31, s->cue_ms);
           put_le24(p + 55, s->cue_ms);
@@ -162,8 +171,37 @@ void flx10_hid_heartbeat_pkt(unsigned char p[FLX10_HID_PKT], int n)
 
 /* ---- the sender ---- */
 
-static struct flx10_hid_deck hd[4];
+#define HID_PERIOD_US 10000          /* 100 Hz, about rekordbox's rate */
+#define EXTRAP_MAX_MS 200
+#define NO_BACKSTEP_MS 100
+
+struct hid_slot {
+     struct flx10_hid_deck s;
+     int base_ms;                     /* position at `at` */
+     unsigned long long at;
+};
+static struct hid_slot hd[4];
 static pthread_mutex_t hd_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static int moving(const struct flx10_hid_deck *s)
+{
+     return s->loaded && s->playing && !s->cue_standby;
+}
+
+int flx10_hid_extrapolate(int base_ms, long dt_ms, int mov, int tempo_x100,
+                          int total_ms)
+{
+     long v;
+
+     if (!mov || dt_ms <= 0)
+          return base_ms;
+     if (dt_ms > EXTRAP_MAX_MS)
+          dt_ms = EXTRAP_MAX_MS;
+     v = base_ms + dt_ms * (10000L + tempo_x100) / 10000L;
+     if (total_ms > 0 && v > total_ms)
+          v = total_ms;
+     return (int)v;
+}
 
 static int find_node(char *path, size_t n)
 {
@@ -217,7 +255,7 @@ static void *hid_thread(void *arg)
      (void)arg;
 
      for (;;) {
-          usleep(20000);
+          usleep(HID_PERIOD_US);
           if (fd < 0) {
                unsigned long long now = shim_now_ms();
                if (now < next_look)
@@ -231,16 +269,19 @@ static void *hid_thread(void *arg)
                          strerror(errno));
                     continue;
                }
-               klog("knobshim2: FLX10 HID: sending deck state to %s every 20 ms\n",
-                    path);
+               klog("knobshim2: FLX10 HID: sending deck state to %s every %d ms\n",
+                    path, HID_PERIOD_US / 1000);
           }
           n = n % 5 + 1;
           flx10_hid_heartbeat_pkt(p, n);
           int ok = send_pkt(fd, p);
           for (int d = 0; ok && d < 4; d++) {
                struct flx10_hid_deck s;
+               unsigned long long t = shim_now_ms();
                pthread_mutex_lock(&hd_lock);
-               s = hd[d];
+               s = hd[d].s;
+               s.elapsed_ms = flx10_hid_extrapolate(hd[d].base_ms, (long)(t - hd[d].at),
+                                                   moving(&s), s.tempo_x100, s.total_ms);
                pthread_mutex_unlock(&hd_lock);
                flx10_hid_state_pkt(p, d, &s);
                ok = send_pkt(fd, p);
@@ -277,8 +318,23 @@ void flx10_hid_update(int deck, const struct flx10_hid_deck *s)
 
      if (deck < 0 || deck > 3 || !s)
           return;
+     unsigned long long now = shim_now_ms();
+     struct hid_slot *h = &hd[deck];
+     int pred;
+
      pthread_mutex_lock(&hd_lock);
-     hd[deck] = *s;
+     pred = flx10_hid_extrapolate(h->base_ms, (long)(now - h->at), moving(&h->s),
+                                  h->s.tempo_x100, h->s.total_ms);
+     /* rbp's reading lags a little behind the estimate (it moves in audio
+      * blocks); a reading just behind it is not a jump back, so the estimate is
+      * kept -- a real seek is further than NO_BACKSTEP_MS */
+     if (moving(s) && moving(&h->s) && s->elapsed_ms < pred &&
+         pred - s->elapsed_ms < NO_BACKSTEP_MS)
+          h->base_ms = pred;
+     else
+          h->base_ms = s->elapsed_ms;
+     h->at = now;
+     h->s = *s;
      pthread_mutex_unlock(&hd_lock);
      pthread_once(&once, hid_start);
 }

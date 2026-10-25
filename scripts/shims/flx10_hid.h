@@ -30,7 +30,16 @@ struct flx10_hid_deck {
      int mt, sync;
      int key_code;          /* the track's key, flx10_key_code()'s 1..24, 0 = none */
      int cue_ms;            /* the main cue, ms; -1 = none */
+     int looping;           /* a loop is playing */
+     int loop_in_ms, loop_out_ms;   /* the current loop, ms; -1 = none */
 };
+
+/* Where the playhead is dt_ms after rbp last said base_ms: rbp's position is
+ * read 20 times a second, the screens are sent 100 times, so in between it
+ * moves at the playing speed (1 + tempo%). Capped at EXTRAP_MAX_MS ahead, and at
+ * the track's end. Exposed for the tests. */
+int flx10_hid_extrapolate(int base_ms, long dt_ms, int moving, int tempo_x100,
+                          int total_ms);
 
 /* Key shown with master tempo off: the tempo moves it by a whole number of
  * semitones (round(12 * log2(1 + tempo%/100))), as rekordbox draws it -- the

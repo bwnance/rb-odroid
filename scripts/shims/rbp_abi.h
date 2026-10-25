@@ -899,6 +899,14 @@ static const signed char bfx_type_to_pos[15] = {
  *   getTempoRange  @0x5debc  0..3, switch-mapped (the range index) */
 #define PE_GETTOTALTIME    0x5d4c8
 #define PE_GETPLAYINGTIME  0x5d9cc
+/* PlayEngine::getCurrentLoopTime(ch) returns an 824-byte StCueInfo through
+ * a hidden first argument: call (buf, pe, ch). Player::getCurrentLoopTime
+ * @0x659cc fills +792 with the loop's IN and +804 with its OUT, in ms
+ * (samples x 1000/44100), both -1 (DjEngineIF::INVALID_TIME) with no loop. */
+#define PE_GETCURLOOPTIME  0x5eb34
+#define CUEINFO_SIZE       824
+#define CUEINFO_IN_MS      792
+#define CUEINFO_OUT_MS     804
 #define PE_GETQBPMDISPLAY  0x5f794
 #define PE_GETTEMPOX100    0x5dcf8
 #define PE_GETTEMPORANGE   0x5debc

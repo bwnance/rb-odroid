@@ -2240,6 +2240,8 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
                .mt = di->mt, .sync = di->sync,
                .key_code = flx10_key_code(di->key),
                .cue_ms = di->loaded ? flx10_cue_ms(deck, di->total_ms) : -1,
+               .looping = di->looping,
+               .loop_in_ms = di->loop_in_ms, .loop_out_ms = di->loop_out_ms,
           };
           flx10_hid_update(deck, &hs);
      }

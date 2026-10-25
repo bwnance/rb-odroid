@@ -260,8 +260,11 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   key ([60] = 0x80 | key code) and key shift ([61], MT off), cue point ms
   ([31..33] and [55..57]), SYNC ([5] 0x10), loop in/out ms ([25..30]).
   flx10_hid.c now builds the packet from that layout; the rounds-1-3 guesses
-  above are superseded where they differ. Not sent yet: loop in/out, jog
-  touch; not in the capture: MASTER, BEAT SYNC.
+  above are superseded where they differ. Loop in/out ([25..30], from
+  PlayEngine::getCurrentLoopTime) and looping ([9] bc, [10] 0e) are sent; the
+  screens go out at 100 Hz with the position carried forward between rbp's
+  20 Hz readings (the arm stepped). Not sent: jog touch; not in the capture:
+  MASTER, BEAT SYNC (a second capture is planned).
 * **HID jog screens, to do** (operator, 2026-10-25) -- the capture
   (`tools/flx10-pcap-decode.py`) should show most of these. (Empty decks now
   carry the range box and tempo % too -- byte 4 and 23..24 of the empty packet.)

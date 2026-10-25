@@ -772,6 +772,22 @@ int main(void)
           CHECK(p[60] == 0x80 && p[61] == 0x0d, "no key -> 80 0d");
           hs.cue_ms = -1; flx10_hid_state_pkt(p, 0, &hs);
           CHECK(p[31] == 0 && p[55] == 0, "no cue -> zeros");
+          /* the loop: in / out ms at [25..30] as captured (12648 -> 14107),
+           * looping -> [9] bc, [10] 0e; none -> [27] 80 */
+          hs.loop_in_ms = 12648; hs.loop_out_ms = 14107; hs.looping = 1;
+          flx10_hid_state_pkt(p, 0, &hs);
+          CHECK(p[25] == 0x68 && p[26] == 0x31 && p[27] == 0x00 && p[28] == 0x1b && p[29] == 0x37 &&
+                p[30] == 0x00 && p[9] == 0xbc && p[10] == 0x0e, "loop 12648..14107 looping -> captured bytes");
+          hs.looping = 0; flx10_hid_state_pkt(p, 0, &hs);
+          CHECK(p[25] == 0x68 && p[9] == 0xb4 && p[10] == 0, "loop kept after exit, not looping -> b4");
+          hs.loop_in_ms = hs.loop_out_ms = -1; flx10_hid_state_pkt(p, 0, &hs);
+          CHECK(p[25] == 0 && p[27] == 0x80 && p[28] == 0, "no loop -> 00 00 80");
+          /* position between rbp's readings */
+          CHECK(flx10_hid_extrapolate(1000, 50, 1, 0, 0) == 1050, "50 ms at 0%% -> +50");
+          CHECK(flx10_hid_extrapolate(1000, 50, 1, 1000, 0) == 1055, "50 ms at +10%% -> +55");
+          CHECK(flx10_hid_extrapolate(1000, 50, 0, 0, 0) == 1000, "paused -> no movement");
+          CHECK(flx10_hid_extrapolate(1000, 5000, 1, 0, 0) == 1200, "capped 200 ms ahead");
+          CHECK(flx10_hid_extrapolate(9990, 50, 1, 0, 10000) == 10000, "capped at the track's end");
           flx10_hid_heartbeat_pkt(p, 3);
           CHECK(p[0] == 0 && p[1] == 0x3D && p[2] == 3 && p[4] == 5, "heartbeat 00 3D n 00 05");
      }
