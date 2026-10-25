@@ -188,7 +188,7 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   The HID phase has started (per-deck state, flx10_hid.c). Left: tempo range
   box, waveform, cue marker, two-decimal BPM, artwork -- see "FLX10 jog
   displays" above.
-* **Controls, done 2026-10-25 (to test on the unit):** TEMPO RESET toggle with
+* **Controls, done and confirmed on the unit 2026-10-25:** TEMPO RESET toggle with
   its LED; MASTER TEMPO on the KEY SYNC hold (KEY SYNC itself does nothing: rbp
   has no key sync or key shift); SLIP REVERSE momentary + always slipping and
   SHIFT = latching REVERSE that never slips, LED on note 21; 4 BEAT JUMP < > =
@@ -196,7 +196,14 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   stepped a frame on a paused deck); SHIFT + CUE = back to the track's start;
   MIX POINT < > = previous / next track; SHIFT + BEAT < = Beat FX BPM AUTO;
   SHIFT + BACK on the player = PLAYLIST; VINYL disabled (no light -- showing
-  the mode on the jog screen is for later). See the table above.
+  the mode on the jog screen is for later). Follow-ups, also confirmed: beat
+  jumps through the plain loop object (instant, repeatable; SHIFT = 16 beats);
+  SHIFT + CUE / MIX POINT < seek straight to the auto cue point (MIX POINT <
+  at the start = previous track); TRACK SEARCH taps that never repeat; KEY
+  SYNC light dark; SHIFT + BACK toggles playlist / player; SLIP REVERSE with
+  quantize on; crossfader assign switches; loop cache refreshed before loop
+  keys (fresh-track IN / OUT loops); empty-deck range box and tempo %. See
+  the table above.
 * **Track-end warning on the jog ring** (operator, 2026-10-25): flash the jog
   wheel's colour ring when the track is about to end, faster as it gets closer --
   what the RX3 and its HDMI screen do. rbp's own warning state (the RX3 flashes
