@@ -32,6 +32,7 @@ struct flx10_hid_deck {
      int cue_ms;            /* the main cue, ms; -1 = none */
      int looping;           /* a loop is playing */
      int loop_in_ms, loop_out_ms;   /* the current loop, ms; -1 = none */
+     int loop_num, loop_den;        /* its size in beats as rbp shows it; 0 = unknown */
      int master;            /* this deck is the tempo MASTER */
      int jog_touch;         /* the platter is pressed */
      int time_remain;       /* show remaining time, not elapsed */
@@ -42,6 +43,12 @@ struct flx10_hid_deck {
  * 1/2 = 0x0a, 1..512 beats = 0x0c..0x15, anything else 0x01 (the screen's
  * "--"). From the second rekordbox capture. */
 int flx10_loop_code(int len_ms, int bpm_x100, int tempo_x100);
+
+/* The same code from rbp's own beat count (num/den, as the RX3 screen shows
+ * it), used when the length gives "--": a 512-beat loop clipped at the
+ * track's end, and 1/128 (0x03 -- a guess, the next code below 1/64), which
+ * the length test cannot resolve. 0x01 when not a power of two. */
+int flx10_loop_code_beats(int num, int den);
 
 /* Where the playhead is dt_ms after it was base_ms, at the playing speed
  * (1 + tempo%). Capped at EXTRAP_MAX_MS ahead, and at the track's end. */

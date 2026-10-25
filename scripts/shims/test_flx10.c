@@ -790,6 +790,23 @@ int main(void)
                 flx10_loop_code(46, 16456, 0) == 0x07 && flx10_loop_code(6, 16456, 0) == 0x04,
                 "loop size codes 512 .. 1/64");
           CHECK(flx10_loop_code(1000, 16456, 0) == 0x01, "2.74 beats -> 01 (the screen's --)");
+          CHECK(flx10_loop_code_beats(512, 1) == 0x15 && flx10_loop_code_beats(1, 128) == 0x03 &&
+                flx10_loop_code_beats(1, 64) == 0x04 && flx10_loop_code_beats(4, 1) == 0x0e &&
+                flx10_loop_code_beats(1, 2) == 0x0a && flx10_loop_code_beats(2, 4) == 0x0a,
+                "rbp's beat counts -> codes");
+          CHECK(flx10_loop_code_beats(3, 4) == 0x01 && flx10_loop_code_beats(0, 0) == 0x01 &&
+                flx10_loop_code_beats(1024, 1) == 0x01, "not a power of two / unknown -> 01");
+          {
+               struct flx10_hid_deck c = hs;
+               c.loaded = 1; c.bpm_x100 = 16456; c.tempo_x100 = 0; c.looping = 1;
+               c.loop_in_ms = 100000; c.loop_out_ms = 101000;    /* clipped at the end */
+               c.loop_num = 512; c.loop_den = 1;
+               flx10_hid_state_pkt(p, 0, &c);
+               CHECK(p[10] == 0x15, "512 clipped at the track's end -> 15, not -- (%02x)", p[10]);
+               c.loop_in_ms = 100000; c.loop_out_ms = 101459; c.loop_num = 8;
+               flx10_hid_state_pkt(p, 0, &c);
+               CHECK(p[10] == 0x0e, "the length wins when it resolves (%02x)", p[10]);
+          }
           CHECK(flx10_loop_code(1459, 16456 * 11 / 10, 1000) == 0x0e, "track-time loop at +10%% still 4 beats");
           hs.master = 1; hs.sync = 1; hs.jog_touch = 1; flx10_hid_state_pkt(p, 0, &hs);
           CHECK(p[5] == 0x91 && p[3] == 0x18, "MASTER + SYNC -> 91, jog touched -> 18 (capture 2)");

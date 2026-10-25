@@ -100,6 +100,23 @@ int flx10_loop_code(int len_ms, int bpm_x100, int tempo_x100)
      return 0x01;
 }
 
+int flx10_loop_code_beats(int num, int den)
+{
+     static const signed char code[17] = {
+          0x03,                                             /* 1/128 (guess) */
+          0x04, 0x05, 0x06, 0x07, 0x08, 0x0a,               /* 1/64 .. 1/2 */
+          0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15 };
+     int e = 0;
+
+     if (num <= 0 || den <= 0)
+          return 0x01;
+     while (num > 1 && (num & 1) == 0) { num >>= 1; e++; }
+     while (den > 1 && (den & 1) == 0) { den >>= 1; e--; }
+     if (num != 1 || den != 1 || e < -7 || e > 9)
+          return 0x01;
+     return code[e + 7];
+}
+
 static void put_time(unsigned char *p, int ms)
 {
      int min;
@@ -172,9 +189,13 @@ void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
           put_le24(p + 25, s->loop_in_ms);
           put_le24(p + 28, s->loop_out_ms);
           p[9] = 0xbc;
-          if (s->looping)
-               p[10] = (unsigned char)flx10_loop_code(s->loop_out_ms - s->loop_in_ms,
-                                                       s->bpm_x100, s->tempo_x100);
+          if (s->looping) {
+               code = flx10_loop_code(s->loop_out_ms - s->loop_in_ms,
+                                      s->bpm_x100, s->tempo_x100);
+               if (code == 0x01)
+                    code = flx10_loop_code_beats(s->loop_num, s->loop_den);
+               p[10] = (unsigned char)code;
+          }
           else
                p[27] = 0x80;
      }

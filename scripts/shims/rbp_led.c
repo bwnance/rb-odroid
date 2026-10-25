@@ -755,6 +755,10 @@ static void led_deck_display(const struct led_notes *n, void *pe)
                ((void (*)(void *, void *, int))PE_GETCURLOOPTIME)(ci, pe, i);
                di.loop_in_ms  = *(int *)(ci + CUEINFO_IN_MS);
                di.loop_out_ms = *(int *)(ci + CUEINFO_OUT_MS);
+               if (di.looping) {
+                    di.loop_num = ((int (*)(int))UI_GET_LOOPBEAT_NUM)(i) & 0xffff;
+                    di.loop_den = ((int (*)(int))UI_GET_LOOPBEAT_DEN)(i) & 0xffff;
+               }
           }
           di.master  = led_from_table_state(LEDSTAT_MASTER, i, 0);
           if (di.loaded) {

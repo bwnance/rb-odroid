@@ -909,6 +909,13 @@ static const signed char bfx_type_to_pos[15] = {
  * 1 = REMAINING, 0 = elapsed (ComputePlayAddRemain @0x12419c counts down when
  * it is non-zero; ComputeDispTime blinks the remaining time only on 1). */
 #define UI_GET_KEYTIMEMODE 0x000fe0c8
+/* The playing loop's size in beats as rbp's own screen shows it, numerator
+ * and denominator (512/1 .. 1/128 on the RX3): UiGetPlayLoopBeatNumer(deck)
+ * @0xfd4bc / UiGetPlayLoopBeatDenom(deck) @0xfd4e4, exported C functions
+ * reading ui::StatWatcher (halfwords). Kept as the loop's logical length when
+ * the loop is clipped at the track's end. */
+#define UI_GET_LOOPBEAT_NUM 0x000fd4bc
+#define UI_GET_LOOPBEAT_DEN 0x000fd4e4
 #define CUEINFO_SIZE       824
 #define CUEINFO_IN_MS      792
 #define CUEINFO_OUT_MS     804
