@@ -1376,8 +1376,9 @@ static void flx10_event(const struct snd_seq_event *ev)
  *   playing speed  CC 0x18+d / 0x38+d   (percent + 100) x 10, 14-bit
  *   time           CC 0x42+2d minutes, 0x43+2d seconds, 0..99 each
  *   time mode      Note 0x14+d          0x7F = remaining (the unit draws the -)
- *   (marker CC 0x10+d / 0x30+d and cue marker CC 0x1C+d / 0x3C+d are in the
- *   list too, but this firmware ignores them; see flx10_deck_display())
+ *   marker         CC 0x10+d / 0x30+d   0..359 degrees (the clock arm; shown on
+ *                                       a deck only in some state -- still open)
+ *   (cue marker CC 0x1C+d / 0x3C+d is in the list too; not sent yet)
  *   MASTER / SYNC  Note 0x18+d / 0x1C+d
  *   master tempo   Note 0x20+d
  *   show info      Note 0x5D+d          0x00 show, 0x7F hide
@@ -1560,11 +1561,12 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
       * dropping the CC left the jog frozen on its last value. */
      jd_cc14(deck, 7, 0x14 + d, 0x34 + d, bpm10, force);
      jd_cc14(deck, 8, 0x18 + d, 0x38 + d, speed10, force);
-     /* No marker or cue marker: the list documents both (CC 0x10+d / 0x1C+d,
-      * 0..359 deg) but this firmware draws neither from MIDI -- sent by hand
-      * on the unit 2026-10-25, nothing moved. rekordbox's clock arm comes from
-      * its HID state packet (the HID phase, docs/21). */
-     (void)deg;
+     /* The clock arm (CC 0x10+d / 0x30+d, 0..359 deg), turning once per 1.8 s
+      * of play like a record. A first hand test on deck 1 moved nothing, but on
+      * deck 2 the arm appeared after a load and followed sent values (2026-10-25)
+      * -- so it does work; what hides it on a deck is still open. The cue marker
+      * (CC 0x1C+d) stays unsent until there is a cue position to give it. */
+     jd_cc14(deck, 9, 0x10 + d, 0x30 + d, deg, force);
 }
 
 /* ---- LEDs -----------------------------------------------------------------

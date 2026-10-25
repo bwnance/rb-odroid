@@ -413,7 +413,7 @@ documents a display channel, **MIDI ch 16**, whose fields the unit renders itsel
 | playing speed | CC 0x18+d / 0x38+d | (percent + 100) x 10, 14-bit |
 | time | CC 0x42+2d min, 0x43+2d sec | 0..99 |
 | time mode | Note 0x14+d | 0x7F remaining |
-| marker | CC 0x10+d / 0x30+d | 0..359 deg -- **ignored by this firmware** |
+| marker | CC 0x10+d / 0x30+d | 0..359 deg -- the clock arm; works (deck 2, after a load), but a deck can hide it -- condition still open |
 | cue marker | CC 0x1C+d / 0x3C+d | 0..359; 0x7F/0x7F hides -- **ignored** |
 | MASTER / SYNC | Note 0x18+d / 0x1C+d | on/off |
 | master tempo | Note 0x20+d | on/off |
@@ -432,9 +432,10 @@ every start before rbp opens the card; `--rebind` also rebinds snd-usb-audio.
 `rbp_led.c` reads the deck values each tick (`PE_GETTOTALTIME`, `PE_GETPLAYINGTIME`
 -- ms --, `PE_GETQBPMDISPLAY`, `PE_GETTEMPOX100`, `PE_GETTEMPORANGE`, MT / SYNC /
 MASTER) and hands them to the map's `deck_display` hook; `map_flx10.c` sends them.
-Neither marker is sent: both were sent by hand with `aseqsend` on 2026-10-25 and
-nothing moved, though rekordbox shows a rotating clock arm -- it comes from the HID
-state packet. BPM is rbp's own screen value (StatWatcher getPlayBpm, x100) sent x10 and
+The marker (clock arm) IS sent, one turn per 1.8 s of play: a first hand test on
+deck 1 moved nothing, but deck 2's arm appeared after a load and followed hand-sent
+values (2026-10-25). What shows or hides it on a deck is still open. The cue marker
+is not sent yet. BPM is rbp's own screen value (StatWatcher getPlayBpm, x100) sent x10 and
 TRUNCATED like rbp's screen; tried x100 on 2026-10-25 -- the firmware rounds it to tenths
 (105.69 -> 105.70), so a true second decimal needs the HID path. `JOG_DISPLAY_VERBOSE=1` logs the raw
 readings once a second (the BPM x100 and tempo x100 units are to be confirmed against
