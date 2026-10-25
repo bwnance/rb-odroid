@@ -164,11 +164,10 @@ redeploy (slow restarts, `mountpoint` eating CPU, `/dev/pts` covered so sudo had
 pty). Now a mounted chroot `/dev` is left alone and every chroot bind is private.
 Check: `wc -l /proc/self/mountinfo` should stay small across redeploys.
 
-* **Headphone zap on restart.** A "ZZZZ" in the headphones ~2 s after the UI comes
-  up. Not the card opening, the lights or the USB stick (each ruled out); the
-  startup mute covered only the MASTER pair, and the headphone/booth pairs (and the
-  external-mode deck taps) were written after it, unguarded. Fixed 2026-10-25
-  (`startup_gain()` on every pair) -- to confirm on the unit.
+*Fixed 2026-10-25:* **headphone zap on restart.** The startup mute covered only the
+master pair; the headphone/booth pairs and the external-mode deck taps now get the
+same `startup_gain()` (default 1.5 s mute + 0.3 s fade). Confirmed on the unit.
+
 * **HDMI audio mirror** looks for the Pi's `vc4hdmi0/1` cards, which the Odroid
   does not have (harmless retry noise in audioshim.log). Point `RB_AUDIO_MIRROR_DEV`
   at the Odroid's HDMI card.
