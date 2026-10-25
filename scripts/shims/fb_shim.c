@@ -65,6 +65,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/syscall.h>
 
 #define MAX_GPIO_FDS 256
 static char is_gpio_fd[MAX_GPIO_FDS];
@@ -202,6 +203,43 @@ union fb_drm_wait_vblank {
 #define FB_DRM_IOCTL_WAIT_VBLANK 0xC010643AUL
 #define FB_DRM_VBLANK_RELATIVE   0x1
 
+/* rbp's own frame limiter, and why it has to go while the vblank wait is on.
+ * strace of the render thread (2026-10-25): FBIO_WAITFORVSYNC returns ENOTTY at
+ * once, the frame is drawn in ~12.7 ms, and then the thread nanosleeps ~4.7 ms
+ * that it computes itself to fill the frame to ~17.4 ms -- a ~57.5 fps limiter,
+ * presumably the RX3 panel's rate. Kept beside a real vblank wait it pushes each
+ * frame past one refresh, so every frame took two (30 fps, measured). So while
+ * the wait is active, the RENDER THREAD's (the one that calls
+ * FBIO_WAITFORVSYNC) short sleeps return at once and the panel paces it alone.
+ * Every other thread's sleeps are untouched. */
+#define FB_LIMITER_MAX_NS 20000000L
+static volatile int fb_vblank_on;          /* the DRM wait is live */
+static volatile long fb_render_tid;        /* the thread that calls WAITFORVSYNC */
+
+static int fb_is_render_thread(void)
+{
+    return fb_vblank_on && fb_render_tid &&
+           (long)syscall(SYS_gettid) == fb_render_tid;
+}
+
+int nanosleep(const struct timespec *req, struct timespec *rem)
+{
+    if (req && req->tv_sec == 0 && req->tv_nsec < FB_LIMITER_MAX_NS &&
+        fb_is_render_thread())
+        return 0;
+    return (int)syscall(SYS_nanosleep, req, rem);
+}
+
+int usleep(useconds_t usec)
+{
+    struct timespec ts;
+    if (usec < FB_LIMITER_MAX_NS / 1000 && fb_is_render_thread())
+        return 0;
+    ts.tv_sec = usec / 1000000;
+    ts.tv_nsec = (long)(usec % 1000000) * 1000L;
+    return (int)syscall(SYS_nanosleep, &ts, NULL);
+}
+
 static int fb_vblank_wait(void)
 {
     static int state = -1;          /* -1 unknown, 0 off/failed, 1 on */
@@ -216,6 +254,7 @@ static int fb_vblank_wait(void)
             drm_fd = real_open(path, O_RDWR | O_CLOEXEC, 0);
             if (drm_fd >= 0) {
                 state = 1;
+                fb_vblank_on = 1;
                 pointsrc_log("fb: real vblank wait on %s (FBIO_WAITFORVSYNC paced to the panel)",
                              path);
             } else {
@@ -234,6 +273,7 @@ static int fb_vblank_wait(void)
             return 0;
         pointsrc_log("fb: DRM vblank wait failed (errno %d); back to pass-through", errno);
         state = 0;
+        fb_vblank_on = 0;                  /* rbp's own limiter paces it again */
         return -1;
     }
     return 0;
@@ -415,6 +455,7 @@ int ioctl(int fd, unsigned long request, ...)
          *
          * It is inert unless RB_VIDEO was set: one load and a compare when nobody asked. */
         vidmask_tick();
+        fb_render_tid = (long)syscall(SYS_gettid);
         if (fb_vblank_wait() == 0)
             return 0;
         return real_ioctl(fd, request, arg);

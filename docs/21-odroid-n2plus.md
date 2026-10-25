@@ -216,8 +216,13 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   wait in, so it free-ran at 57.7 fps (FB_VSYNC_RATE) on a 60 Hz panel -- frames
   every ~17.0 ms drifting past the 16.67 ms refresh (`scripts/odroid/fbpace.py`),
   ~2 repeated refreshes a second; a slow-mo video showed the same 1/2-refresh beat.
-  Fix (2026-10-25, to confirm): fb_shim does a real DRM_IOCTL_WAIT_VBLANK there
-  (RB_FB_VBLANK, default 1).
+  strace of the render thread: FBIO_WAITFORVSYNC returns ENOTTY, the frame draws in
+  ~12.7 ms, then rbp's own limiter nanosleeps ~4.7 ms to a ~17.4 ms (57.5 fps) frame.
+  A real vblank wait alone gave 30 fps (the limiter pushed each frame past one
+  refresh). Fix (2026-10-25, to confirm): fb_shim does DRM_IOCTL_WAIT_VBLANK there
+  AND skips the render thread's short sleeps while it does (RB_FB_VBLANK, default 1).
+  Note: `pgrep -f ld-linux` also matches the chroot launcher (1 thread); the player is
+  the ld-linux process with ~80 threads.
 * **Later, maybe:** RX3 effects matching the FLX10's (ENIGMA JET, MOBIUS, ...).
 
 ## DDJ-FLX10
