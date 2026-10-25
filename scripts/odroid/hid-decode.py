@@ -9,6 +9,7 @@ end, Ctrl-C included.
 
     python3 scripts/odroid/hid-decode.py
     python3 scripts/odroid/hid-decode.py --keep-rb   # leave rb.local.conf alone
+    python3 scripts/odroid/hid-decode.py --round 1   # an earlier list
 """
 import argparse
 import importlib.util
@@ -28,7 +29,10 @@ LINE = "RB_FLX10_HID=0"
 OUT = os.path.expanduser("~/flx10-hid.txt")
 
 # (edits, what to watch). Each step starts from the plain captured packet.
-STEPS = [
+# Round 1 (2026-10-25): 21-22 = BPM integer (LE16: 22=01 -> 380), 23 = tempo %
+# x100 (64 -> 1.0%, e8 -> 2.3%), 24 00 drops the .03, 16 00 blanks the key,
+# 9 00 -> Not Loaded, 4 00 blanks tempo %/range (MT?).
+ROUND1 = [
     ({}, "baseline: note BPM, decimals, key, tempo %, range box, MT, time"),
     ({23: 0x00}, "BPM decimals / tempo % / range box"),
     ({23: 0x64}, "tempo % 1.0 if 23 = tempo x100?"),
@@ -51,6 +55,43 @@ STEPS = [
     ({60: 0x81, 7: 0x01}, "deck shown unloaded, key byte 81"),
     ({60: 0x81}, "...and loaded again: key 8B now?"),
 ]
+
+ROUND2 = [
+    ({}, "baseline: BPM 124.03, key 10B, tempo 0.0%, range +-10, MT on?"),
+    # key: byte 16 (captured 26 = 10B)
+    ({16: 0x01}, "key?"),
+    ({16: 0x02}, "key?"),
+    ({16: 0x05}, "key?"),
+    ({16: 0x06}, "key?"),
+    ({16: 0x18}, "key?"),
+    ({16: 0x25}, "key?"),
+    ({16: 0x27}, "key?"),
+    ({16: 0x28}, "key?"),
+    ({16: 0x81}, "key?"),
+    # tempo % and the BPM decimals: does the unit multiply BPM by the tempo?
+    ({23: 0x00, 24: 0x00}, "BPM / decimals / tempo %"),
+    ({23: 0x64, 24: 0x00}, "BPM / decimals / tempo % (125.24 if it multiplies)"),
+    ({23: 0x64, 24: 0xFF}, "BPM / decimals / tempo %"),
+    ({23: 0x9C, 24: 0xFF}, "BPM / decimals / tempo % (-1.00%? 122.76?)"),
+    ({25: 0x32}, "BPM decimals?"),
+    ({26: 0x32}, "BPM decimals?"),
+    ({20: 0x80}, "BPM decimals?"),
+    # byte 4 (captured 2c) bit by bit: MT, tempo %, range box
+    ({4: 0x0C}, "MT / tempo % / range box"),
+    ({4: 0x24}, "MT / tempo % / range box"),
+    ({4: 0x28}, "MT / tempo % / range box"),
+    ({4: 0x3C}, "MT / tempo % / range box"),
+    ({4: 0x2D}, "MT / tempo % / range box"),
+    # tempo range candidates
+    ({13: 0x01}, "range box?"),
+    ({13: 0x03}, "range box?"),
+    ({15: 0x01}, "range box?"),
+    ({15: 0x03}, "range box?"),
+    ({31: 0x01}, "range box?"),
+    ({31: 0x03}, "range box?"),
+    ({27: 0x00}, "anything?"),
+]
+ROUNDS = {1: ROUND1, 2: ROUND2}
 
 
 def conf_has():
@@ -81,6 +122,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--keep-rb", action="store_true",
                     help="do not touch rb.local.conf / restart rb")
+    ap.add_argument("--round", type=int, default=max(ROUNDS), choices=sorted(ROUNDS),
+                    help="which list of tests (default: the newest)")
     a = ap.parse_args()
 
     path = hl.find_hidraw()
@@ -122,13 +165,14 @@ def main():
     try:
         input("Load a track on deck 1 and deck 2 (rb up, jogs showing info), then press Enter: ")
         threading.Thread(target=sender, daemon=True).start()
-        for i, (ed, watch) in enumerate(STEPS, 1):
+        steps = ROUNDS[a.round]
+        for i, (ed, watch) in enumerate(steps, 1):
             if stop.is_set():
                 break
             cur["edits"] = dict(ed)
             desc = " ".join("%d=%02x" % kv for kv in sorted(ed.items())) or "(none)"
             time.sleep(0.3)
-            print("\n[%d/%d] %s   -- watch: %s" % (i, len(STEPS), desc, watch))
+            print("\n[%d/%d] %s   -- watch: %s" % (i, len(steps), desc, watch))
             ans = input("  what changed? (Enter = nothing): ").strip() or "nothing"
             out.write("%s | %s\n" % (desc, ans))
             out.flush()
