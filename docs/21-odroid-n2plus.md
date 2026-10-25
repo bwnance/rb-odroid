@@ -211,6 +211,12 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   rekordbox. Today it is rbp's TRACK SEARCH < (K_TRREV), which on the RX3 is the
   previous-track / track-start key; check what rbp does with it mid-track and, if
   it is not "restart this track", find rbp's own jump-to-start.
+* **Track-end warning on the jog ring** (operator, 2026-10-25): flash the jog
+  wheel's colour ring when the track is about to end, faster as it gets closer --
+  what the RX3 and its HDMI screen do. rbp's own warning state (the RX3 flashes
+  its jog ring from it) is the thing to read rather than recomputing from
+  total/elapsed; then find the FLX10's ring-colour/flash message (the HID phase
+  may carry it).
 * **Beat jump while paused moves only a tiny amount** (operator, 2026-10-25): it
   jumps the right distance while the deck is playing, but on a paused deck each
   press barely moves the playhead. Check what the pad sends (keycode, op, param)
@@ -233,6 +239,11 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   (re)connect -- `midi_surface_generation()` moving -- not on a timer. With it, deck
   2's arm came back but deck 1's did not; narrow which message does it, and retry
   the two-decimal BPM SysEx in that state.
+* **Jogs say Not Loaded** (2026-10-25): since the reconnect change the connect
+  sequence takes properly and the jogs switch to rekordbox's HID-fed screens (the
+  unit's own display-format button starts working); they then want an "xx 21"
+  state packet per deck on hidraw ~50 Hz and ignore the MIDI values.
+  `scripts/odroid/hid-loaded.py` sends it (rekordbox / VirtualDJ layouts) to test.
 * **Replug** (2026-10-25): a FLX10 that is power cycled or replugged gets the vendor
   unlock from udev (`99-flx10-unlock.rules`, installed by install.sh), the display
   connect sequence from the map, and every deck that was playing is paused when the
