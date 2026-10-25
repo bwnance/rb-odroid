@@ -135,3 +135,15 @@ int master_is_dead(unsigned long long fail_frames, unsigned long long limit)
 {
     return limit != 0 && fail_frames >= limit;
 }
+
+float startup_gain(unsigned long long t, unsigned long long mute,
+                   unsigned long long fade)
+{
+    if (mute == 0)
+        return 1.0f;
+    if (t < mute)
+        return 0.0f;
+    if (fade > 0 && t < mute + fade)
+        return (float)(t - mute) / (float)fade;
+    return 1.0f;
+}

@@ -164,9 +164,14 @@ redeploy (slow restarts, `mountpoint` eating CPU, `/dev/pts` covered so sudo had
 pty). Now a mounted chroot `/dev` is left alone and every chroot bind is private.
 Check: `wc -l /proc/self/mountinfo` should stay small across redeploys.
 
-* **Headphone zap on restart.** A "ZZZZ" zappy noise in the headphones when rb
-  restarts (2026-10-25). Likely the audio device being opened/closed or clocked
-  while the DAC is unmuted; look at start/stop ordering and muting in the audio shim.
+* **Headphone zap on restart.** A "ZZZZ" in the headphones ~2 s after the UI comes
+  up. Not the card opening, the lights or the USB stick (each ruled out); the
+  startup mute covered only the MASTER pair, and the headphone/booth pairs (and the
+  external-mode deck taps) were written after it, unguarded. Fixed 2026-10-25
+  (`startup_gain()` on every pair) -- to confirm on the unit.
+* **HDMI audio mirror** looks for the Pi's `vc4hdmi0/1` cards, which the Odroid
+  does not have (harmless retry noise in audioshim.log). Point `RB_AUDIO_MIRROR_DEV`
+  at the Odroid's HDMI card.
 * **HOT CUE mode switch lag.** Switching to HOT CUE from another pad mode shows on
   screen a fraction of a second late.
 * **Booth and master outputs**, by ear, once on the audio system.

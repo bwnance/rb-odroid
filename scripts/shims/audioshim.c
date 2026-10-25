@@ -3596,6 +3596,30 @@ static snd_pcm_sframes_t stage_stream(struct stage *st, const struct pair *pair,
 
 /* Fold a staged block into the flush buffer, reporting a block-size mismatch
  * once per distinct size rather than every block. */
+/* The startup guard on one already-written output pair (master_policy.h's
+ * startup_gain): the headphone and booth pairs and the external-mode deck taps
+ * are written AFTER the master loop's own guard, so without this they went to
+ * the card unmuted at startup -- the headphone "ZZZ" on every restart. */
+static void startup_scale_pair(const struct pair *pair, unsigned frames,
+                               unsigned long long t0, unsigned long long mute,
+                               unsigned long long fade)
+{
+    unsigned i;
+
+    if (!pair_mapped(pair) || pair->a >= (int)g_out_channels ||
+        pair->b >= (int)g_out_channels)
+        return;
+    for (i = 0; i < frames; i++) {
+        float g = startup_gain(t0 + i, mute, fade);
+        if (g >= 1.0f)
+            break;                         /* the rest of the block is past it */
+        g_out[i * g_out_channels + pair->a] =
+            (int32_t)((float)g_out[i * g_out_channels + pair->a] * g);
+        g_out[i * g_out_channels + pair->b] =
+            (int32_t)((float)g_out[i * g_out_channels + pair->b] * g);
+    }
+}
+
 static void fold_stage(const struct stage *st, const struct pair *pair,
                        unsigned frames)
 {
@@ -3966,13 +3990,8 @@ static snd_pcm_sframes_t flush_master(const int32_t *src, snd_pcm_uframes_t size
         if ((int32_t)(al * master_gain) > bl) bl = (int32_t)(al * master_gain);
         if ((int32_t)(ar * master_gain) > br) br = (int32_t)(ar * master_gain);
 
-        if (fading) {
-            unsigned long long t = t0 + i;
-            if (t < mute)
-                g = 0.0f;
-            else if (fade > 0 && t < mute + fade)
-                g *= (float)(t - mute) / (float)fade;
-        }
+        if (fading)
+            g *= startup_gain(t0 + i, mute, fade);
         ol = (int32_t)(sl * g);
         or_ = (int32_t)(sr * g);
         /* In external mixer mode the mix goes nowhere: the deck taps below are
@@ -4038,8 +4057,16 @@ static snd_pcm_sframes_t flush_master(const int32_t *src, snd_pcm_uframes_t size
     if (!external) {
         fold_stage(&g_phone_stage, &g_cfg.headphones, (unsigned)size);
         fold_stage(&g_booth_stage, &g_cfg.booth, (unsigned)size);
+        if (fading) {
+            startup_scale_pair(&g_cfg.headphones, (unsigned)size, t0, mute, fade);
+            startup_scale_pair(&g_cfg.booth, (unsigned)size, t0, mute, fade);
+        }
     } else {
         fill_deck_taps(size);
+        if (fading) {
+            startup_scale_pair(&g_cfg.deck1, (unsigned)size, t0, mute, fade);
+            startup_scale_pair(&g_cfg.deck2, (unsigned)size, t0, mute, fade);
+        }
     }
 
     g_write_count++;

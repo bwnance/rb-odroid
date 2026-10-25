@@ -1329,8 +1329,23 @@ static void test_master_reopen_backoff(void)
     CHECK(buggy > 4 * fixed, "clearing the wait at the open cost nothing at all");
 }
 
+/* The startup guard's gain: silent, then a ramp, then unity -- the same
+ * curve for every output pair (the headphones included, since 2026-10-25). */
+static void test_startup_gain(void)
+{
+    CHECK(startup_gain(0, 0, 0) == 1.0f, "no guard -> unity");
+    CHECK(startup_gain(123, 0, 100) == 1.0f, "mute 0 -> no guard at all");
+    CHECK(startup_gain(0, 1000, 100) == 0.0f, "frame 0 is silent");
+    CHECK(startup_gain(999, 1000, 100) == 0.0f, "last muted frame is silent");
+    CHECK(startup_gain(1050, 1000, 100) > 0.49f && startup_gain(1050, 1000, 100) < 0.51f,
+          "half way through the fade is half gain");
+    CHECK(startup_gain(1100, 1000, 100) == 1.0f, "after the fade -> unity");
+    CHECK(startup_gain(1000, 1000, 0) == 1.0f, "no fade -> straight to unity");
+}
+
 int main(void)
 {
+    test_startup_gain();
     test_parse_and_sizes();
     test_s24_le_identity();
     test_s24_3le();

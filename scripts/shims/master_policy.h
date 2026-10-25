@@ -128,4 +128,13 @@ unsigned long long master_fail_frames_next(unsigned long long have,
 /* Whether that counter has run out. A limit of 0 disables the rule. */
 int master_is_dead(unsigned long long fail_frames, unsigned long long limit);
 
+/* The startup mute and fade-in, as a gain for frame `t` (counted from the
+ * first write): 0 for the first `mute` frames, a linear ramp over the next
+ * `fade`, then 1. mute == 0 means no startup guard at all (gain 1 throughout).
+ * Applied to EVERY output pair -- master, headphones, booth, the external-mode
+ * deck taps -- since the headphone pair carrying unguarded startup junk was
+ * the operator's "ZZZ" on every restart (2026-10-25). */
+float startup_gain(unsigned long long t, unsigned long long mute,
+                   unsigned long long fade);
+
 #endif /* RBPI4B_MASTER_POLICY_H */
