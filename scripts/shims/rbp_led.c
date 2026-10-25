@@ -761,9 +761,12 @@ static void led_deck_display(const struct led_notes *n, void *pe)
                          di.bpm_raw = ((int (*)(void *, int, int))PE_GETQBPMDISPLAY)
                                       (pe, i, 0) & 0xffff;
                }
-               di.tempo_raw   = ((int (*)(void *, int))PE_GETTEMPOX100)(pe, i);
-               di.tempo_range = ((int (*)(void *, int))PE_GETTEMPORANGE)(pe, i);
           }
+          /* read loaded or not: an empty deck's jog screen shows the range box
+           * and tempo % too (Player::getTempoX100 is a plain field the tempo
+           * slider sets, whatever is loaded) */
+          di.tempo_raw   = ((int (*)(void *, int))PE_GETTEMPOX100)(pe, i);
+          di.tempo_range = ((int (*)(void *, int))PE_GETTEMPORANGE)(pe, i);
           /* the key text the deck panel last drew (rbp_abi.h), UTF-16 */
           {
                const unsigned short *w = (const unsigned short *)

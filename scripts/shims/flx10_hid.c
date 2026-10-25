@@ -60,6 +60,18 @@ void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
      memset(p, 0, FLX10_HID_PKT);
      if (!s || !s->loaded) {          /* 10 21 00 00 20 01 00 00 80 10 */
           p[0] = db; p[1] = 0x21; p[4] = 0x20; p[5] = 0x01; p[8] = 0x80; p[9] = 0x10;
+          if (!s)
+               return;
+          /* The tempo range box and tempo % show on an empty deck too and
+           * follow the deck's buttons and fader (operator, 2026-10-25): the
+           * captured empty packet's [4] = 0x20 is the range field (+-10), so
+           * fill it, and [23..24], as on the loaded packet. */
+          p[4] = (unsigned char)((s->mt ? 0x04 : 0) | range_bits[s->range & 3]);
+          tempo = s->tempo_x100;
+          if (tempo > 32767) tempo = 32767;
+          if (tempo < -32768) tempo = -32768;
+          p[23] = (unsigned char)(tempo & 0xFF);
+          p[24] = (unsigned char)((tempo >> 8) & 0xFF);
           return;
      }
      memcpy(p, rb_loaded, sizeof rb_loaded);

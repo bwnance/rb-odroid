@@ -667,9 +667,15 @@ int main(void)
           struct flx10_hid_deck hs;
 
           memset(&hs, 0, sizeof hs);
+          hs.range = 1;                              /* +-10, MT off, 0.0% */
           flx10_hid_state_pkt(p, 0, &hs);
           for (int i = 10; i < FLX10_HID_PKT; i++) zero &= p[i] == 0;
-          CHECK(!memcmp(p, empty, 10) && zero, "empty deck 1: rekordbox's empty packet");
+          CHECK(!memcmp(p, empty, 10) && zero, "empty deck 1 at +-10 / 0%%: rekordbox's empty packet");
+          hs.range = 2; hs.mt = 1; hs.tempo_x100 = -250;
+          flx10_hid_state_pkt(p, 0, &hs);
+          CHECK(p[7] == 0 && p[9] == 0x10 && p[4] == 0x34 && p[23] == 0x06 && p[24] == 0xFF,
+                "empty deck still carries range +-16, MT and -2.50%% (%02x %02x %02x)", p[4], p[23], p[24]);
+          memset(&hs, 0, sizeof hs);
           hs.loaded = 1; hs.elapsed_ms = 300250; hs.bpm_x100 = 12403;
           hs.tempo_x100 = 100; hs.range = 1; hs.mt = 1;
           flx10_hid_state_pkt(p, 1, &hs);
