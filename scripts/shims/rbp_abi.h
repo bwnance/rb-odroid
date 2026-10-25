@@ -807,6 +807,15 @@ static const signed char bfx_type_to_pos[15] = {
  * Jumps at once from the current position (LoopQuantize::playBeatJump ->
  * startPlay), paused or playing; refused past either end of the track. */
 #define DJE_PLAY_BEATJUMP  0x49ae0
+/* What TotalTrackSearch_JdgTrackBack @0xeab60 reads to decide whether TRACK
+ * SEARCH < goes to the top of this track or loads the previous one -- all
+ * exported C functions taking the 0-based deck:
+ *   back = playtime < 0 || (status == 4 && playtime == 0) ||
+ *          (status == 6 && cue set by auto cue)
+ * (plus "a second press within 500 ms", which the caller keeps itself). */
+#define UI_GET_PLAYTIME        0x000fcf7c   /* UiGetPlayTime(deck) */
+#define UI_GET_CUE_BY_AUTOCUE  0x000fdca8   /* UiGetCueSetByAutoCue(deck) */
+#define CMN_GET_PLAYSTATUS     0x00184a28   /* CmnFunc_CmnInfo_GetLocalNowPlayPlayStatus(deck) */
 #define BEATJUMP_M4  7
 #define BEATJUMP_P4  8
 #define BEATJUMP_M16 11

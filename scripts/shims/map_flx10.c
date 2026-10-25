@@ -632,38 +632,47 @@ static void flx10_bj_tick(unsigned long long t)
 
 /* ---- SHIFT + CUE: back to the start of the track ----------------------------
  * (operator, 2026-10-25.) rbp has no "seek to 0" key; its TRACK SEARCH <
- * (K_TRREV) is the RX3's "back to the top of this track" -- unless the deck is
- * at its start already, where it loads the PREVIOUS track instead
- * (TotalTrackSearch_JdgTrackBack @0xeab60: a second press within 500 ms, a
- * paused deck at time 0, or a deck in cue standby at its auto-cue point all
- * count as "at the start"). So this sends one TRREV only when the deck is
- * loaded, more than RESTART_MIN_MS in, and not in cue standby; otherwise the
- * deck is at its start already and nothing is sent. The deck's time comes from
- * deck_display (rbp_led.c reads it every tick). */
-#define RESTART_MIN_MS 1500
+ * (K_TRREV) is the RX3's "back to the top of this track" -- unless rbp decides
+ * the deck is at its start already, where it loads the PREVIOUS track instead.
+ * That decision is TotalTrackSearch_JdgTrackBack @0xeab60, and
+ * flx10_trrev_goes_back() asks it the same questions (rbp_abi.h,
+ * UI_GET_PLAYTIME): if a TRREV would go back a track, the deck is at its start
+ * and nothing is sent; otherwise one TRREV. A second TRREV within 500 ms also
+ * goes back a track, so presses closer than TRREV_GAP_MS to the last TRREV this
+ * map sent are not sent either. */
+#define TRREV_GAP_MS 600
 static int deck_loaded[2], deck_elapsed_ms[2];
+static unsigned long long trrev_at[2];
 
-__attribute__((weak)) int flx10_cue_standby(int deck)
+__attribute__((weak)) int flx10_trrev_goes_back(int deck)
 {
-     void *pe = *(void **)PLAYENGINE_GLOBAL;
-     return pe ? ((int (*)(void *, int))PE_ISINCUESTANDBY)(pe, deck) != 0 : 0;
+     int t = ((int (*)(int))UI_GET_PLAYTIME)(deck);
+     int st = ((int (*)(int))CMN_GET_PLAYSTATUS)(deck);
+
+     if (t < 0)
+          return 1;
+     if (st == 4 && t == 0)
+          return 1;
+     if (st == 6 && ((int (*)(int))UI_GET_CUE_BY_AUTOCUE)(deck) == 1)
+          return 1;
+     return 0;
 }
 
-static int deck_at_start(int deck)
+static void trrev(int deck)
 {
-     return !deck_loaded[deck] || deck_elapsed_ms[deck] < RESTART_MIN_MS ||
-            flx10_cue_standby(deck);
+     pulse(K_TRREV, deck + 1);
+     trrev_at[deck] = shim_now_ms();
 }
 
 static void flx10_restart(int deck)
 {
-     if (deck_at_start(deck)) {
+     if (!deck_loaded[deck] || shim_now_ms() - trrev_at[deck] < TRREV_GAP_MS ||
+         flx10_trrev_goes_back(deck)) {
           klog("knobshim2: flx10 deck%d SHIFT+CUE: at the start already "
-               "(%d ms, loaded %d); nothing sent\n", deck + 1,
-               deck_elapsed_ms[deck], deck_loaded[deck]);
+               "(%d ms); nothing sent\n", deck + 1, deck_elapsed_ms[deck]);
           return;
      }
-     pulse(K_TRREV, deck + 1);
+     trrev(deck);
 }
 
 /* ---- the loop section ----------------------------------------------------
