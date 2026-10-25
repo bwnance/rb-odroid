@@ -750,16 +750,26 @@ static void led_deck_display(const struct led_notes *n, void *pe)
           if (di.loaded) {
                di.total_ms    = ((int (*)(void *, int))PE_GETTOTALTIME)(pe, i);
                di.elapsed_ms  = ((int (*)(void *, int))PE_GETPLAYINGTIME)(pe, i);
-               di.bpm_raw     = ((int (*)(void *, int, int))PE_GETQBPMDISPLAY)(pe, i, 0)
-                                & 0xffff;
+               {
+                    unsigned char *st = rbp_deck_stat(i);
+                    if (st) {
+                         di.bpm_raw   = *(int *)(st + STAT_PLAYBPM_OFF);
+                         di.bpm_orig  = *(int *)(st + STAT_ORIGBPM_OFF);
+                         di.bpm_tempo = *(int *)(st + STAT_TEMPOBPM_OFF);
+                    }
+                    if (di.bpm_raw <= 0)   /* no screen value: the track's own */
+                         di.bpm_raw = ((int (*)(void *, int, int))PE_GETQBPMDISPLAY)
+                                      (pe, i, 0) & 0xffff;
+               }
                di.tempo_raw   = ((int (*)(void *, int))PE_GETTEMPOX100)(pe, i);
                di.tempo_range = ((int (*)(void *, int))PE_GETTEMPORANGE)(pe, i);
           }
           if (verbose && now - last_log >= 1000)
                klog("knobshim2: jogdisp deck%d loaded=%d playing=%d total=%d "
-                    "elapsed=%d bpm_raw=%d tempo_raw=%d range=%d mt=%d sync=%d "
-                    "master=%d\n", i + 1, di.loaded, di.playing, di.total_ms,
-                    di.elapsed_ms, di.bpm_raw, di.tempo_raw, di.tempo_range,
+                    "elapsed=%d bpm_play=%d bpm_orig=%d bpm_tempo=%d tempo_raw=%d "
+                    "range=%d mt=%d sync=%d master=%d\n", i + 1, di.loaded,
+                    di.playing, di.total_ms, di.elapsed_ms, di.bpm_raw,
+                    di.bpm_orig, di.bpm_tempo, di.tempo_raw, di.tempo_range,
                     di.mt, di.sync, di.master);
           n->deck_display(i, &di);
      }

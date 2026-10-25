@@ -138,7 +138,9 @@ enum led_loop_style {
 struct deck_info {
      int loaded, playing;
      int total_ms, elapsed_ms;
-     int bpm_raw;           /* getQBpmForDisplay (believed BPM x 100) */
+     int bpm_raw;           /* the BPM rbp's screen shows (StatWatcher
+                             * getPlayBpm, +0x14); believed BPM x 100 */
+     int bpm_orig, bpm_tempo;  /* +0x18 / +0x1c, logged for comparison */
      int tempo_raw;         /* getTempoX100 */
      int tempo_range;       /* getTempoRange, 0..3 */
      int mt, sync, master;

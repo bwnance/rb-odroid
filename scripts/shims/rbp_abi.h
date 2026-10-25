@@ -766,6 +766,14 @@ static const signed char bfx_type_to_pos[15] = {
 /* QUANTIZE, in the same per-deck struct: StatWatcher::getPlayQuantizeOn
  * (0x2c01c4, reached from UiGetPlayQuantizeOn 0xfd36c) returns bit 6 of the
  * byte at +0x2e. */
+/* The BPMs rbp's own screen shows, in the same per-deck struct (ints):
+ *   UiGetPlayBpm @0xfd1fc       -> StatWatcher::getPlayBpm        +0x14
+ *   UiGetPlayOrgnalBpm @0xfd244 -> StatWatcher::getPlayOrignalBpm +0x18
+ *   UiGetPlayTempoBpm @0xfd28c  -> StatWatcher::getPlayTempoBpm   +0x1c
+ * -1 (0xffff from the Ui wrappers) = none. */
+#define STAT_PLAYBPM_OFF         0x14
+#define STAT_ORIGBPM_OFF         0x18
+#define STAT_TEMPOBPM_OFF        0x1c
 #define QUANTIZE_BYTE_OFF        0x2e
 #define QUANTIZE_BIT             0x40
 
