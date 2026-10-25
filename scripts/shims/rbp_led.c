@@ -373,6 +373,7 @@ static void led_dump_scan(void)
      /* keyed by (id, channel) so table reordering does not produce false
       * changes; state 0xff = "not seen yet" */
      static unsigned char s_state[256][4];
+     static unsigned char s_rgb[256][4][3];   /* a colour change is a change too */
      static int s_init = 0;
      unsigned char *ls = ledstat_ptr();
      unsigned char *arr;
@@ -396,12 +397,14 @@ static void led_dump_scan(void)
           unsigned int st = *(unsigned int *)(e + 16);
           if (id >= 256 || ch >= 4 || st > 0xff)
                continue;
-          if (s_state[id][ch] == (unsigned char)st)
+          if (s_state[id][ch] == (unsigned char)st &&
+              !memcmp(s_rgb[id][ch], e + 40, 3))
                continue;
           klog("knobshim2: leddump id=%u ch=%u state %u -> %u rgb=%u,%u,%u\n",
                id, ch, s_state[id][ch] == 0xff ? 0 : s_state[id][ch], st,
                e[40], e[41], e[42]);
           s_state[id][ch] = (unsigned char)st;
+          memcpy(s_rgb[id][ch], e + 40, 3);
      }
 }
 
@@ -598,6 +601,33 @@ static unsigned char led_encode(int enc, int r, int g, int b)
      if (pad_bright_bit)
           v = (unsigned char)(v | 0x40);
      return v;
+}
+
+/* LED_PAD_DIM_BRIGHT (ctrl_map.h): one pad's velocity. The encoding's dim
+ * range is +64 (LED_ENC_FLX10_PALETTE; 64 white -> 127 dim white). */
+#define LED_PAD_FLASH_MS 120
+
+static unsigned char led_pad_dim_bright(const struct led_notes *n, int deck,
+                                        int p, int mode, int st)
+{
+     unsigned int id = LED_PAD_FIRST + (unsigned)p, ch = (unsigned)deck + 1;
+     unsigned long long press = 0;
+     int held = n->pad_touch ? n->pad_touch(deck, p, &press) : 0;
+     int hot = (mode == 0 || mode == 4);       /* HOT CUE, GATE CUE */
+     unsigned char rgb[3], c;
+
+     if (hot && press && shim_now_ms() - press < LED_PAD_FLASH_MS)
+          return 64;                           /* the press flash: white */
+     if (st <= 0 || ledstat_unassigned(id, ch) || !ledstat_rgb(id, ch, rgb))
+          return 0;
+     c = led_encode(n->pad_enc, rgb[0], rgb[1], rgb[2]);
+     if (c == 0)
+          return 0;
+     if (hot)
+          return (st == 2 && !led_blink_for(id, ch)) ? 0 : c;
+     if (held || st == 2 || st == 3)
+          return c;                            /* active: bright, solid */
+     return c >= 64 ? 127 : (unsigned char)(c + 64);
 }
 
 static void led_pad_apply(int sch, int note, int *last, unsigned char vel)
@@ -845,6 +875,12 @@ static void led_refresh(void)
                          int pnote = base + p;
                          int st = ledstat_state(LED_PAD_FIRST + (unsigned)p,
                                                 (unsigned)i + 1);
+
+                         if (n->pad_style == LED_PAD_DIM_BRIGHT) {
+                              led_pad_apply(pch, pnote, &led_pad_last[i][p],
+                                            led_pad_dim_bright(n, i, p, m, st));
+                              continue;
+                         }
                          /* An unassigned pad is DARK, not white. rbp keeps
                           * every pad's State at 1 and separates an empty one
                           * from a loaded one by a flag beside the state and by

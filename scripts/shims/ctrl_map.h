@@ -133,6 +133,19 @@ enum led_loop_style {
      LED_LOOP_REKORDBOX,
 };
 
+/* Pad rendering.
+ *   PLAIN       lit at rbp's colour; rbp's engaged / blink states blink.
+ *   DIM_BRIGHT  rekordbox on the FLX10 (operator, 2026-10-24): HOT CUE and
+ *               GATE CUE pads show their cue colour bright and flash white
+ *               briefly on a press; every other mode shows the DIM colour,
+ *               and the bright one, solid, while the pad is held or rbp marks
+ *               it engaged (the running loop). Needs a surface with a dim
+ *               range (LED_ENC_FLX10_PALETTE). */
+enum led_pad_style {
+     LED_PAD_PLAIN = 0,
+     LED_PAD_DIM_BRIGHT,
+};
+
 /* How a meter LEVEL becomes a CC value. Not an led_enc: a meter is a level, not
  * a colour and not a state, and the two panels that have one disagree about the
  * shape of the number. An encoding this build does not know is refused rather
@@ -286,6 +299,14 @@ struct led_notes {
      /* How the LOOP IN / OUT / auto-loop LEDs behave (enum led_loop_style).
       * Zero-init is the SC Live 4 convention the FLX4 and JP21 use. */
      int loop_style;
+
+     /* How a lit pad is rendered (enum led_pad_style). Zero = the SC Live 4 /
+      * FLX4 way: lit at the colour, blinking while rbp marks it engaged. */
+     int pad_style;
+     /* Where the fingers are, for LED_PAD_DIM_BRIGHT: 1 while pad p (0..7) of
+      * `deck` is held, and *press_ms = shim_now_ms() of its last press (0 =
+      * never). NULL = the bridge knows nothing about held pads. */
+     int (*pad_touch)(int deck, int pad, unsigned long long *press_ms);
 };
 
 /* Empty both tables. Called by the front end exactly once, before any build():

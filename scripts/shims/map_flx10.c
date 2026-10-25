@@ -789,6 +789,21 @@ static const int mode_key[4] = { K_HOTCUE, K_ALOOP, K_SLIPLOOP, K_BEATJUMP };
  * rbp's mode, below). */
 static int flx10_page[2] = { -1, -1 };
 
+/* Which pads are under a finger, and when each was last pressed -- the LED
+ * bridge's pad_touch hook (LED_PAD_DIM_BRIGHT). */
+static unsigned pad_held[2];
+static unsigned long long pad_press_ms[2][8];
+
+int flx10_pad_touch(int deck, int pad, unsigned long long *press_ms)
+{
+     if (deck < 0 || deck > 1 || pad < 0 || pad > 7) {
+          *press_ms = 0;
+          return 0;
+     }
+     *press_ms = pad_press_ms[deck][pad];
+     return (pad_held[deck] >> pad) & 1;
+}
+
 /* The page after a mode button press, or -1 for "not a mode button". A main
  * button toggles between its page and its SHIFT page, as the unit does on a
  * second press (operator, 2026-10-24: BEAT JUMP twice put the unit's pads on
@@ -863,9 +878,17 @@ static void flx10_note(int ch, int note, int on)
 
      /* A pad hit says exactly which page the unit is on: the backstop for
       * any mode change the toggle above gets wrong. */
-     if (on && (ch == CH_PADS1 || ch == CH_PADS1S || ch == CH_PADS2 ||
-                ch == CH_PADS2S) && (note & 15) < 8)
-          flx10_page[(ch == CH_PADS1 || ch == CH_PADS1S) ? 0 : 1] = note & 0x70;
+     if ((ch == CH_PADS1 || ch == CH_PADS1S || ch == CH_PADS2 ||
+          ch == CH_PADS2S) && (note & 15) < 8) {
+          int d = (ch == CH_PADS1 || ch == CH_PADS1S) ? 0 : 1, p = note & 7;
+          if (on) {
+               flx10_page[d] = note & 0x70;
+               pad_held[d] |= 1u << p;
+               pad_press_ms[d][p] = shim_now_ms();
+          } else {
+               pad_held[d] &= ~(1u << p);
+          }
+     }
 
      if (deck >= 0) {
           int sch = deck + 1;
@@ -1287,6 +1310,8 @@ static const struct led_notes flx10_leds = {
      .n_meter_master_r = -1,
      .n_quantize = N_QUANTIZE,
      .loop_style = LED_LOOP_REKORDBOX,
+     .pad_style = LED_PAD_DIM_BRIGHT,
+     .pad_touch = flx10_pad_touch,
 };
 
 const struct ctrl_map map_flx10 = {

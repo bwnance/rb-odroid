@@ -410,6 +410,17 @@ int main(void)
           CHECK(flx10_led_pad_base(0, 0) == 112, "SAMPLER twice -> page 112");
           reset(); ON(1, 107); OFF(1, 107); ON(1, 107); OFF(1, 107);
           CHECK(flx10_led_pad_base(0, 0) == 80, "PAD FX2 twice stays 80");
+          /* held pads, for the dim -> bright rule */
+          {
+               extern int flx10_pad_touch(int, int, unsigned long long *);
+               unsigned long long t = 0;
+               CHECK(n && n->pad_style == LED_PAD_DIM_BRIGHT && n->pad_touch, "dim/bright pads");
+               reset(); ON(8, 32 + 2);
+               CHECK(flx10_pad_touch(0, 2, &t) == 1 && t != 0, "pad 3 held, press time kept");
+               CHECK(flx10_pad_touch(1, 2, &t) == 0, "deck 2 pad 3 not held");
+               OFF(8, 32 + 2);
+               CHECK(flx10_pad_touch(0, 2, &t) == 0 && t != 0, "released, press time stays");
+          }
           /* a pad hit corrects the page */
           reset(); ON(8, 96 + 3); OFF(8, 96 + 3);
           CHECK(flx10_led_pad_base(0, 0) == 96, "pad on 99 -> page 96");

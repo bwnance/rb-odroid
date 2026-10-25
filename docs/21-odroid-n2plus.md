@@ -321,6 +321,12 @@ measured: BEAT JUMP twice put the pads on 96), a SHIFT button goes straight to i
 page, and any pad hit resets the page to the one that pad's note is on. SAMPLER's page (48) is
 BEAT LOOP 2; before any mode button the page is guessed from rbp's mode.
 
+Pad brightness (`LED_PAD_DIM_BRIGHT`, the operator against rekordbox): HOT CUE and
+GATE CUE show a set cue bright in its colour and flash white for 0.12 s on a press;
+every other mode shows the dim colour, and the bright one solid while the pad is
+held or rbp marks it engaged (the running loop). The map tells the bridge which
+pads are held (`struct led_notes.pad_touch`).
+
 Pad palette (velocity): 4 blue, 8 light blue, 12 teal, 16 greener teal, 20 green,
 24 yellow-green, 28 yellow, 32 orange, 36 darker orange, 40 even darker orange, 44
 pink, 48 light pink, 52 purpler light pink, 56 darker purple pink, 60 darker purple,
