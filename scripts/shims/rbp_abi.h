@@ -796,6 +796,11 @@ static const signed char bfx_type_to_pos[15] = {
 #define PE_ISMASTERTEMPO   0x5dfa8
 #define PE_ISVINYLMODE     0x5e260
 #define PE_ISSLIPMODEON    0x5fc60
+#define PE_GETREVERSE      0x5e010   /* PlayEngine::getReverse(ch): Player+0xe9b */
+/* djengine::DjEngineIF setters that ignore `this` (each reloads the PlayEngine
+ * singleton itself, as ADDR_ENGINE_CLEAR_HOTCUE does), called (NULL, ch, ...) */
+#define DJE_SET_SLIPMODE   0x4ae10   /* setSlipMode(EnPlayerChannel, bool) */
+#define DJE_SET_REVERSE    0x46404   /* setReverse(EnPlayerChannel, bool) */
 #define PE_ISLOOPING       0x5eadc
 #define PE_ISCANRELOOP     0x5eab0
 #define PE_ISAUTOBEATLOOP  0x5ef74

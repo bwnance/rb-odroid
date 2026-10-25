@@ -467,6 +467,131 @@ static void flx10_mastervol(int cc, int val)
      g_mirror_gain = (float)g;
 }
 
+/* ---- SLIP REVERSE / REVERSE ----------------------------------------------
+ * As labelled (operator, 2026-10-25):
+ *   SLIP REVERSE (note 21): momentary and ALWAYS a slip reverse -- reverse
+ *     while held, and on release the playhead returns to where it would have
+ *     been, whether or not slip mode is on.
+ *   REVERSE (SHIFT, note 56): latching plain reverse, NEVER slipping, even
+ *     with slip mode on.
+ *   LED (note 21): lit while the button is held and while the deck reverses.
+ *
+ * rbp's own REV key (ui::PlayerInnards::onKey_Reverse @0x302ff8) is one or the
+ * other depending on slip mode: with slip mode OFF a press toggles reverse
+ * (latching); with it ON a press starts reverse and the release ends it, the
+ * engine slipping meanwhile. So:
+ *   SLIP REVERSE turns slip mode on for the gesture if it was off (setSlipMode,
+ *     put back SLIPREV_RESTORE_MS after the release so the slip return lands
+ *     first), and sends REV press / release.
+ *   REVERSE turns slip mode off while latched if it was on (put back when the
+ *     latch ends), and toggles with a REV press + release, which is a latch
+ *     with slip off. A latch rbp ends by itself (a new track) is noticed by the
+ *     tick and undone the same way.
+ * The engine reads are WEAK so the host test can answer for rbp. */
+#define SLIPREV_RESTORE_MS 200
+
+__attribute__((weak)) int flx10_slip_mode(int deck)
+{
+     void *pe = *(void **)PLAYENGINE_GLOBAL;
+     return pe ? ((int (*)(void *, int))PE_ISSLIPMODEON)(pe, deck) != 0 : 0;
+}
+
+__attribute__((weak)) int flx10_reversing(int deck)
+{
+     void *pe = *(void **)PLAYENGINE_GLOBAL;
+     return pe ? (((int (*)(void *, int))PE_GETREVERSE)(pe, deck) & 0xff) != 0 : 0;
+}
+
+__attribute__((weak)) void flx10_set_slip(int deck, int on)
+{
+     ((void (*)(void *, int, int))DJE_SET_SLIPMODE)(NULL, deck, on != 0);
+}
+
+__attribute__((weak)) void flx10_set_reverse(int deck, int on)
+{
+     ((void (*)(void *, int, int))DJE_SET_REVERSE)(NULL, deck, on != 0);
+}
+
+static int rev_held[2], rev_forced_slip[2], rev_latched[2], rev_slip_restore[2];
+static unsigned long long rev_slip_off_at[2], rev_latched_at[2];
+static int rev_led_v[2] = { -1, -1 };
+
+static void flx10_slip_reverse(int deck, int on)
+{
+     int sch = deck + 1;
+
+     if (on) {
+          if (rev_latched[deck] || rev_held[deck])
+               return;                       /* REVERSE is latched: leave it */
+          if (rev_slip_off_at[deck]) {        /* pressed again before the restore */
+               rev_slip_off_at[deck] = 0;
+          } else if (!flx10_slip_mode(deck)) {
+               flx10_set_slip(deck, 1);
+               rev_forced_slip[deck] = 1;
+          }
+          rev_held[deck] = 1;
+          send_rx_key(K_REV, OP_PRESS, sch, 0);
+          return;
+     }
+     if (!rev_held[deck])
+          return;
+     rev_held[deck] = 0;
+     send_rx_key(K_REV, OP_RELEASE, sch, 0);
+     if (rev_forced_slip[deck])
+          rev_slip_off_at[deck] = shim_now_ms() + SLIPREV_RESTORE_MS;
+}
+
+static void rev_unlatch(int deck)
+{
+     rev_latched[deck] = 0;
+     if (rev_slip_restore[deck]) {
+          rev_slip_restore[deck] = 0;
+          flx10_set_slip(deck, 1);
+     }
+}
+
+static void flx10_reverse_latch(int deck)
+{
+     int sch = deck + 1;
+
+     if (rev_held[deck])
+          return;
+     if (!rev_latched[deck]) {
+          if (flx10_slip_mode(deck)) {
+               flx10_set_slip(deck, 0);
+               rev_slip_restore[deck] = 1;
+          }
+          pulse(K_REV, sch);                 /* slip off: a latching toggle */
+          rev_latched[deck] = 1;
+          rev_latched_at[deck] = shim_now_ms();
+     } else {
+          if (flx10_slip_mode(deck))          /* slip turned on meanwhile */
+               flx10_set_reverse(deck, 0);
+          else
+               pulse(K_REV, sch);
+          rev_unlatch(deck);
+     }
+}
+
+static void flx10_rev_tick(unsigned long long t)
+{
+     for (int d = 0; d < 2; d++) {
+          int v;
+          if (rev_slip_off_at[d] && t >= rev_slip_off_at[d]) {
+               rev_slip_off_at[d] = 0;
+               if (rev_forced_slip[d]) {
+                    rev_forced_slip[d] = 0;
+                    flx10_set_slip(d, 0);
+               }
+          }
+          if (rev_latched[d] && t - rev_latched_at[d] > 500 && !flx10_reversing(d))
+               rev_unlatch(d);               /* rbp ended it (a load, ...) */
+          v = (rev_held[d] || flx10_reversing(d)) ? 0x7F : 0x00;
+          if (v != rev_led_v[d] && midi_note(d, N_SLIP_REVERSE, v))
+               rev_led_v[d] = v;
+     }
+}
+
 /* ---- the loop section ----------------------------------------------------
  * The operator's table (docs/21):
  *
@@ -1057,6 +1182,13 @@ static void flx10_note(int ch, int note, int on)
                if (on)
                     flx10_tempo_reset(deck);
                return;
+          case N_SLIP_REVERSE:
+               flx10_slip_reverse(deck, on);
+               return;
+          case N_REVERSE:
+               if (on)
+                    flx10_reverse_latch(deck);
+               return;
           /* KEY SYNC (operator, 2026-10-25). The unit decides short from long
            * itself: a short press sends 101 on/off, a hold sends 26 on at the
            * threshold and 26 off + 101 off on release (no 101 on) -- measured
@@ -1322,8 +1454,6 @@ static void flx10_build(void)
           add_note(rch, N_BJ_NEXT, K_SRFWD, sch);
           add_note(rch, N_BJ_PREV_SHIFT, K_TRREV, sch);
           add_note(rch, N_BJ_NEXT_SHIFT, K_TRFWD, sch);
-          add_note(rch, N_SLIP_REVERSE, K_REV, sch);
-          add_note(rch, N_REVERSE, K_REV, sch);
           add_note(rch, N_QUANTIZE, K_QUANTIZE, sch);
           add_note(rch, N_SLIP, K_SLIP, sch);
           add_note(rch, N_VINYL, K_VINYL, sch);
@@ -1402,6 +1532,7 @@ static void flx10_tick(void)
      unsigned long long t = shim_now_ms();
 
      flx10_jog_tick();
+     flx10_rev_tick(t);
      flx10_push_tick(t);
      flx10_scfx_tick(t);
 }
@@ -1704,6 +1835,7 @@ static void flx10_display_init(unsigned long long now)
      /* the map's own LEDs, which a power-cycled unit has forgotten */
      tempo_reset_led(0);
      tempo_reset_led(1);
+     rev_led_v[0] = rev_led_v[1] = -1;     /* the tick re-sends them */
      /* everything the display shows goes out again right after */
      jd[0].refresh = jd[1].refresh = 0;
 }
@@ -1794,7 +1926,8 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
  * show only the page the unit is on, hence the pad_base hook. The meters are the
  * FLX4's: CC 2 on the deck's channel, same scale.
  *
- * Left dark on purpose: PART/stems, PAGE, LINK, TEMPO RESET, SLIP REVERSE, the
+ * TEMPO RESET and SLIP REVERSE are lit by the map itself (tempo_reset_led,
+ * flx10_rev_tick). Left dark on purpose: PART/stems, PAGE, LINK, the
  * sampler CUE and channels 3/4 -- nothing in rbp says anything for them. */
 static const struct led_notes flx10_leds = {
      .deck_ch = 0,                 /* decks 1/2 on channels 0/1 */

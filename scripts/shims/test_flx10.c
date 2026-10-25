@@ -60,6 +60,12 @@ void me_set_master_cue(int on) { mcue = on; }
 int hotcue_delete(int deck, int pad) { deleted_deck = deck; deleted_pad = pad; return 0; }
 static int browse_mode = 1, usb1 = 1, cursor_track = 1;
 int flx10_cursor_is_track(void) { return cursor_track; }
+/* the engine, as SLIP REVERSE / REVERSE see it */
+static int slipmode[2], reversing[2], slip_sets, rev_sets;
+int flx10_slip_mode(int d) { return slipmode[d]; }
+int flx10_reversing(int d) { return reversing[d]; }
+void flx10_set_slip(int d, int on) { slipmode[d] = on; slip_sets++; }
+void flx10_set_reverse(int d, int on) { reversing[d] = on; rev_sets++; }
 /* the rbp mode each FLX10 pad page belongs to */
 static int pmode(int pg) { static const int m[8] = { 0, 2, 3, 5, 4, 6, 1, 7 }; return pg < 0 ? 0 : m[(pg >> 4) & 7]; }
 void flx10_cursor_debug(int *m, int *c, int *l, int *r) { *m = 3; *c = 0; *l = 0; *r = 2; }
@@ -162,7 +168,41 @@ int main(void)
           reset(); ON(2, 65); OFF(2, 65);
      }
 
-     /* beat jump / track search, slip reverse, slip / vinyl */
+     /* SLIP REVERSE: momentary, slip forced on for the gesture and put back
+      * after the release; LED while held */
+     slipmode[0] = 0; reversing[0] = 0; slip_sets = 0;
+     reset(); ON(1, 21);
+     CHECK(slipmode[0] == 1 && sent_n == 1 && is(0, K_REV, OP_PRESS, 1),
+           "SLIP REVERSE, slip off: slip on, REV press");
+     map_flx10.tick();
+     CHECK(dk_note_v[0][21] == 0x7F, "SLIP REVERSE LED lit while held");
+     reset(); OFF(1, 21);
+     CHECK(sent_n == 1 && is(0, K_REV, OP_RELEASE, 1) && slipmode[0] == 1,
+           "release: REV release, slip still on for the return");
+     ms(250); map_flx10.tick();
+     CHECK(slipmode[0] == 0, "slip mode put back off after the release");
+     CHECK(dk_note_v[0][21] == 0x00, "SLIP REVERSE LED off");
+     /* with slip mode already on, it is left alone */
+     slipmode[0] = 1; slip_sets = 0;
+     reset(); ON(1, 21); OFF(1, 21); ms(250); map_flx10.tick();
+     CHECK(slip_sets == 0 && slipmode[0] == 1 && sent_n == 2, "slip already on: untouched");
+     /* REVERSE (SHIFT): latch, slip off while latched, put back after */
+     slipmode[0] = 1; reversing[0] = 0;
+     reset(); ON(1, 56); OFF(1, 56);
+     CHECK(slipmode[0] == 0 && sent_n == 2 && is(0, K_REV, OP_PRESS, 1) && is(1, K_REV, OP_RELEASE, 1),
+           "REVERSE with slip on: slip off, REV toggle");
+     reversing[0] = 1; map_flx10.tick();
+     CHECK(dk_note_v[0][21] == 0x7F, "LED lit while reversing");
+     reset(); ON(1, 21); OFF(1, 21);
+     CHECK(sent_n == 0, "SLIP REVERSE ignored while REVERSE is latched");
+     reset(); ON(1, 56); OFF(1, 56);
+     CHECK(sent_n == 2 && is(0, K_REV, OP_PRESS, 1) && slipmode[0] == 1,
+           "REVERSE again: REV toggle off, slip mode back on");
+     reversing[0] = 0; map_flx10.tick();
+     CHECK(dk_note_v[0][21] == 0x00, "LED off");
+     slipmode[0] = 0;
+
+     /* beat jump / track search, slip / vinyl */
      reset(); ON(2, 94); ON(2, 98);
      CHECK(is(0, K_SRREV, OP_PRESS, 2) && is(1, K_TRFWD, OP_PRESS, 2), "BEAT JUMP < / SHIFT > ");
      OFF(2, 94); OFF(2, 98);
