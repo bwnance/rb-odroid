@@ -2294,6 +2294,24 @@ static void flx10_display_init(unsigned long long now)
      jd[0].refresh = jd[1].refresh = 0;
 }
 
+/* The tempo % the jog screen shows (and the key shift with it). On a synced
+ * deck that is not the master rbp's getTempoX100 still follows the deck's own
+ * fader and the jog's bend, while the deck plays at the master's BPM -- so it
+ * is the playing BPM over the track's own (StatWatcher +0x14 / +0x18), which
+ * the fader and the jog do not move (operator, 2026-10-25). */
+static int flx10_shown_tempo(const struct deck_info *di)
+{
+     long long t;
+
+     if (!di->loaded || !di->sync || di->master || di->bpm_raw <= 0 ||
+         di->bpm_orig <= 0 || di->bpm_orig >= 0xffff)
+          return di->tempo_raw;
+     t = (long long)di->bpm_raw * 10000 / di->bpm_orig - 10000;
+     if (t < -10000 || t > 10000)
+          return di->tempo_raw;          /* not a sane pair: rbp's own */
+     return (int)t;
+}
+
 static void flx10_deck_display(int deck, const struct deck_info *di)
 {
      unsigned long long now = shim_now_ms();
@@ -2319,7 +2337,7 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
                .cue_standby = di->cue_standby,
                .elapsed_ms = di->elapsed_ms, .total_ms = di->total_ms,
                .bpm_x100 = di->bpm_raw,
-               .tempo_x100 = di->tempo_raw, .range = di->tempo_range,
+               .tempo_x100 = flx10_shown_tempo(di), .range = di->tempo_range,
                .mt = di->mt, .sync = di->sync,
                .key_code = flx10_key_code(di->key),
                .cue_ms = di->loaded ? flx10_cue_ms(deck, di->total_ms) : -1,
