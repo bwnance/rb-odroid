@@ -405,7 +405,9 @@ every start before rbp opens the card; `--rebind` also rebinds snd-usb-audio.
 `rbp_led.c` reads the deck values each tick (`PE_GETTOTALTIME`, `PE_GETPLAYINGTIME`
 -- ms --, `PE_GETQBPMDISPLAY`, `PE_GETTEMPOX100`, `PE_GETTEMPORANGE`, MT / SYNC /
 MASTER) and hands them to the map's `deck_display` hook; `map_flx10.c` sends them.
-The marker turns like a record at 33 1/3 rpm. `JOG_DISPLAY_VERBOSE=1` logs the raw
+The marker turns like a record at 33 1/3 rpm. BPM is rbp's own screen value (StatWatcher getPlayBpm, x100) sent x10 and
+TRUNCATED like rbp's screen; tried x100 on 2026-10-25 -- the firmware rounds it to tenths
+(105.69 -> 105.70), so a true second decimal needs the HID path. `JOG_DISPLAY_VERBOSE=1` logs the raw
 readings once a second (the BPM x100 and tempo x100 units are to be confirmed against
 the screen). Not yet: key (where rbp keeps the loaded track's key, and the code
 table), the cue marker, and the HID-only parts -- tempo range box, waveform, artwork

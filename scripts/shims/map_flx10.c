@@ -1450,16 +1450,6 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
      if (!di->loaded)
           return;
      flx10_jog_values(di, &bpm10, &speed10, &min, &sec, &deg);
-     /* JOG_BPM_X100=1: an experiment -- send rbp's raw BPM x 100 instead of
-      * Pioneer's documented x10, to see whether the firmware shows two decimals
-      * (the 14-bit field tops out at 163.83 that way). */
-     {
-          static int x100 = -1;
-          if (x100 < 0)
-               x100 = env_on("JOG_BPM_X100", 0);
-          if (x100)
-               bpm10 = di->bpm_raw;
-     }
      jd_note(deck, 4, 0x14 + d, 0x7F, force);            /* remaining */
      jd_cc(deck, 5, 0x42 + 2 * d, min, force);
      jd_cc(deck, 6, 0x43 + 2 * d, sec, force);
