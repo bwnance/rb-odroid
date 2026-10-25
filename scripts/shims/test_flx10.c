@@ -186,11 +186,18 @@ int main(void)
      CHECK(sent_n == 1 && is(0, K_REV, OP_RELEASE, 1) && slipmode[0] == 1,
            "release: REV release, slip still on for the return");
      ms(250); map_flx10.tick();
-     CHECK(slipmode[0] == 0, "slip mode put back off after the release");
+     CHECK(slipmode[0] == 1, "slip mode kept while the deck is watched");
+     /* quantize: the reverse turns up after the release -> ended by the map */
+     reversing[0] = 1; rev_sets = 0; ms(20); map_flx10.tick();
+     CHECK(rev_sets == 1 && reversing[0] == 0, "a late reverse after the release is ended");
+     for (int i = 0; i < 30 && slipmode[0]; i++) { ms(100); map_flx10.tick(); }
+     CHECK(slipmode[0] == 0, "slip mode put back off once the deck plays forward");
+     map_flx10.tick();
      CHECK(dk_note_v[0][21] == 0x00, "SLIP REVERSE LED off");
      /* with slip mode already on, it is left alone */
      slipmode[0] = 1; slip_sets = 0;
-     reset(); ON(1, 21); OFF(1, 21); ms(250); map_flx10.tick();
+     reset(); ON(1, 21); OFF(1, 21);
+     for (int i = 0; i < 25; i++) { ms(100); map_flx10.tick(); }
      CHECK(slip_sets == 0 && slipmode[0] == 1 && sent_n == 2, "slip already on: untouched");
      /* REVERSE (SHIFT): latch, slip off while latched, put back after */
      slipmode[0] = 1; reversing[0] = 0;

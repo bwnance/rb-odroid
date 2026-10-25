@@ -484,8 +484,8 @@ static void flx10_mastervol(int cc, int val)
  * (latching); with it ON a press starts reverse and the release ends it, the
  * engine slipping meanwhile. So:
  *   SLIP REVERSE turns slip mode on for the gesture if it was off (setSlipMode,
- *     put back SLIPREV_RESTORE_MS after the release so the slip return lands
- *     first), and sends REV press / release.
+ *     put back once the reverse has ended and the slip return has landed --
+ *     see QUANTIZE ON below), and sends REV press / release.
  *   REVERSE turns slip mode off while latched if it was on (put back when the
  *     latch ends), and toggles with a REV press + release, which is a latch
  *     with slip off. A latch rbp ends by itself (a new track) is noticed by the
@@ -515,8 +515,20 @@ __attribute__((weak)) void flx10_set_reverse(int deck, int on)
      ((void (*)(void *, int, int))DJE_SET_REVERSE)(NULL, deck, on != 0);
 }
 
+/* QUANTIZE ON: a reverse that starts late. playengine::Player::setReverse
+ * @0x6a5ec has an early return at 0x6a698 taken when quantize is on (the
+ * Player+0xec8 flag, on a branch gated by Player+0xef0's +84 -- believed to be
+ * slip/loop engaged, not confirmed) that leaves the flag unset; the reverse
+ * then shows up later (on the beat, by the operator's report).
+ * A short press is then released before the deck is reversing, onKey_Reverse's
+ * release sees no reverse to end, and the deck stays reversed -- what the
+ * operator saw (2026-10-25). So after a release the tick watches the deck for
+ * SLIPREV_WATCH_MS and ends any reverse that turns up (setReverse(false),
+ * itself quantized), and slip mode is put back only once it has. */
+#define SLIPREV_WATCH_MS 2000
 static int rev_held[2], rev_forced_slip[2], rev_latched[2], rev_slip_restore[2];
 static unsigned long long rev_slip_off_at[2], rev_latched_at[2];
+static unsigned long long rev_watch_until[2], rev_stop_sent_at[2];
 static int rev_led_v[2] = { -1, -1 };
 
 static void flx10_slip_reverse(int deck, int on)
@@ -526,8 +538,9 @@ static void flx10_slip_reverse(int deck, int on)
      if (on) {
           if (rev_latched[deck] || rev_held[deck])
                return;                       /* REVERSE is latched: leave it */
-          if (rev_slip_off_at[deck]) {        /* pressed again before the restore */
-               rev_slip_off_at[deck] = 0;
+          if (rev_slip_off_at[deck] || rev_watch_until[deck]) {
+               rev_slip_off_at[deck] = 0;     /* pressed again before the restore */
+               rev_watch_until[deck] = 0;
           } else if (!flx10_slip_mode(deck)) {
                flx10_set_slip(deck, 1);
                rev_forced_slip[deck] = 1;
@@ -540,8 +553,8 @@ static void flx10_slip_reverse(int deck, int on)
           return;
      rev_held[deck] = 0;
      send_rx_key(K_REV, OP_RELEASE, sch, 0);
-     if (rev_forced_slip[deck])
-          rev_slip_off_at[deck] = shim_now_ms() + SLIPREV_RESTORE_MS;
+     rev_watch_until[deck] = shim_now_ms() + SLIPREV_WATCH_MS;
+     rev_stop_sent_at[deck] = 0;
 }
 
 static void rev_unlatch(int deck)
@@ -580,6 +593,23 @@ static void flx10_rev_tick(unsigned long long t)
 {
      for (int d = 0; d < 2; d++) {
           int v;
+          if (rev_watch_until[d] && !rev_held[d] && !rev_latched[d]) {
+               int r = flx10_reversing(d);
+               if (r && t - rev_stop_sent_at[d] >= 100) {
+                    if (!rev_stop_sent_at[d])
+                         klog("knobshim2: flx10 deck%d SLIP REVERSE: still reversing "
+                              "after the release (quantize); ending it\n", d + 1);
+                    flx10_set_reverse(d, 0);
+                    rev_stop_sent_at[d] = t;
+                    if (rev_watch_until[d] < t + 500)
+                         rev_watch_until[d] = t + 500;   /* until it is seen ended */
+               }
+               if (!r && t >= rev_watch_until[d]) {
+                    rev_watch_until[d] = 0;
+                    if (rev_forced_slip[d])
+                         rev_slip_off_at[d] = t + SLIPREV_RESTORE_MS;
+               }
+          }
           if (rev_slip_off_at[d] && t >= rev_slip_off_at[d]) {
                rev_slip_off_at[d] = 0;
                if (rev_forced_slip[d]) {
