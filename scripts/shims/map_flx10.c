@@ -789,19 +789,26 @@ static const int mode_key[4] = { K_HOTCUE, K_ALOOP, K_SLIPLOOP, K_BEATJUMP };
  * rbp's mode, below). */
 static int flx10_page[2] = { -1, -1 };
 
-static int flx10_mode_page(int note)
+/* The page after a mode button press, or -1 for "not a mode button". A main
+ * button toggles between its page and its SHIFT page, as the unit does on a
+ * second press (operator, 2026-10-24: BEAT JUMP twice put the unit's pads on
+ * the BEAT LOOP page, 96); a SHIFT button goes straight to its page. */
+static int flx10_mode_page(int note, int cur)
 {
+     int main_pg;
+
      switch (note) {
-     case N_MODE_HOT:      return 0;
-     case N_MODE_PADFX1:   return 16;
-     case N_MODE_BEATJUMP: return 32;
-     case N_MODE_SAMPLER:  return 48;
+     case N_MODE_HOT:      main_pg = 0;  break;
+     case N_MODE_PADFX1:   main_pg = 16; break;
+     case N_MODE_BEATJUMP: main_pg = 32; break;
+     case N_MODE_SAMPLER:  main_pg = 48; break;
      case N_MODE_KEYBOARD: return 64;
      case N_MODE_PADFX2:   return 80;
      case N_MODE_BEATLOOP: return 96;
      case N_MODE_KEYSHIFT: return 112;
      default:              return -1;
      }
+     return cur == main_pg ? main_pg + 64 : main_pg;
 }
 
 /* struct led_notes' pad_base hook. Before any mode button has been pressed the
@@ -854,11 +861,17 @@ static void flx10_note(int ch, int note, int on)
 {
      int deck = IS_DECK(ch) ? ch : -1;
 
+     /* A pad hit says exactly which page the unit is on: the backstop for
+      * any mode change the toggle above gets wrong. */
+     if (on && (ch == CH_PADS1 || ch == CH_PADS1S || ch == CH_PADS2 ||
+                ch == CH_PADS2S) && (note & 15) < 8)
+          flx10_page[(ch == CH_PADS1 || ch == CH_PADS1S) ? 0 : 1] = note & 0x70;
+
      if (deck >= 0) {
           int sch = deck + 1;
 
           if (on) {
-               int pg = flx10_mode_page(note);
+               int pg = flx10_mode_page(note, flx10_page[deck]);
                if (pg != -1)
                     flx10_page[deck] = pg;
           }

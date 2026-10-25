@@ -314,8 +314,11 @@ BEAT JUMP, 107 PAD FX1, 111 SAMPLER) -- the unit's own way of showing a shifted
 mode. BEAT LOOP 2 lights SAMPLER solid (34).
 
 The pads only show the page the unit itself is on, which moves with the unit's mode
-buttons whatever rbp does, so `map_flx10.c` tracks the last mode button per deck and
-hands the base to the bridge (`struct led_notes.pad_base`). SAMPLER's page (48) is
+buttons whatever rbp does, so `map_flx10.c` tracks the page per deck and hands the
+base to the bridge (`struct led_notes.pad_base`). A main mode button toggles the unit
+between its page and its SHIFT page on repeated presses (0/64, 16/80, 32/96, 48/112 --
+measured: BEAT JUMP twice put the pads on 96), a SHIFT button goes straight to its
+page, and any pad hit resets the page to the one that pad's note is on. SAMPLER's page (48) is
 BEAT LOOP 2; before any mode button the page is guessed from rbp's mode.
 
 Pad palette (velocity): 4 blue, 8 light blue, 12 teal, 16 greener teal, 20 green,

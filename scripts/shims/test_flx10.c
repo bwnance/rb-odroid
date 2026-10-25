@@ -397,6 +397,25 @@ int main(void)
                 "deck 2 KEY SHIFT -> 112, deck 1 untouched");
           reset(); ON(1, 27); OFF(1, 27);
           CHECK(flx10_led_pad_base(0, 5) == 0, "HOT CUE -> page 0");
+          /* a second press of a main button moves the unit to its SHIFT page */
+          reset(); ON(1, 27); OFF(1, 27);
+          CHECK(flx10_led_pad_base(0, 0) == 64, "HOT CUE twice -> page 64");
+          reset(); ON(1, 27); OFF(1, 27);
+          CHECK(flx10_led_pad_base(0, 0) == 0, "HOT CUE third press -> page 0");
+          reset(); ON(1, 32); OFF(1, 32); ON(1, 32); OFF(1, 32);
+          CHECK(flx10_led_pad_base(0, 0) == 96, "BEAT JUMP twice -> page 96");
+          reset(); ON(1, 30); OFF(1, 30); ON(1, 30); OFF(1, 30);
+          CHECK(flx10_led_pad_base(0, 0) == 80, "PAD FX1 twice -> page 80");
+          reset(); ON(1, 34); OFF(1, 34); ON(1, 34); OFF(1, 34);
+          CHECK(flx10_led_pad_base(0, 0) == 112, "SAMPLER twice -> page 112");
+          reset(); ON(1, 107); OFF(1, 107); ON(1, 107); OFF(1, 107);
+          CHECK(flx10_led_pad_base(0, 0) == 80, "PAD FX2 twice stays 80");
+          /* a pad hit corrects the page */
+          reset(); ON(8, 96 + 3); OFF(8, 96 + 3);
+          CHECK(flx10_led_pad_base(0, 0) == 96, "pad on 99 -> page 96");
+          reset(); ON(10, 16 + 7); OFF(10, 16 + 7);
+          CHECK(flx10_led_pad_base(1, 0) == 16 && flx10_led_pad_base(0, 0) == 96,
+                "deck 2 pad on 23 -> deck 2 page 16 only");
      }
 
      printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);
