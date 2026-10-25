@@ -39,6 +39,7 @@ int aloop_is_looping(int deck) { return looping[deck]; }
 int led_loop_flash[2];
 int midi_cc(int ch, int cc, int v) { (void)ch; (void)cc; (void)v; return 1; }
 int midi_note(int ch, int n, int v) { (void)ch; (void)n; (void)v; return 1; }
+int midi_sysex_out(const unsigned char *b, unsigned n) { (void)b; (void)n; return 1; }
 volatile int led_kick;
 static int cue[4], mcue, deleted_deck = -1, deleted_pad = -1;
 int me_get_cue(int idx) { return cue[idx]; }
@@ -418,6 +419,21 @@ int main(void)
           led_loop_flash[0] = 0; looping[0] = 1; reset(); ON(1, 16); OFF(1, 16);
           CHECK(led_loop_flash[0] == 0, "IN in a loop (halve) -> no flash");
           looping[0] = 0;
+          /* BPM SysEx, as rekordbox sends it */
+          {
+               extern void flx10_bpm_sysex(int, int, unsigned char *);
+               static const unsigned char want[17] = { 0xF0, 0x00, 0x40, 0x05, 0x00, 0x00,
+                    0x04, 0x01, 0x00, 0x12, 0x00, 0x00, 0x02, 0x0D, 0x09, 0x05, 0xF7 };
+               unsigned char sx[17];
+               flx10_bpm_sysex(1, 11669, sx);       /* deck 2, 116.69 = 0x2D95 */
+               CHECK(memcmp(sx, want, 17) == 0,
+
+                     "116.69 on deck 2 -> ... 12 00 00 02 0D 09 05 F7");
+               flx10_bpm_sysex(0, 8200, sx);
+               CHECK(sx[9] == 0x11 && sx[12] == 0x02 && sx[15] == 0x08, "82.00 deck 1 = 11 00 00 02 00 00 08");
+               flx10_bpm_sysex(0, 0, sx);
+               CHECK(sx[10] == 0x0F && sx[15] == 0x0F, "empty deck -> 0F x6 (blank)");
+          }
           /* key text -> the FLX10's key code (table read off the unit) */
           {
                extern int flx10_key_code(const char *);

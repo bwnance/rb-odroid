@@ -1466,6 +1466,24 @@ int flx10_key_code(const char *k)
      return 2 * i + (minor ? 2 : 1);
 }
 
+/* The jog's BPM as rekordbox sends it (captured 2026-10-25): SysEx
+ *   F0 00 40 05 00 00 04 01 00 <0x11 + deck> n5 n4 n3 n2 n1 n0 F7
+ * where n5..n0 are the hex digits of BPM x 100, high first (82.00 =
+ * 00 00 02 00 00 08), and 0F x6 blanks it. This is what carries the second
+ * decimal -- the CC field (BPM x 10) cannot. bpm_x100 <= 0 = blank. Fills 17
+ * bytes; pure, for the test. */
+void flx10_bpm_sysex(int deck, int bpm_x100, unsigned char *out)
+{
+     static const unsigned char head[9] = {
+          0xF0, 0x00, 0x40, 0x05, 0x00, 0x00, 0x04, 0x01, 0x00 };
+     memcpy(out, head, sizeof head);
+     out[9] = (unsigned char)(0x11 + deck);
+     for (int k = 0; k < 6; k++)
+          out[10 + k] = bpm_x100 > 0
+               ? (unsigned char)((bpm_x100 >> (4 * (5 - k))) & 0x0F) : 0x0F;
+     out[16] = 0xF7;
+}
+
 /* The display values, worked out of rbp's raw readings. Pure, for the test. */
 void flx10_jog_values(const struct deck_info *di, int *bpm10, int *speed10,
                       int *min, int *sec, int *deg)
@@ -1511,6 +1529,17 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
           if (force || jd[deck].v[11] != v) {
                if (midi_note(deck, 0x5B, v))
                     jd[deck].v[11] = v;
+          }
+     }
+     /* BPM, two decimals, as rekordbox sends it (flx10_bpm_sysex); blank when
+      * the deck is empty. Slot 14. */
+     {
+          int v = di->loaded ? di->bpm_raw : 0;
+          if (force || jd[deck].v[14] != v) {
+               unsigned char sx[17];
+               flx10_bpm_sysex(deck, v, sx);
+               if (midi_sysex_out(sx, sizeof sx))
+                    jd[deck].v[14] = v;
           }
      }
      if (!di->loaded)

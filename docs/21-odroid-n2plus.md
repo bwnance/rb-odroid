@@ -391,7 +391,8 @@ documents a display channel, **MIDI ch 16**, whose fields the unit renders itsel
 
 | Field | Message | Encoding |
 | --- | --- | --- |
-| BPM | CC 0x14+d / 0x34+d | BPM x 10, 14-bit |
+| BPM (two decimals) | SysEx `F0 00 40 05 00 00 04 01 00 <11+d> n5..n0 F7` | hex digits of BPM x 100, high first (82.00 = `00 00 02 00 00 08`); `0F` x6 blanks. What rekordbox sends (captured 2026-10-25, decoded from a tempo-range sweep) |
+| BPM (one decimal) | CC 0x14+d / 0x34+d | BPM x 10, 14-bit (Pioneer's list); rekordbox never sends it |
 | playing speed | CC 0x18+d / 0x38+d | (percent + 100) x 10, 14-bit |
 | time | CC 0x42+2d min, 0x43+2d sec | 0..99 |
 | time mode | Note 0x14+d | 0x7F remaining |
