@@ -1382,6 +1382,7 @@ static const struct led_notes flx4_leds = {
      .meter_master_ch = -1,
      .n_meter_master_l = -1,
      .n_meter_master_r = -1,
+     .n_quantize = -1,
 };
 
 const struct ctrl_map map_flx4 = {

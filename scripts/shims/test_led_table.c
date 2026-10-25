@@ -285,11 +285,44 @@ static void test_blink(void)
           "t=350 and says on");
 }
 
+/* The FLX10 palette: rbp's hot cue colours to the unit's velocities. */
+static void test_flx10_palette(void)
+{
+    static const struct { int r, g, b, want; const char *name; } t[] = {
+        {   0,   0,   0,  0, "black" },
+        { 255, 255, 255, 64, "white" },
+        { 200, 200, 190, 64, "near-white" },
+        {   0,   0, 255,  4, "blue" },
+        {   0, 255,   0, 20, "green" },
+        { 255, 255,   0, 28, "yellow" },
+        { 255, 150,   0, 32, "orange" },
+        { 230,  40,  40, 40, "red -> even darker orange" },
+        { 255,   0,  90, 44, "pink" },
+        {  20, 180, 230,  8, "sky blue -> light blue" },
+        {   0, 200, 170, 12, "teal" },
+        { 140,  40, 220, 60, "purple" },
+    };
+    for (unsigned i = 0; i < sizeof(t) / sizeof(t[0]); i++) {
+        int v = led_flx10_palette(t[i].r, t[i].g, t[i].b);
+        CHECK(v == t[i].want, "%s (%d,%d,%d) -> %d, want %d",
+              t[i].name, t[i].r, t[i].g, t[i].b, v, t[i].want);
+    }
+    /* every answer is a velocity the probe measured as a bright colour */
+    for (int r = 0; r < 256; r += 51)
+        for (int g = 0; g < 256; g += 51)
+            for (int b = 0; b < 256; b += 51) {
+                int v = led_flx10_palette(r, g, b);
+                CHECK(v == 0 || (v % 4 == 0 && v >= 4 && v <= 64),
+                      "(%d,%d,%d) -> %d, not a bright palette entry", r, g, b, v);
+            }
+}
+
 int main(void)
 {
     test_find();
     test_merge();
     test_blink();
+    test_flx10_palette();
 
     printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);
     return failures ? 1 : 0;

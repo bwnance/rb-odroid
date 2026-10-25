@@ -70,4 +70,10 @@ const unsigned char *led_find(const unsigned char *tbl, unsigned int count,
 int led_blink_on(unsigned long long now_ms, unsigned int period_ms,
                  unsigned int fallback_ms);
 
+/* rbp's 0..255 RGB as a DDJ-FLX10 pad velocity (ctrl_map.h's
+ * LED_ENC_FLX10_PALETTE): the nearest of its fifteen hues, 64 for anything
+ * without much colour, 0 for black. Never the dim (+64) range -- that is the
+ * caller's to add. */
+unsigned char led_flx10_palette(int r, int g, int b);
+
 #endif /* RBPI4B_LED_TABLE_H */

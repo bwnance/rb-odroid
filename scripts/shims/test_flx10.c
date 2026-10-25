@@ -341,6 +341,48 @@ int main(void)
           ms(200); map_flx10.tick();
      }
 
+     /* ---- LEDs (flx10-leds.json) ---- */
+     {
+          extern int flx10_led_pad_base(int deck, int rbp_mode);
+          const struct led_notes *n = map_flx10.leds;
+          CHECK(n != NULL, "map_flx10 has an LED table");
+          if (n) {
+               CHECK(n->deck_ch == 0 && n->n_sync == 88 && n->n_cue == 12 &&
+                     n->n_play == 11 && n->n_keylock == 101 && n->n_slip == 64,
+                     "deck LED notes");
+               CHECK(n->n_loopin == 16 && n->n_loopout == 17 && n->n_autoloop == 20,
+                     "loop LED notes");
+               CHECK(n->n_vinyl == -1 && n->master_ch_first < 0 && n->fx_ch < 0 &&
+                     n->meter_master_ch < 0, "unanswered LEDs stay dark");
+               CHECK(n->n_quantize == 53, "QUANTIZE LED on 53");
+               CHECK(n->mode_banks == 1 && n->n_mode[0] == 27 && n->n_mode[1] == 109 &&
+                     n->n_mode[2] == 30 && n->n_mode[3] == 32 &&
+                     n->n_mode_bank[0] == 105 && n->n_mode_bank[1] == 109 &&
+                     n->n_mode_bank[2] == 107 && n->n_mode_bank[3] == 111,
+                     "mode LEDs by rbp mode 0..7");
+               CHECK(n->pad_ch == 7 && n->pad_ch2 == 9 &&
+                     n->pad_enc == LED_ENC_FLX10_PALETTE && n->pad_base != NULL,
+                     "pad LEDs: ch 8/10, palette, unit page");
+               CHECK(n->n_meter_cc == 2 && n->meter_ch_first == 0 &&
+                     n->meter_enc == METER_ENC_FLX4_LEVEL, "meters on CC 2");
+               CHECK(n->strip_ch_first == 0 && n->strip_count == 2 && n->n_strip_cue == 84,
+                     "channel CUE LEDs");
+          }
+          /* the pad page follows the unit's own mode buttons */
+          reset(); ON(1, 30); OFF(1, 30);
+          CHECK(flx10_led_pad_base(0, 0) == 16, "PAD FX1 -> page 16 (%d)",
+                flx10_led_pad_base(0, 0));
+          reset(); ON(1, 109); OFF(1, 109);
+          CHECK(flx10_led_pad_base(0, 0) == 96, "SHIFT+BEAT JUMP -> page 96");
+          reset(); ON(1, 34); OFF(1, 34);
+          CHECK(flx10_led_pad_base(0, 0) == -1, "SAMPLER -> no pad LEDs");
+          reset(); ON(2, 111); OFF(2, 111);
+          CHECK(flx10_led_pad_base(1, 0) == 112 && flx10_led_pad_base(0, 0) == -1,
+                "deck 2 KEY SHIFT -> 112, deck 1 untouched");
+          reset(); ON(1, 27); OFF(1, 27);
+          CHECK(flx10_led_pad_base(0, 5) == 0, "HOT CUE -> page 0");
+     }
+
      printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);
      return failures ? 1 : 0;
 }

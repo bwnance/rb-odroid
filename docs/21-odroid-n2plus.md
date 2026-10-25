@@ -278,12 +278,50 @@ and sends at most one update per 4 ms, with speed = counts / real elapsed time o
 microsecond clock. rbp's position is fed at the FLX4's 720 per revolution.
 `RB_JOG_PPR` overrides the count.
 
+### FLX10 LEDs
+
+Probed 2026-10-24 with `scripts/odroid/led-probe.py` (`flx10-leds.json`, gitignored).
+Every LED answers on its own button's input note and channel, ON = 0x7F, OFF = 0.
+
+| What | Note (channel) | Driven from |
+| --- | --- | --- |
+| PLAY / CUE / SYNC | 11 / 12 / 88 (deck) | the same transport decision the drawers show |
+| KEY SYNC | 101 (deck) | MASTER TEMPO |
+| SLIP | 64 (deck) | slip mode |
+| QUANTIZE | 53 (deck) | rbp's QUANTIZE (per-deck struct +0x2e bit 6, `StatWatcher::getPlayQuantizeOn`) |
+| IN / OUT / 4 BEAT | 16 / 17 / 20 (deck) | the loop LEDs, as on the other surfaces |
+| channel CUE | 84 (deck) | headphone cue |
+| mode buttons | 27, 109, 30, 32; banks 105, 109, 107, 111 | rbp's mode byte 0..7 |
+| pads | page base + 0..7 on ch 8 / 10 | rbp's pad LEDs, palette-encoded |
+| meters | CC 2 on ch 1 / 2 | as the FLX4 |
+
+The SHIFT mode notes light their parent button *flashing* (105 flashes HOT CUE, 109
+BEAT JUMP, 107 PAD FX1, 111 SAMPLER) -- the unit's own way of showing a shifted
+mode. BEAT LOOP and BEAT LOOP 2 share 109; the bridge sends it once per tick.
+
+The pads only show the page the unit itself is on, which moves with the unit's mode
+buttons whatever rbp does, so `map_flx10.c` tracks the last mode button per deck and
+hands the base to the bridge (`struct led_notes.pad_base`). SAMPLER's page (48) has
+nothing behind it and is left dark; before any mode button the page is guessed from
+rbp's mode.
+
+Pad palette (velocity): 4 blue, 8 light blue, 12 teal, 16 greener teal, 20 green,
+24 yellow-green, 28 yellow, 32 orange, 36 darker orange, 40 even darker orange, 44
+pink, 48 light pink, 52 purpler light pink, 56 darker purple pink, 60 darker purple,
+64 white; +64 is the dim version; **0 is the unit's own dim purple, not off**. rbp's
+RGB goes to the nearest hue, low saturation to white (`led_flx10_palette()` in
+`led_table.c`, pinned by `test_led_table`).
+
+No LED answered for: SHIFT, BACK, VIEW, BEAT < / >, CALL < / >, FX ON / assign,
+Sound Color FX, master CUE, master meter. Left dark on purpose: stems/PART, PAGE,
+LINK, TEMPO RESET, SLIP REVERSE, sampler CUE, channels 3/4.
+
 **Still to check on the unit:** how the jog feels
-after the fix; LEDs (none driven yet). Also,
+after the fix; LEDs against the table above. Also,
 once on the audio system: master and booth output by ear.
 
 **Later, maybe:** RX3 effects matching the FLX10's (ENIGMA JET, MOBIUS, ...).
 
-`test_flx10.c` pins the table: 44 checks, built and run natively on the host
+`test_flx10.c` pins the table: 99 checks, built and run natively on the host
 (`cc ... test_flx10.c map_flx10.c ctrl_map.c shimutil.c shmstate.c pitch_state.c`).
 `make test_flx10` builds it like the other shim tests.

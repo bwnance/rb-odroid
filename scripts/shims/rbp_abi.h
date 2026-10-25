@@ -747,6 +747,11 @@ static const signed char bfx_type_to_pos[15] = {
 #define PADMODE_DECK1_OFF        0x0c
 #define PADMODE_DECK2_OFF        0x10
 #define PADMODE_BYTE_OFF         0x281
+/* QUANTIZE, in the same per-deck struct: StatWatcher::getPlayQuantizeOn
+ * (0x2c01c4, reached from UiGetPlayQuantizeOn 0xfd36c) returns bit 6 of the
+ * byte at +0x2e. */
+#define QUANTIZE_BYTE_OFF        0x2e
+#define QUANTIZE_BIT             0x40
 
 /* playengine::PlayEngine singleton + isLooping(EnPlayerChannel) (see the LED
  * section below, which defines these later in the file) */

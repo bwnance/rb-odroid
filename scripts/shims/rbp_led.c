@@ -69,7 +69,9 @@ int led_loop_armed[2];
 enum {
      L_SYNC, L_CUE, L_PLAY, L_KEYLOCK, L_VINYL, L_SLIP,
      L_LOOPIN, L_LOOPOUT, L_ALOOP,
-     L_MODE0, L_MODE1, L_MODE2, L_MODE3, L_SLOT_COUNT
+     L_MODE0, L_MODE1, L_MODE2, L_MODE3,
+     L_MODE4, L_MODE5, L_MODE6, L_MODE7,      /* second banks (mode_banks) */
+     L_QUANT, L_SLOT_COUNT
 };
 
 static int led_verbose = 0;
@@ -268,20 +270,36 @@ static const unsigned char *led_entry(unsigned int id, unsigned int ch)
  * button is pressed for the mode rbp is ALREADY in (the size bank opens). It is
  * returned as it is rather than folded into one of the four, because it names no
  * mode and the caller must not treat it as one. */
-static int rbp_pad_mode(int deck)
+static unsigned char *rbp_deck_stat(int deck)
 {
-     void *holder, *sw, *pd;
+     void *holder, *sw;
 
      holder = *(void **)UI_PADMODE_HOLDER_GLOBAL;
      if (!holder)
-          return -1;
+          return NULL;
      sw = *(void **)((char *)holder + PADMODE_STATWATCHER_OFF);
      if (!sw)
-          return -1;
-     pd = *(void **)((char *)sw + (deck ? PADMODE_DECK2_OFF : PADMODE_DECK1_OFF));
+          return NULL;
+     return *(unsigned char **)((char *)sw +
+                                (deck ? PADMODE_DECK2_OFF : PADMODE_DECK1_OFF));
+}
+
+static int rbp_pad_mode(int deck)
+{
+     unsigned char *pd = rbp_deck_stat(deck);
      if (!pd)
           return -1;
-     return (int)*(unsigned char *)((char *)pd + PADMODE_BYTE_OFF);
+     return (int)pd[PADMODE_BYTE_OFF];
+}
+
+/* rbp's QUANTIZE for this deck -- the same per-deck struct, the byte and bit
+ * StatWatcher::getPlayQuantizeOn reads (rbp_abi.h). -1 = not up yet. */
+static int rbp_quantize(int deck)
+{
+     unsigned char *pd = rbp_deck_stat(deck);
+     if (!pd)
+          return -1;
+     return (pd[QUANTIZE_BYTE_OFF] & QUANTIZE_BIT) != 0;
 }
 
 /* Look up rbp's own state for one (id, channel) LED.
@@ -540,6 +558,8 @@ static unsigned char led_encode(int enc, int r, int g, int b)
 {
      unsigned char v;
 
+     if (enc == LED_ENC_FLX10_PALETTE)
+          return led_flx10_palette(r, g, b);
      if (enc != LED_ENC_PRIME_6BIT)
           return 0x7f;
 
@@ -737,15 +757,19 @@ static void led_refresh(void)
            * re-addresses its pads (ctrl_map.h's n_pad_base has the measurement),
            * which is the one thing this group does that no other group here
            * does -- hence the mode read and the clearing of the old base. */
-          if (led_pads && n->pad_ch >= 0 && n->n_pad_base[0] >= 0) {
+          if (led_pads && n->pad_ch >= 0 &&
+              (n->n_pad_base[0] >= 0 || n->pad_base)) {
                int pch = i ? n->pad_ch2 : n->pad_ch;
                int m = rbp_pad_mode(i);
+               int mmax = n->mode_banks ? 8 : 4;
                /* -1 = the chain is not up, 4 = rbp's size-bank echo: neither
                 * names a mode, so the pads are left exactly as they are -- the
                 * same rule, for the same reason, as the mode LEDs below. Darking
-                * them would be a lie about a mode that has not changed. */
-               if (pch >= 0 && m >= 0 && m < 4) {
-                    int base = n->n_pad_base[m];
+                * them would be a lie about a mode that has not changed.
+                * (On a mode_banks surface 4..7 ARE modes: the second banks.) */
+               if (pch >= 0 && m >= 0 && m < mmax) {
+                    int base = n->pad_base ? n->pad_base(i, m)
+                                           : n->n_pad_base[m];
 
                     /* A mode change moves the note each pad answers to, so the
                      * eight notes the LAST mode used have to be cleared before
@@ -765,7 +789,10 @@ static void led_refresh(void)
                          led_pad_base[i] = base;
                     }
 
-                    for (int p = 0; p < LED_PAD_COUNT; p++) {
+                    /* -1 from a pad_base() hook: the panel's pads are on a
+                     * page rbp has nothing for. The old page is cleared above
+                     * and nothing more is sent. */
+                    for (int p = 0; base >= 0 && p < LED_PAD_COUNT; p++) {
                          unsigned char rgb[3];
                          int pnote = base + p;
                          int st = ledstat_state(LED_PAD_FIRST + (unsigned)p,
@@ -839,12 +866,35 @@ static void led_refresh(void)
            * lighting one of them would be a guess. */
           if (n->n_mode[0] >= 0) {
                int m = rbp_pad_mode(i);
-               if (m >= 0 && m < 4) {
-                    for (int k = 0; k < 4; k++)
-                         if (n->n_mode[k] >= 0)
-                              led_send(sch, n->n_mode[k],
-                                       &led_last[i][L_MODE0 + k], k == m);
+               int mmax = n->mode_banks ? 8 : 4;
+               if (m >= 0 && m < mmax) {
+                    int mnote[8];
+                    for (int k = 0; k < 8; k++)
+                         mnote[k] = k < 4 ? n->n_mode[k]
+                                  : (n->mode_banks ? n->n_mode_bank[k - 4] : -1);
+                    /* One send per NOTE, not per mode: a surface may light one
+                     * button for two modes (the FLX10's BEAT LOOP and BEAT LOOP
+                     * 2), and sending it once on and once off per tick would
+                     * flicker it. The first mode carrying a note owns it. */
+                    for (int k = 0; k < mmax; k++) {
+                         int dup = 0;
+                         if (mnote[k] < 0)
+                              continue;
+                         for (int j = 0; j < k; j++)
+                              if (mnote[j] == mnote[k])
+                                   dup = 1;
+                         if (!dup)
+                              led_send(sch, mnote[k], &led_last[i][L_MODE0 + k],
+                                       mnote[k] == mnote[m]);
+                    }
                }
+          }
+
+          /* QUANTIZE, from rbp's own flag */
+          if (n->n_quantize >= 0) {
+               int q = rbp_quantize(i);
+               if (q >= 0)
+                    led_send(sch, n->n_quantize, &led_last[i][L_QUANT], q);
           }
 
           if (led_debug_loop) {

@@ -777,6 +777,7 @@ static const struct led_notes jp21_leds = {
      .meter_master_ch = 15,
      .n_meter_master_l = 32,
      .n_meter_master_r = 33,
+     .n_quantize = -1,
 };
 
 static void jp21_build(void)

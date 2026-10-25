@@ -776,6 +776,49 @@ __attribute__((weak)) int flx10_pad_mode(int deck)
 
 static const int mode_key[4] = { K_HOTCUE, K_ALOOP, K_SLIPLOOP, K_BEATJUMP };
 
+/* The UNIT'S OWN pad page, per deck, as the note base its pads are sending on.
+ * The FLX10 moves its pads (and the only pad LEDs it will show) to a new base
+ * whenever one of its eight mode buttons is pressed, whatever rbp does with the
+ * press -- so the LED bridge has to light the page the unit is on, not the one
+ * rbp's mode would suggest. -1 = no mode button seen yet (the bridge then goes by
+ * rbp's mode, below); FLX10_PAGE_NONE = SAMPLER, which drives nothing in rbp. */
+#define FLX10_PAGE_NONE (-2)
+static int flx10_page[2] = { -1, -1 };
+
+static int flx10_mode_page(int note)
+{
+     switch (note) {
+     case N_MODE_HOT:      return 0;
+     case N_MODE_PADFX1:   return 16;
+     case N_MODE_BEATJUMP: return 32;
+     case N_MODE_SAMPLER:  return FLX10_PAGE_NONE;
+     case N_MODE_KEYBOARD: return 64;
+     case N_MODE_PADFX2:   return 80;
+     case N_MODE_BEATLOOP: return 96;
+     case N_MODE_KEYSHIFT: return 112;
+     default:              return -1;
+     }
+}
+
+/* struct led_notes' pad_base hook. Before any mode button has been pressed the
+ * unit is on whatever page it powered up on, which this side cannot know; rbp's
+ * mode, put through the operator's table (docs/21), is the best guess. */
+static const int flx10_page_for_rbp[8] = { 0, 96, 16, 32, 64, 96, 80, 112 };
+
+int flx10_led_pad_base(int deck, int rbp_mode)
+{
+     int pg;
+
+     if (deck < 0 || deck > 1)
+          return -1;
+     pg = flx10_page[deck];
+     if (pg == FLX10_PAGE_NONE)
+          return -1;
+     if (pg >= 0)
+          return pg;
+     return (rbp_mode >= 0 && rbp_mode < 8) ? flx10_page_for_rbp[rbp_mode] : -1;
+}
+
 static void flx10_set_mode(int deck, int want)
 {
      int cur = flx10_pad_mode(deck);
@@ -802,6 +845,12 @@ static void flx10_note(int ch, int note, int on)
 
      if (deck >= 0) {
           int sch = deck + 1;
+
+          if (on) {
+               int pg = flx10_mode_page(note);
+               if (pg != -1)
+                    flx10_page[deck] = pg;
+          }
 
           switch (note) {
           case N_SHIFT:
@@ -1161,8 +1210,58 @@ static void flx10_event(const struct snd_seq_event *ev)
      }
 }
 
-/* No LED table yet: NULL sends nothing (ctrl_map.h). The FLX4's LEDs turned out
- * to use each control's own input note, which is the first thing to try here. */
+/* ---- LEDs -----------------------------------------------------------------
+ *
+ * Measured 2026-10-24 with scripts/odroid/led-probe.py (flx10-leds.json): every
+ * LED answers on its own button's input note and channel, ON = 0x7F. The second
+ * bank buttons (SHIFT + mode) light their PARENT button flashing -- 105 flashes
+ * HOT CUE, 109 BEAT JUMP, 107 PAD FX1, 111 SAMPLER -- which is exactly how the
+ * unit shows the shifted mode. Pads take the palette (LED_ENC_FLX10_PALETTE) and
+ * show only the page the unit is on, hence the pad_base hook. The meters are the
+ * FLX4's: CC 2 on the deck's channel, same scale.
+ *
+ * Left dark on purpose: PART/stems, PAGE, LINK, TEMPO RESET, SLIP REVERSE, the
+ * sampler CUE and channels 3/4 -- nothing in rbp says anything for them. */
+static const struct led_notes flx10_leds = {
+     .deck_ch = 0,                 /* decks 1/2 on channels 0/1 */
+     .n_sync = N_SYNC,
+     .n_cue = N_CUE,
+     .n_play = N_PLAY,
+     .n_keylock = N_KEYSYNC,       /* KEY SYNC is MASTER TEMPO here */
+     .n_vinyl = -1,                /* no VINYL LED */
+     .n_slip = N_SLIP,
+     .n_loopin = N_IN,
+     .n_loopout = N_OUT,
+     .n_autoloop = N_4BEAT,
+     /* by rbp's mode byte: 0 HOT CUE, 1 BEAT LOOP, 2 SLIP LOOP, 3 BEAT JUMP */
+     .n_mode = { N_MODE_HOT, N_MODE_BEATLOOP, N_MODE_PADFX1, N_MODE_BEATJUMP },
+     .mode_banks = 1,
+     /* 4 GATE CUE, 5 BEAT LOOP 2, 6 RELEASE FX, 7 BEAT JUMP 2 */
+     .n_mode_bank = { N_MODE_KEYBOARD, N_MODE_BEATLOOP, N_MODE_PADFX2,
+                      N_MODE_KEYSHIFT },
+     .pad_ch = CH_PADS1,
+     .pad_ch2 = CH_PADS2,
+     .n_pad_base = { 0, 96, 16, 32 },   /* unused while pad_base is set */
+     .pad_enc = LED_ENC_FLX10_PALETTE,
+     .pad_base = flx10_led_pad_base,
+     .strip_ch_first = 0,
+     .strip_count = 2,
+     .n_strip_cue = N_CH_CUE,
+     .master_ch_first = -1,        /* master CUE: no LED answered */
+     .master_ch_count = 0,
+     .n_master_cue = -1,
+     .fx_ch = -1,                  /* FX ON and SCFX: no LED answered */
+     .n_fx = { -1, -1, -1, -1, -1 },
+     .meter_ch_first = 0,
+     .n_meter_cc = 2,
+     .meter_enc = METER_ENC_FLX4_LEVEL,
+     .meter_pre_fader = 1,
+     .meter_master_ch = -1,        /* CC 2/3 on ch 7: nothing moved */
+     .n_meter_master_l = -1,
+     .n_meter_master_r = -1,
+     .n_quantize = N_QUANTIZE,
+};
+
 const struct ctrl_map map_flx10 = {
      "flx10",
      flx10_build,
@@ -1171,5 +1270,5 @@ const struct ctrl_map map_flx10 = {
      flx10_tick,
      NULL,
      NULL,
-     NULL,
+     &flx10_leds,
 };

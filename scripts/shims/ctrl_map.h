@@ -115,6 +115,10 @@ enum led_fx {
 enum led_enc {
      LED_ENC_NONE = 0,     /* plain on/off: the pad takes any non-zero velocity */
      LED_ENC_PRIME_6BIT,   /* bits 4-5 red, 2-3 green, 0-1 blue (Engine OS Prime) */
+     LED_ENC_FLX10_PALETTE,/* the DDJ-FLX10's fixed pad palette: velocity 4..60
+                            * in steps of 4 picks a hue, 64 is white, +64 is
+                            * the dim version of the same colour (measured
+                            * 2026-10-24 with scripts/odroid/led-probe.py) */
 };
 
 /* How a meter LEVEL becomes a CC value. Not an led_enc: a meter is a level, not
@@ -250,6 +254,22 @@ struct led_notes {
      int n_meter_master_l; /* master meter CCs, left then right; the FLX4 has
                             * neither and leaves both at -1 */
      int n_meter_master_r;
+
+     /* ---- added for the FLX10 (zero-init is NOT "none" for these: a table
+      * that has no quantize LED must say -1, and the FLX4 / JP21 do) ------- */
+     int n_quantize;       /* deck channel note lit while rbp's QUANTIZE is on;
+                            * -1 = no such LED */
+     int mode_banks;       /* 1 = rbp's pad-mode byte runs 0..7 (the second
+                            * bank of each mode is 4..7) and n_mode_bank[]
+                            * lights the second bank; 0 = only modes 0..3 */
+     int n_mode_bank[4];   /* the note lit for modes 4..7; may repeat a note
+                            * in n_mode[] (one LED for two modes) */
+     /* A surface whose pads re-address themselves by the UNIT'S OWN pad mode
+      * (which need not be rbp's) answers the pad base here: given the deck and
+      * rbp's mode byte, the note base the panel's pads are on right now, or -1
+      * for "the pads are showing something rbp has no state for" (they are left
+      * dark). NULL = n_pad_base[rbp mode], modes 0..3 only. */
+     int (*pad_base)(int deck, int rbp_mode);
 };
 
 /* Empty both tables. Called by the front end exactly once, before any build():
