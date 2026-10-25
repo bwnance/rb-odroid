@@ -351,7 +351,21 @@ static void test_default(void)
 
 static void test_sysex(void)
 {
+    const struct controller *x = controllers_find("flx10");
     const struct controller *f = controllers_find("flx4");
+
+    /* The FLX10's query and keepalive, captured from rekordbox (2026-10-25). */
+    {
+        static const unsigned char q[12] = {
+            0xF0, 0x00, 0x40, 0x05, 0x00, 0x00, 0x04, 0x01, 0x00, 0x03, 0x01, 0xF7 };
+        static const unsigned char k[12] = {
+            0xF0, 0x00, 0x40, 0x05, 0x00, 0x00, 0x04, 0x01, 0x00, 0x50, 0x00, 0xF7 };
+        CHECK(x && x->init_len == sizeof q && memcmp(x->init, q, sizeof q) == 0,
+              "the FLX10's position query must be rekordbox's twelve bytes");
+        CHECK(x && x->keepalive_len == sizeof k && memcmp(x->keepalive, k, sizeof k) == 0,
+              "the FLX10's keepalive must be rekordbox's twelve bytes");
+        CHECK(x && x->keepalive_ms == 200, "the FLX10's keepalive is every 200 ms");
+    }
     const struct controller *j = controllers_find("jp21");
 
     /* The FLX4's keepalive, as the sibling port records it. Pinned byte for byte

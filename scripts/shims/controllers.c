@@ -28,6 +28,22 @@ static const unsigned char sysex_flx4_keepalive[] = {
      0xF0, 0x00, 0x40, 0x05, 0x00, 0x00, 0x04, 0x05, 0x00, 0x50, 0x02, 0xF7
 };
 
+/* ---- the FLX10's position query and keepalive ----
+ *
+ * MEASURED 2026-10-25 from rekordbox itself: MIDI Monitor spying on rekordbox's
+ * output to the DDJ-FLX10 (docs/21, tools/captures/flx10-rekordbox-startup.txt).
+ * rekordbox sends the keepalive every ~200 ms from the moment it connects, and
+ * the query once; the unit answers the query within half a millisecond with
+ * every absolute control -- trims, EQs, filters, the faders (CC 19 on ch 1-4),
+ * the crossfader, MASTER and HP levels -- MSB then LSB. The same shape as the
+ * DDJ-400's `... 00 03 01` query, with the FLX10's model bytes 04 01. */
+static const unsigned char sysex_flx10_query[] = {
+     0xF0, 0x00, 0x40, 0x05, 0x00, 0x00, 0x04, 0x01, 0x00, 0x03, 0x01, 0xF7
+};
+static const unsigned char sysex_flx10_keepalive[] = {
+     0xF0, 0x00, 0x40, 0x05, 0x00, 0x00, 0x04, 0x01, 0x00, 0x50, 0x00, 0xF7
+};
+
 /* ---- the JP21's absolute-value query ----
  *
  * This port's OWN bytes, moved here verbatim from midi_io.c's
@@ -67,16 +83,16 @@ static const struct controller table[] = {
      },
      {
           /* MEASURED on the ODROID-N2+ 2026-10-24 (docs/21): lsusb, the ALSA card
-           * list and the sequencer port name. No SysEx and no keepalive are known
-           * for it, and none has been needed so far. */
+           * list and the sequencer port name. Its SysEx -- the position query
+           * and the keepalive -- was captured from rekordbox 2026-10-25 (above). */
           "flx10",
           "DDJ-FLX10",
           "2b73:0041",
           "FLX10",                                  /* "DDJ-FLX10 MIDI 1" */
           "DDJFLX10",
           "flx10",
-          NULL, 0,
-          NULL, 0, 0,
+          sysex_flx10_query, sizeof sysex_flx10_query,
+          sysex_flx10_keepalive, sizeof sysex_flx10_keepalive, 200,
           0, NULL,                                  /* a surface, not a mixer */
      },
      {

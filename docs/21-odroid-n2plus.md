@@ -178,10 +178,14 @@ same `startup_gain()` (default 1.5 s mute + 0.3 s fade). Confirmed on the unit.
   the hot cue grid's redraw. `scripts/odroid/modelag.py` times it if revisited.
 * **Booth and master outputs**, by ear, once on the audio system.
 * **Jog wheel displays** on the FLX10 do nothing yet (probe: note 54 lit nothing;
-  the displays are probably fed by SysEx, not notes).
-* **"Deck playing" icons on the HDMI screen flash at start-up.** They should start
-  off; moving that channel's fader corrects them. Likely an initial-state read
-  (fader / on-air) before the first real value arrives.
+  the displays are fed by SysEx: the rekordbox capture has `... 04 01 00 0a ...`,
+  `0b`, `0c`, `11`-`14` messages, `tools/captures/flx10-rekordbox-startup.txt`).
+* **ON AIR icons at start-up.** The map seeded both channel faders at unity because
+  the FLX10 did not report positions, so rbp lit ON AIR. Fixed 2026-10-25 with
+  rekordbox's own position query (`F0 00 40 05 00 00 04 01 00 03 01 F7`, captured
+  with MIDI Monitor, `tools/captures/flx10-rekordbox-startup.txt`): the unit answers
+  with every absolute control, so nothing is seeded. Keepalive
+  `... 00 50 00 F7` every 200 ms added too. To confirm on the unit.
 * **Hot cue initial state** is similarly odd at start-up.
 * **Later, maybe:** RX3 effects matching the FLX10's (ENIGMA JET, MOBIUS, ...).
 

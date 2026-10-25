@@ -651,6 +651,24 @@ int led_query_absolute(void)
       * about what the *panel* last reported, and we no longer know. */
      ctrl_abs_invalidate();
 
+     /* A surface matched by NAME on the sequencer route that has a query of its
+      * own (the FLX10's, captured from rekordbox 2026-10-25) sends that one: the
+      * unit answers with every absolute control, so nothing needs seeding. */
+     if (out_route == ROUTE_SEQ) {
+          const char *nm = midi_surface_name();
+          const struct controller *c = nm ? controllers_by_hint(nm) : NULL;
+          if (c && c->init && c->init_len) {
+               static int said;
+               int ok = midi_sysex_out(c->init, c->init_len);
+               if (ok && !said) {
+                    said = 1;
+                    klog("knobshim2: asked '%s' for its absolute controls "
+                         "(%u-byte query)\n", c->name, c->init_len);
+               }
+               return ok;
+          }
+     }
+
      if (out_route != ROUTE_RAW || led_fd < 0) {
           if (out_route == ROUTE_SEQ && !told) {
                told = 1;
