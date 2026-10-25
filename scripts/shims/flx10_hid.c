@@ -33,24 +33,53 @@ static const unsigned char rb_loaded[64] = {
      0x00, 0x00, 0x01, 0x00, 0x85, 0x0d, 0x00, 0x00,
 };
 
-void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck, int loaded,
-                         int playing, int elapsed_s)
+/* The loaded packet is rekordbox's captured one with these fields filled
+ * (decoded 2026-10-25, scripts/odroid/hid-decode.py rounds 1-2):
+ *   [2]      00 playing, 02 paused
+ *   [4]      flags: 0x04 master tempo; 0x30 the tempo range box, 0x20 = +-10,
+ *            0x30 = +-16, 0x00 = none (0x10 = +-6 assumed, WIDE not found:
+ *            no box); 0x08 kept as captured
+ *   [5]      0x81 active
+ *   [9]      0xb4 as captured; 00 reads as Not Loaded
+ *   [11..12] elapsed seconds, big-endian; [13] the fraction, /256 (the arm
+ *            moves with it)
+ *   [16]     the key; encoding not found, 00 = blank, so blank
+ *   [21..22] BPM, whole number, little-endian
+ *   [23..24] tempo % x100, signed little-endian
+ * The BPM's decimals are not found yet (the screen shows .00). */
+void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
+                         const struct flx10_hid_deck *s)
 {
+     static const unsigned char range_bits[4] = { 0x10, 0x20, 0x30, 0x00 };
      unsigned char db = (unsigned char)(0x10 * (deck + 1));
+     int sec, bpm, tempo;
 
      memset(p, 0, FLX10_HID_PKT);
-     if (!loaded) {                   /* 10 21 00 00 20 01 00 00 80 10 */
+     if (!s || !s->loaded) {          /* 10 21 00 00 20 01 00 00 80 10 */
           p[0] = db; p[1] = 0x21; p[4] = 0x20; p[5] = 0x01; p[8] = 0x80; p[9] = 0x10;
           return;
      }
      memcpy(p, rb_loaded, sizeof rb_loaded);
      p[0] = db;
-     p[2] = playing ? 0x00 : 0x02;    /* 00 playing, 02 paused */
-     p[5] = 0x81;                     /* active */
-     if (elapsed_s < 0) elapsed_s = 0;
-     if (elapsed_s > 0xFFFF) elapsed_s = 0xFFFF;
-     p[11] = (unsigned char)(elapsed_s >> 8);
-     p[12] = (unsigned char)elapsed_s;
+     p[2] = s->playing ? 0x00 : 0x02;
+     p[4] = (unsigned char)((p[4] & ~0x34) | (s->mt ? 0x04 : 0) |
+                            range_bits[s->range & 3]);
+     p[5] = 0x81;
+     sec = s->elapsed_ms > 0 ? s->elapsed_ms / 1000 : 0;
+     if (sec > 0xFFFF) sec = 0xFFFF;
+     p[11] = (unsigned char)(sec >> 8);
+     p[12] = (unsigned char)sec;
+     p[13] = s->elapsed_ms > 0 ? (unsigned char)((s->elapsed_ms % 1000) * 256 / 1000) : 0;
+     p[16] = 0x00;
+     bpm = s->bpm_x100 > 0 ? s->bpm_x100 / 100 : 0;
+     if (bpm > 0xFFFF) bpm = 0xFFFF;
+     p[21] = (unsigned char)bpm;
+     p[22] = (unsigned char)(bpm >> 8);
+     tempo = s->tempo_x100;
+     if (tempo > 32767) tempo = 32767;
+     if (tempo < -32768) tempo = -32768;
+     p[23] = (unsigned char)(tempo & 0xFF);
+     p[24] = (unsigned char)((tempo >> 8) & 0xFF);
 }
 
 void flx10_hid_heartbeat_pkt(unsigned char p[FLX10_HID_PKT], int n)
@@ -63,8 +92,8 @@ void flx10_hid_heartbeat_pkt(unsigned char p[FLX10_HID_PKT], int n)
 
 /* ---- the sender ---- */
 
-struct hid_deck { volatile int loaded, playing, elapsed_s; };
-static struct hid_deck hd[4];
+static struct flx10_hid_deck hd[4];
+static pthread_mutex_t hd_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static int find_node(char *path, size_t n)
 {
@@ -139,8 +168,11 @@ static void *hid_thread(void *arg)
           flx10_hid_heartbeat_pkt(p, n);
           int ok = send_pkt(fd, p);
           for (int d = 0; ok && d < 4; d++) {
-               flx10_hid_state_pkt(p, d, hd[d].loaded, hd[d].playing,
-                                   hd[d].elapsed_s);
+               struct flx10_hid_deck s;
+               pthread_mutex_lock(&hd_lock);
+               s = hd[d];
+               pthread_mutex_unlock(&hd_lock);
+               flx10_hid_state_pkt(p, d, &s);
                ok = send_pkt(fd, p);
           }
           if (!ok) {
@@ -169,14 +201,14 @@ static void hid_start(void)
           klog("knobshim2: FLX10 HID: cannot start its thread\n");
 }
 
-void flx10_hid_update(int deck, int loaded, int playing, int elapsed_s)
+void flx10_hid_update(int deck, const struct flx10_hid_deck *s)
 {
      static pthread_once_t once = PTHREAD_ONCE_INIT;
 
-     if (deck < 0 || deck > 3)
+     if (deck < 0 || deck > 3 || !s)
           return;
-     hd[deck].loaded = loaded;
-     hd[deck].playing = playing;
-     hd[deck].elapsed_s = elapsed_s;
+     pthread_mutex_lock(&hd_lock);
+     hd[deck] = *s;
+     pthread_mutex_unlock(&hd_lock);
      pthread_once(&once, hid_start);
 }

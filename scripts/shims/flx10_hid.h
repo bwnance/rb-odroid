@@ -19,13 +19,24 @@
 
 #define FLX10_HID_PKT 128
 
+/* One deck as the jog screen shows it. Fields decoded from the unit with
+ * scripts/odroid/hid-decode.py (2026-10-25); see flx10_hid_state_pkt(). */
+struct flx10_hid_deck {
+     int loaded, playing;
+     int elapsed_ms;
+     int bpm_x100;          /* the BPM rbp's screen shows, x100 */
+     int tempo_x100;        /* tempo %, x100, signed */
+     int range;             /* getTempoRange: 0 = 6%, 1 = 10%, 2 = 16%, 3 = WIDE */
+     int mt;
+};
+
 /* Publish one deck's state (deck 0 = deck 1). Starts the sender thread on the
- * first call, unless FLX10_HID=0. Cheap: three stores. */
-void flx10_hid_update(int deck, int loaded, int playing, int elapsed_s);
+ * first call, unless FLX10_HID=0. */
+void flx10_hid_update(int deck, const struct flx10_hid_deck *s);
 
 /* The packets, for the sender and the tests. `deck` is 0..3. */
-void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck, int loaded,
-                         int playing, int elapsed_s);
+void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
+                         const struct flx10_hid_deck *s);
 void flx10_hid_heartbeat_pkt(unsigned char p[FLX10_HID_PKT], int n /* 1..5 */);
 
 #endif /* RBPI4B_FLX10_HID_H */

@@ -537,17 +537,35 @@ int main(void)
           static const unsigned char empty[10] = { 0x10, 0x21, 0, 0, 0x20, 0x01, 0, 0, 0x80, 0x10 };
           int zero = 1;
 
-          flx10_hid_state_pkt(p, 0, 0, 0, 0);
+          struct flx10_hid_deck hs;
+
+          memset(&hs, 0, sizeof hs);
+          flx10_hid_state_pkt(p, 0, &hs);
           for (int i = 10; i < FLX10_HID_PKT; i++) zero &= p[i] == 0;
           CHECK(!memcmp(p, empty, 10) && zero, "empty deck 1: rekordbox's empty packet");
-          flx10_hid_state_pkt(p, 1, 1, 0, 300);
+          hs.loaded = 1; hs.elapsed_ms = 300250; hs.bpm_x100 = 12403;
+          hs.tempo_x100 = 100; hs.range = 1; hs.mt = 1;
+          flx10_hid_state_pkt(p, 1, &hs);
           CHECK(p[0] == 0x20 && p[1] == 0x21 && p[2] == 0x02 && p[5] == 0x81 && p[7] == 0x02,
                 "deck 2 loaded, paused: 20 21 02 .. 81 .. 02");
-          CHECK(p[11] == 0x01 && p[12] == 0x2C, "elapsed 300 s -> 01 2C (%02x %02x)", p[11], p[12]);
+          CHECK(p[11] == 0x01 && p[12] == 0x2C && p[13] == 64,
+                "elapsed 300.25 s -> 01 2C, fraction 64/256 (%02x %02x %d)", p[11], p[12], p[13]);
+          CHECK(p[21] == 124 && p[22] == 0, "BPM 124.03 -> 7C 00 (%02x %02x)", p[21], p[22]);
+          CHECK(p[23] == 0x64 && p[24] == 0x00, "tempo +1.00%% -> 64 00");
+          CHECK(p[4] == 0x2C, "MT on, range +-10 -> byte 4 = 2C as captured (%02x)", p[4]);
+          CHECK(p[16] == 0, "key blank until decoded");
           CHECK(p[9] == 0xb4 && p[60] == 0x85 && p[61] == 0x0d && p[64] == 0,
                 "the rest is rekordbox's captured loaded packet");
-          flx10_hid_state_pkt(p, 0, 1, 1, 70000);
+          hs.playing = 1; hs.elapsed_ms = 70000000; hs.tempo_x100 = -100;
+          hs.range = 2; hs.mt = 0; hs.bpm_x100 = 38000;
+          flx10_hid_state_pkt(p, 0, &hs);
           CHECK(p[2] == 0x00 && p[11] == 0xFF && p[12] == 0xFF, "playing -> 00; elapsed clamps at FFFF");
+          CHECK(p[23] == 0x9C && p[24] == 0xFF, "tempo -1.00%% -> 9C FF");
+          CHECK(p[21] == 0x7C && p[22] == 0x01, "BPM 380 -> 7C 01");
+          CHECK(p[4] == 0x38, "MT off, range +-16 -> 38 (%02x)", p[4]);
+          hs.range = 3;
+          flx10_hid_state_pkt(p, 0, &hs);
+          CHECK(p[4] == 0x08, "WIDE: no box until decoded (%02x)", p[4]);
           flx10_hid_heartbeat_pkt(p, 3);
           CHECK(p[0] == 0 && p[1] == 0x3D && p[2] == 3 && p[4] == 5, "heartbeat 00 3D n 00 05");
      }

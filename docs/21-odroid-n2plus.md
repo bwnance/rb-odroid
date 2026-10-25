@@ -250,7 +250,16 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   brings BPM/time/arm up (with `--playing` the mini waveform's position marker
   goes solid white), VirtualDJ's does not. `shims/flx10_hid.c` now sends the
   heartbeat + one packet per deck every 20 ms from its own thread, from the deck
-  values rbp_led.c reads (loaded, playing, elapsed s); `FLX10_HID=0` turns it off.
+  values rbp_led.c reads; `FLX10_HID=0` turns it off. The MIDI display values
+  still go out alongside it.
+* **xx 21 fields** (decoded with `scripts/odroid/hid-decode.py`, rounds 1-2):
+  [2] 00 playing / 02 paused; [4] 0x04 MT, 0x30 range box (0x20 +-10, 0x30 +-16,
+  0x00 none; 0x10 +-6 assumed; WIDE not found); [9] b4, 00 = Not Loaded;
+  [11..12] elapsed s BE, [13] fraction /256 (moves the arm); [16] key (only 00 =
+  blank found -- sent blank); [21..22] BPM whole number LE; [23..24] tempo % x100
+  signed LE; [3] 0a shows remaining time (from what total, not found). Not found:
+  BPM decimals, the key encoding, WIDE. Round 3 checks which MIDI display
+  messages are still drawn under HID, key-after-reload, WIDE and the decimals.
 * **Replug** (2026-10-25): a FLX10 that is power cycled or replugged gets the vendor
   unlock from udev (`99-flx10-unlock.rules`, installed by install.sh), the display
   connect sequence from the map, and every deck that was playing is paused when the

@@ -1655,9 +1655,17 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
 
      if (deck == 0)
           flx10_display_init(now);
-     /* the jog screens draw nothing without this (flx10_hid.h) */
-     flx10_hid_update(deck, di->loaded, di->playing,
-                      di->elapsed_ms > 0 ? di->elapsed_ms / 1000 : 0);
+     /* the jog screens draw nothing without this (flx10_hid.h); the MIDI
+      * values below still go out too */
+     {
+          struct flx10_hid_deck hs = {
+               .loaded = di->loaded, .playing = di->playing,
+               .elapsed_ms = di->elapsed_ms, .bpm_x100 = di->bpm_raw,
+               .tempo_x100 = di->tempo_raw, .range = di->tempo_range,
+               .mt = di->mt,
+          };
+          flx10_hid_update(deck, &hs);
+     }
      force = now - jd[deck].refresh >= 1000;
 
      if (force)

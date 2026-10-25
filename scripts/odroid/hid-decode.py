@@ -91,7 +91,62 @@ ROUND2 = [
     ({31: 0x03}, "range box?"),
     ({27: 0x00}, "anything?"),
 ]
-ROUNDS = {1: ROUND1, 2: ROUND2}
+# Round 2 (2026-10-25): 23-24 tempo % x100 signed LE (64 00 +1.0, 9c ff -1.0);
+# byte 4 0x04 = MT, 0x30 = range box (20 +-10, 30 +-16, 00 none); 13 moves the
+# arm (sub-second); byte 16 values other than 00 change nothing.
+#
+# Round 3: which MIDI display messages still show while the HID packet runs
+# (a step's "midi" is sent every 100 ms, deck 1 = the LEFT jog; rb sends its own
+# once a second, so a hit may flicker), then key-after-reload, WIDE, BPM
+# decimals, and where remaining time comes from. Pause both decks first.
+ROUND3 = [
+    ({}, "baseline (LEFT jog): BPM, key, tempo %, range, MT, time, arm"),
+    {"midi": ["B0 49 01"], "watch": "key 8B instead of 10B? (MIDI key)"},
+    {"midi": ["90 5B 00"], "watch": "key in classic notation? (MIDI key format)"},
+    {"midi": ["BF 14 09 BF 34 62"], "watch": "BPM 125.0? (MIDI BPM)"},
+    {"midi": ["BF 18 08 BF 38 1A"], "watch": "tempo +5.0%? (MIDI speed)"},
+    {"midi": ["BF 42 05 BF 43 1E"], "watch": "time 5:30? (MIDI time)"},
+    {"midi": ["9F 14 7F"], "watch": "time switches to remaining? (MIDI time mode)"},
+    {"midi": ["9F 14 00"], "watch": "time elapsed? (MIDI time mode)"},
+    {"midi": ["BF 10 00 BF 30 5A"], "watch": "arm at 3 o'clock? (MIDI marker)"},
+    {"midi": ["BF 10 01 BF 30 34"], "watch": "arm at 6 o'clock? (MIDI marker)"},
+    {"midi": ["9F 18 7F"], "watch": "MASTER shown? (MIDI)"},
+    {"midi": ["9F 1C 7F"], "watch": "SYNC shown? (MIDI)"},
+    {"midi": ["9F 20 00"], "watch": "MT off? (MIDI; HID says on)"},
+    {"midi": ["9F 5D 7F"], "watch": "rekordbox logo instead of info? (MIDI show info)"},
+    {"pre": {9: 0x00}, "edits": {16: 0x01}, "watch": "after a blink of Not Loaded: key?"},
+    {"pre": {9: 0x00}, "edits": {16: 0x05}, "watch": "after a blink of Not Loaded: key?"},
+    {"pre": {9: 0x00}, "edits": {16: 0x26}, "watch": "after a blink of Not Loaded: key (10B as captured?)"},
+    ({4: 0x1C}, "range box +-6?"),
+    ({4: 0x4C}, "range box WIDE?"),
+    ({4: 0x6C}, "range box?"),
+    ({4: 0xAC}, "range box?"),
+    ({10: 0x32}, "BPM decimals?"),
+    ({14: 0x32}, "BPM decimals?"),
+    ({28: 0x32}, "BPM decimals?"),
+    ({29: 0x32}, "BPM decimals?"),
+    ({30: 0x32}, "BPM decimals?"),
+    ({3: 0x0A}, "remaining time: what does it show?"),
+    ({3: 0x0A, 17: 0x00}, "remaining time changed?"),
+    ({3: 0x0A, 18: 0x00}, "remaining time changed?"),
+    ({3: 0x08}, "remaining time? (0x08 alone)"),
+]
+ROUNDS = {1: ROUND1, 2: ROUND2, 3: ROUND3}
+
+
+def step_parts(st):
+    """(edits, pre-edits, midi messages, watch) from either step form."""
+    if isinstance(st, tuple):
+        return st[0], {}, [], st[1]
+    return st.get("edits", {}), st.get("pre", {}), st.get("midi", []), st["watch"]
+
+
+def find_seq_port():
+    out = subprocess.run(["aseqdump", "-l"], capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        if "FLX10" in line:
+            return line.split()[0]
+    return None
 
 
 def conf_has():
@@ -137,7 +192,10 @@ def main():
         restart_rb()
 
     fd = os.open(path, os.O_WRONLY)
-    cur = {"edits": {}}
+    cur = {"edits": {}, "midi": []}
+    port = find_seq_port()
+    if any(step_parts(st)[2] for st in ROUNDS[a.round]) and not port:
+        print("no FLX10 sequencer port: the MIDI steps will send nothing")
     stop = threading.Event()
 
     def sender():
@@ -158,19 +216,33 @@ def main():
                 print("\nwrite failed: %s (FLX10 unplugged?)" % e)
                 stop.set()
                 return
+            if port and cur["midi"] and n == 5:          # every 100 ms
+                for m in cur["midi"]:
+                    subprocess.run(["aseqsend", "-p", port] + m.split())
             t0 += 0.02
             time.sleep(max(0.0, t0 - time.monotonic()))
 
     out = open(OUT, "w")
     try:
-        input("Load a track on deck 1 and deck 2 (rb up, jogs showing info), then press Enter: ")
+        input("Load a track on deck 1 and deck 2 and leave both PAUSED (rb up, jogs showing info), then press Enter: ")
         threading.Thread(target=sender, daemon=True).start()
         steps = ROUNDS[a.round]
-        for i, (ed, watch) in enumerate(steps, 1):
+        for i, st in enumerate(steps, 1):
             if stop.is_set():
                 break
+            ed, pre, midi, watch = step_parts(st)
+            cur["midi"] = []
+            if pre:
+                cur["edits"] = dict(pre)
+                time.sleep(0.8)
             cur["edits"] = dict(ed)
-            desc = " ".join("%d=%02x" % kv for kv in sorted(ed.items())) or "(none)"
+            cur["midi"] = list(midi)
+            desc = " ".join("%d=%02x" % kv for kv in sorted(ed.items()))
+            if pre:
+                desc = "(" + " ".join("%d=%02x" % kv for kv in sorted(pre.items())) + " first) " + desc
+            if midi:
+                desc = (desc + " " if desc else "") + "MIDI " + " / ".join(midi)
+            desc = desc or "(none)"
             time.sleep(0.3)
             print("\n[%d/%d] %s   -- watch: %s" % (i, len(steps), desc, watch))
             ans = input("  what changed? (Enter = nothing): ").strip() or "nothing"
