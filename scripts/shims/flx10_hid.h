@@ -43,12 +43,37 @@ struct flx10_hid_deck {
  * "--"). From the second rekordbox capture. */
 int flx10_loop_code(int len_ms, int bpm_x100, int tempo_x100);
 
-/* Where the playhead is dt_ms after rbp last said base_ms: rbp's position is
- * read 20 times a second, the screens are sent 100 times, so in between it
- * moves at the playing speed (1 + tempo%). Capped at EXTRAP_MAX_MS ahead, and at
- * the track's end. Exposed for the tests. */
+/* Where the playhead is dt_ms after it was base_ms, at the playing speed
+ * (1 + tempo%). Capped at EXTRAP_MAX_MS ahead, and at the track's end. */
 int flx10_hid_extrapolate(int base_ms, long dt_ms, int moving, int tempo_x100,
                           int total_ms);
+
+/* The arm's position, one deck, sent 100 times a second. Each tick takes a
+ * fresh reading of rbp's playhead and returns what the screen shows:
+ *   playing  -- runs ahead of the reading at the tempo (the reading moves in
+ *               audio blocks) and ignores a reading less than NO_BACKSTEP_MS
+ *               behind, which is block lag and not a seek;
+ *   stopped  -- the reading; right after a pause, the last position shown,
+ *               while rbp's position stays where it stopped (no step back);
+ *   jog      -- the reading as it is (touched, or turned in the last
+ *               JOG_ACTIVE_MS), so the arm follows the hand.
+ * Exposed for the tests. */
+struct flx10_hid_track {
+     int base_ms, shown, was_moving, hold, hold_src;
+     unsigned long long at;
+};
+void flx10_hid_track_init(struct flx10_hid_track *k);
+int flx10_hid_merge(struct flx10_hid_track *k, int reading, int moving, int jog,
+                    int tempo_x100, int total_ms, unsigned long long now_ms);
+
+/* Where the sender reads rbp's playhead (map_flx10.c sets it): fills the
+ * position in ms and whether the deck is moving (playing, not in cue
+ * standby), returns 0 when it cannot read. Without one, the 20 Hz value from
+ * flx10_hid_update is used. */
+void flx10_hid_set_pos_reader(int (*fn)(int deck, int *pos_ms, int *moving));
+
+/* The jog was turned on this deck (0..3). */
+void flx10_hid_jog_activity(int deck);
 
 /* Key shown with master tempo off: the tempo moves it by a whole number of
  * semitones (round(12 * log2(1 + tempo%/100))), as rekordbox draws it -- the

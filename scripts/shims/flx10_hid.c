@@ -207,14 +207,16 @@ void flx10_hid_heartbeat_pkt(unsigned char p[FLX10_HID_PKT], int n)
 #define HID_PERIOD_US 10000          /* 100 Hz, about rekordbox's rate */
 #define EXTRAP_MAX_MS 200
 #define NO_BACKSTEP_MS 100
+#define JOG_ACTIVE_MS 150            /* the jog counts as moving this long after a turn */
 
 struct hid_slot {
      struct flx10_hid_deck s;
-     int base_ms;                     /* position at `at` */
-     unsigned long long at;
+     struct flx10_hid_track k;
+     unsigned long long jog_at;       /* last jog turn (flx10_hid_jog_activity) */
 };
 static struct hid_slot hd[4];
 static pthread_mutex_t hd_lock = PTHREAD_MUTEX_INITIALIZER;
+static int (*pos_reader)(int deck, int *pos_ms, int *moving);
 
 static int moving(const struct flx10_hid_deck *s)
 {
@@ -234,6 +236,65 @@ int flx10_hid_extrapolate(int base_ms, long dt_ms, int mov, int tempo_x100,
      if (total_ms > 0 && v > total_ms)
           v = total_ms;
      return (int)v;
+}
+
+void flx10_hid_track_init(struct flx10_hid_track *k)
+{
+     memset(k, 0, sizeof *k);
+     k->hold = -1;
+}
+
+int flx10_hid_merge(struct flx10_hid_track *k, int reading, int mov, int jog,
+                    int tempo_x100, int total_ms, unsigned long long now)
+{
+     if (jog) {
+          /* the hand moves the playhead: show rbp's reading as it is, no
+           * running ahead at the tempo and no holding back */
+          k->base_ms = k->shown = reading;
+          k->hold = -1;
+     } else if (mov) {
+          int pred = flx10_hid_extrapolate(k->base_ms, (long)(now - k->at),
+                                           k->was_moving, tempo_x100, total_ms);
+          /* rbp's reading moves in audio blocks, so it trails the estimate a
+           * little: a reading just behind is not a jump back (a seek is
+           * further than NO_BACKSTEP_MS) */
+          if (k->was_moving && reading < pred && pred - reading < NO_BACKSTEP_MS)
+               k->base_ms = pred;
+          else
+               k->base_ms = reading;
+          k->shown = k->base_ms;
+          k->hold = -1;
+     } else {
+          /* just stopped: the estimate ran a block ahead of where rbp
+           * stopped; keep showing it while rbp's position stays put, so the
+           * arm does not step back on a pause */
+          if (k->was_moving && k->shown > reading &&
+              k->shown - reading < NO_BACKSTEP_MS) {
+               k->hold = k->shown;
+               k->hold_src = reading;
+          }
+          if (k->hold >= 0 && reading >= k->hold_src - 1 && reading <= k->hold_src + 1)
+               k->shown = k->hold;
+          else {
+               k->hold = -1;
+               k->shown = reading;
+          }
+          k->base_ms = reading;
+     }
+     k->at = now;
+     k->was_moving = mov && !jog;
+     return k->shown;
+}
+
+void flx10_hid_set_pos_reader(int (*fn)(int deck, int *pos_ms, int *moving))
+{
+     pos_reader = fn;
+}
+
+void flx10_hid_jog_activity(int deck)
+{
+     if (deck >= 0 && deck < 4)
+          hd[deck].jog_at = shim_now_ms();
 }
 
 static int find_node(char *path, size_t n)
@@ -310,11 +371,31 @@ static void *hid_thread(void *arg)
           int ok = send_pkt(fd, p);
           for (int d = 0; ok && d < 4; d++) {
                struct flx10_hid_deck s;
-               unsigned long long t = shim_now_ms();
+               unsigned long long t;
+               int pos = 0, mov = 0, live;
+
+               /* rbp's own playhead, read now (decks 1-2): rbp_led's copy is
+                * 20 Hz, too coarse for the arm, and late to see a pause */
+               live = pos_reader && d < 2 && pos_reader(d, &pos, &mov);
+               t = shim_now_ms();
                pthread_mutex_lock(&hd_lock);
                s = hd[d].s;
-               s.elapsed_ms = flx10_hid_extrapolate(hd[d].base_ms, (long)(t - hd[d].at),
-                                                   moving(&s), s.tempo_x100, s.total_ms);
+               if (!live) {
+                    pos = s.elapsed_ms;
+                    mov = moving(&s);
+               }
+               if (s.loaded) {
+                    /* touched on a playing deck does nothing (no vinyl mode) */
+                    int jog = (s.jog_touch && !mov) ||
+                              t - hd[d].jog_at < JOG_ACTIVE_MS;
+                    s.elapsed_ms = flx10_hid_merge(&hd[d].k, pos, mov, jog,
+                                                   s.tempo_x100, s.total_ms, t);
+                    if (live) {
+                         s.playing = mov;      /* a pause shows at once */
+                         if (mov)
+                              s.cue_standby = 0;
+                    }
+               }
                pthread_mutex_unlock(&hd_lock);
                flx10_hid_state_pkt(p, d, &s);
                ok = send_pkt(fd, p);
@@ -351,23 +432,10 @@ void flx10_hid_update(int deck, const struct flx10_hid_deck *s)
 
      if (deck < 0 || deck > 3 || !s)
           return;
-     unsigned long long now = shim_now_ms();
-     struct hid_slot *h = &hd[deck];
-     int pred;
-
      pthread_mutex_lock(&hd_lock);
-     pred = flx10_hid_extrapolate(h->base_ms, (long)(now - h->at), moving(&h->s),
-                                  h->s.tempo_x100, h->s.total_ms);
-     /* rbp's reading lags a little behind the estimate (it moves in audio
-      * blocks); a reading just behind it is not a jump back, so the estimate is
-      * kept -- a real seek is further than NO_BACKSTEP_MS */
-     if (moving(s) && moving(&h->s) && s->elapsed_ms < pred &&
-         pred - s->elapsed_ms < NO_BACKSTEP_MS)
-          h->base_ms = pred;
-     else
-          h->base_ms = s->elapsed_ms;
-     h->at = now;
-     h->s = *s;
+     if (!hd[deck].s.loaded && s->loaded)
+          flx10_hid_track_init(&hd[deck].k);      /* a new track: no hold */
+     hd[deck].s = *s;
      pthread_mutex_unlock(&hd_lock);
      pthread_once(&once, hid_start);
 }

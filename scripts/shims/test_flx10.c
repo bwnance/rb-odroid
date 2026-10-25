@@ -70,6 +70,7 @@ static int bj_n, bj_deck[16], bj_t[16];
 static int goes_back[2];
 int flx10_trrev_goes_back(int d) { return goes_back[d]; }
 int flx10_cue_ms(int d, int total_ms) { (void)d; (void)total_ms; return 1000; }
+int flx10_pos_now(int d, int *pos, int *mov) { (void)d; *pos = 0; *mov = 0; return 0; }
 static int loop_primes[2];
 void flx10_loop_prime(int d) { loop_primes[d]++; }
 static int xf_assign[2] = { -1, -1 };
@@ -803,6 +804,25 @@ int main(void)
           CHECK(flx10_hid_extrapolate(1000, 50, 0, 0, 0) == 1000, "paused -> no movement");
           CHECK(flx10_hid_extrapolate(1000, 5000, 1, 0, 0) == 1200, "capped 200 ms ahead");
           CHECK(flx10_hid_extrapolate(9990, 50, 1, 0, 10000) == 10000, "capped at the track's end");
+          /* the arm, 100 Hz on fresh readings */
+          {
+               struct flx10_hid_track k;
+               unsigned long long t = 1000;
+               flx10_hid_track_init(&k);
+               CHECK(flx10_hid_merge(&k, 5000, 1, 0, 0, 0, t) == 5000, "first reading shown");
+               CHECK(flx10_hid_merge(&k, 5000, 1, 0, 0, 0, t += 10) == 5010, "same block: runs on at the tempo");
+               CHECK(flx10_hid_merge(&k, 5000, 1, 0, 0, 0, t += 10) == 5020, "still running on");
+               CHECK(flx10_hid_merge(&k, 5023, 1, 0, 0, 0, t += 10) == 5030, "next block behind: no step back");
+               CHECK(flx10_hid_merge(&k, 5023, 0, 0, 0, 0, t += 10) == 5030, "paused: holds the last shown, no jump back");
+               CHECK(flx10_hid_merge(&k, 5023, 0, 0, 0, 0, t += 10) == 5030, "and keeps it while rbp stays put");
+               CHECK(flx10_hid_merge(&k, 4800, 0, 1, 0, 0, t += 10) == 4800, "jogged back: the reading");
+               CHECK(flx10_hid_merge(&k, 4790, 1, 1, 0, 0, t += 10) == 4790, "jog while playing: no running ahead");
+               CHECK(flx10_hid_merge(&k, 4780, 1, 1, 0, 0, t += 10) == 4780, "jog while playing: no backstep guard");
+               CHECK(flx10_hid_merge(&k, 9000, 0, 0, 0, 0, t += 10) == 9000, "cue/seek while paused: the reading");
+               flx10_hid_merge(&k, 9000, 1, 0, 0, 0, t += 10);
+               flx10_hid_merge(&k, 9000, 1, 0, 0, 0, t += 10);
+               CHECK(flx10_hid_merge(&k, 2000, 0, 0, 0, 0, t += 10) == 2000, "CUE back while playing: the cue point");
+          }
           flx10_hid_heartbeat_pkt(p, 3);
           CHECK(p[0] == 0 && p[1] == 0x3D && p[2] == 3 && p[4] == 5, "heartbeat 00 3D n 00 05");
      }

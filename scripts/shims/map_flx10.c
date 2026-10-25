@@ -350,6 +350,7 @@ static void flx10_jog(int deck, int val)
      }
      s->pending += d;
      s->last_ms = t / 1000ULL;
+     flx10_hid_jog_activity(deck);
      if (t - s->win_us >= JOG_WINDOW_US)
           jog_flush(s, t);
 }
@@ -769,6 +770,22 @@ __attribute__((weak)) void flx10_seek(int deck, long pos)
           return;
      ((void (*)(void *, long, int))PLAYER_SET_PLAYPOS)(player, pos, 1);
      ((void (*)(void *))PLAYER_SET_BEATPOS_SEARCH)(player);
+}
+
+/* The jog screens' playhead, read by the HID sender 100 times a second
+ * (flx10_hid.h): rbp_led's reading is 20 Hz, which made the arm lag a jog
+ * and step back on a pause. The same PlayEngine getters rbp_led calls from
+ * its own thread. WEAK so the host test can answer for rbp. */
+__attribute__((weak)) int flx10_pos_now(int deck, int *pos_ms, int *moving)
+{
+     void *pe = *(void **)PLAYENGINE_GLOBAL;
+
+     if (!pe || !((int (*)(void *, int))PE_ISLOADED)(pe, deck))
+          return 0;
+     *pos_ms = ((int (*)(void *, int))PE_GETPLAYINGTIME)(pe, deck);
+     *moving = ((int (*)(void *, int))PE_ISPLAYING)(pe, deck) != 0 &&
+               ((int (*)(void *, int))PE_ISINCUESTANDBY)(pe, deck) == 0;
+     return 1;
 }
 
 /* The main cue point in ms (the jog's cue arm), -1 when there is none: the
@@ -2230,8 +2247,10 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
      deck_loaded[deck] = di->loaded;
      deck_elapsed_ms[deck] = di->elapsed_ms;
      deck_total_ms[deck] = di->total_ms;
-     if (deck == 0)
+     if (deck == 0) {
           flx10_display_init(now);
+          flx10_hid_set_pos_reader(flx10_pos_now);
+     }
      /* the jog screens draw nothing without this (flx10_hid.h); the MIDI
       * values below still go out too */
      {
