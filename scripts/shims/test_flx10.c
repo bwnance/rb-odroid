@@ -861,6 +861,13 @@ int main(void)
                flx10_hid_merge(&k, 9000, 1, 0, 0, 0, t += 10);
                CHECK(flx10_hid_merge(&k, 2000, 0, 0, 0, 0, t += 10) == 2000, "CUE back while playing: the cue point");
           }
+          {
+               struct flx10_hid_deck c = hs;
+               c.loaded = 1; c.total_ms = 200000; c.elapsed_ms = 200040;
+               flx10_hid_state_pkt(p, 0, &c);
+               CHECK(p[11] == 3 && p[12] == 19 && (p[13] | p[14] << 8) == 999,
+                     "past the end: shown 1 ms short of it (arms stay)");
+          }
           /* sync + jog: tempo and key held */
           {
                struct flx10_hid_tempo_hold th;

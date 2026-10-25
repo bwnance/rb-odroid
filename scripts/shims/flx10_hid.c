@@ -184,7 +184,11 @@ void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
      if (s->master)
           p[5] |= 0x80;
      p[9] = 0xb4;
-     put_time(p + 11, s->elapsed_ms);
+     /* at the track's end rbp's position reaches (or passes) the length, and
+      * the screen drops the arms for a position not inside the track: kept a
+      * millisecond short of the end */
+     put_time(p + 11, (s->total_ms > 0 && s->elapsed_ms >= s->total_ms) ?
+                      s->total_ms - 1 : s->elapsed_ms);
      put_time(p + 15, s->total_ms);
      bpm = s->bpm_x100 > 0 ? s->bpm_x100 : 0;
      whole = bpm / 100;
