@@ -197,11 +197,14 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
 * **KEY SYNC** (operator, 2026-10-25): the short press should do key sync -- find
   whether rbp has a key sync of its own (the RX3 has none on its panel), and what its
   KEY SYNC LED should follow.
-* **SLIP REVERSE** (operator, 2026-10-25): today the button (note 21) sends rbp's REV
-  key, which toggles, so reverse keeps going after the button is let go. It should
-  slip-reverse only while held (on release: reverse off, and slip returns the
-  playhead), while SHIFT + it stays a latching reverse until pressed again. Its LED
-  (note 21, measured) should light while it is held and while slip/reverse is active.
+* **SLIP REVERSE / REVERSE** (operator, 2026-10-25): today both the button (note 21)
+  and SHIFT + it (note 56) send rbp's REV key, which toggles. Wanted, as labelled:
+  - SLIP REVERSE (no SHIFT): momentary, and always a SLIP reverse -- reverse while
+    held, and on release the playhead returns to where it would have been, whether
+    or not slip mode is on.
+  - REVERSE (SHIFT): a latching plain reverse, on until pressed again, and NEVER
+    slipping -- even with slip mode on, the playhead does not jump back.
+  - LED (note 21, measured): lit while the button is held and while reverse is on.
 * **Waveform jittering** (operator, 2026-10-25): details to collect.
 * **Later, maybe:** RX3 effects matching the FLX10's (ENIGMA JET, MOBIUS, ...).
 
