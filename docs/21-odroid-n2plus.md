@@ -267,18 +267,44 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   the loop-size code ([10], computed from the loop's length and the track's
   BPM) and jog touch ([3] 0x10); [3] 0x02 shows remaining time and follows
   rbp's own time mode (UiGetKeyTimeMode). A loop cut short by the track's end
-  shows "--" here where rekordbox keeps the size.
+  (512) and 1/128 fall back to rbp's own beat count (UiGetPlayLoopBeatNumer/
+  Denom); 1/128 is sent as 0x03, a guess. Since 2026-10-25 the sender reads
+  rbp's playhead itself every 10 ms (flx10_pos_now): the arm follows the jog
+  (no running ahead while it is turned) and holds still on a pause instead of
+  stepping back.
 * **HID jog screens, to do** (operator, 2026-10-25) -- the capture
   (`tools/flx10-pcap-decode.py`) should show most of these. (Empty decks now
   carry the range box and tempo % too -- byte 4 and 23..24 of the empty packet.)
-  - SYNC icon lit when the deck is synced; the BEAT SYNC icon too (when
-    rekordbox lights it is to be found).
+  - SYNC icon lit when the deck is synced (done). The centre BEAT SYNC icon:
+    when rekordbox lights it is unknown, and so is the byte -- find it with
+    hid-loaded.py (below).
+  - White edges = rbp's ON AIR icons per deck: the state is sent
+    (rbp_led.c, as OnAirIndicator reads it), its place in the packet is set by
+    `RB_FLX10_ONAIR="byte:mask"` until it is found (below).
+  - BEAT SYNC **button** flashing when sync is lost. rbp has the two states
+    the RX3's BEAT SYNC LED uses: DjEngineIF::isOutOfBeatSync(ch) @0x4b910
+    (sync on but off the beat, e.g. after a jog nudge; FALSE / STAGE_1 /
+    STAGE_2 in SyncInfo) and DjEngineIF::isOutOfRange(ch) @0x4b860 (the
+    master's tempo beyond the deck's range; counted only while the sync
+    master is valid). ui::PlayerInnards::getStat @0x301848 puts them in
+    tPlayerStat byte 47 bits 3 and 4. To do: flash note 88 (BEAT SYNC) while
+    either is set, solid while sync is on.
   - BPM decimals (stuck at .03).
   - Key (blank).
   - Album art; waveforms (maybe).
   - Arm: rotate like a record at 33 1/3 rpm (one turn per 1.8 s). The second
     arm (blue, sometimes orange) sits at the cue point once a cue is set; in a
     loop, the arm jumps back to the loop start each time the loop wraps.
+* **Finding a jog-screen byte with hid-loaded.py** (ON AIR edges, the
+  centre BEAT SYNC icon). Set `RB_FLX10_HID=0` in rb.local.conf and restart rb
+  (or the two senders fight), load a track on deck 1, then
+  `python3 scripts/odroid/hid-loaded.py` and type edits, watching deck 1's
+  screen: `3=08` (the base), then `3=0c`, `3=0a`, `3=06`, `3=04`, `3=00`,
+  `3=18`; for other bytes try one bit at a time in bytes that are 00 in the
+  base packet (`show` prints it), e.g. `5=03`, `5=05`, `5=09`, `6=03`,
+  `8=81`, `46=01`, `47=01`, `48=01`, `50=01`..`54=01`, `59=01`, `62=01`.
+  `clear` undoes. A byte:mask that lights only the edges goes in
+  `RB_FLX10_ONAIR` (then `RB_FLX10_HID=1` again).
 * **Replug** (2026-10-25): a FLX10 that is power cycled or replugged gets the vendor
   unlock from udev (`99-flx10-unlock.rules`, installed by install.sh), the display
   connect sequence from the map, and every deck that was playing is paused when the
@@ -327,6 +353,7 @@ are the operator's table, agreed control by control on 2026-10-24:
 | KEY SYNC / held | nothing (rbp has no key sync) / MASTER TEMPO; SHIFT nothing |
 | TEMPO RESET / SHIFT | toggle: tempo held at 0.0%, fader ignored; off = back to the fader (LED lit while on) / TEMPO RANGE |
 | TEMPO fader, jog (top press = touch, top spin, side ring) | the same |
+| SHIFT + 4 BEAT (loop section) | flip the deck's elapsed / remaining time (rbp's TIME MODE, `UiSetKeyTimeMode`; the jog screen follows) |
 | 4 BEAT JUMP < > / SHIFT | beat jump -4 / +4 beats / -16 / +16 beats (`DjEngineIF::playBeatJump`, paused or playing, one jump each) |
 | SLIP REVERSE / SHIFT | momentary reverse that always slips / latching reverse that never slips (LED lit while held or reversing) |
 | QUANTIZE; SLIP / SHIFT | QUANTIZE; SLIP / nothing (VINYL disabled: no light on the button) |
