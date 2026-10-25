@@ -192,7 +192,7 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   its LED; MASTER TEMPO on the KEY SYNC hold (KEY SYNC itself does nothing: rbp
   has no key sync or key shift); SLIP REVERSE momentary + always slipping and
   SHIFT = latching REVERSE that never slips, LED on note 21; 4 BEAT JUMP < > =
-  real -4/+4 beat jumps and SHIFT = -16/+16 bars (the old SEARCH keys only
+  real -4/+4 beat jumps and SHIFT = -16/+16 beats (the old SEARCH keys only
   stepped a frame on a paused deck); SHIFT + CUE = back to the track's start;
   MIX POINT < > = previous / next track; SHIFT + BEAT < = Beat FX BPM AUTO;
   SHIFT + BACK on the player = PLAYLIST; VINYL disabled (no light -- showing
@@ -306,7 +306,7 @@ are the operator's table, agreed control by control on 2026-10-24:
 | KEY SYNC / held | nothing (rbp has no key sync) / MASTER TEMPO; SHIFT nothing |
 | TEMPO RESET / SHIFT | toggle: tempo held at 0.0%, fader ignored; off = back to the fader (LED lit while on) / TEMPO RANGE |
 | TEMPO fader, jog (top press = touch, top spin, side ring) | the same |
-| 4 BEAT JUMP < > / SHIFT | beat jump -4 / +4 beats / -16 / +16 bars (`DjEngineIF::playBeatJump`, paused or playing) |
+| 4 BEAT JUMP < > / SHIFT | beat jump -4 / +4 beats / -16 / +16 beats (`DjEngineIF::playBeatJump`, paused or playing, one jump each) |
 | SLIP REVERSE / SHIFT | momentary reverse that always slips / latching reverse that never slips (LED lit while held or reversing) |
 | QUANTIZE; SLIP / SHIFT | QUANTIZE; SLIP / nothing (VINYL disabled: no light on the button) |
 | CUE/LOOP CALL < > and SHIFT | not mapped |

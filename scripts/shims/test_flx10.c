@@ -209,17 +209,15 @@ int main(void)
      slipmode[0] = 0;
 
      /* beat jump / track search, slip / vinyl */
-     /* 4 BEAT JUMP: real 4-beat jumps; SHIFT = 16 bars = 4 x 16 beats, spaced */
+     /* 4 BEAT JUMP: real 4-beat jumps; SHIFT = one 16-beat jump */
      bj_n = 0; reset(); ON(2, 94); OFF(2, 94); ON(1, 95); OFF(1, 95);
      CHECK(bj_n == 2 && bj_deck[0] == 1 && bj_t[0] == 7 && bj_deck[1] == 0 && bj_t[1] == 8 &&
            sent_n == 0, "BEAT JUMP < deck 2 -4, > deck 1 +4, no keys");
      bj_n = 0; ON(1, 98); OFF(1, 98);
-     CHECK(bj_n == 1 && bj_t[0] == 12, "SHIFT + BEAT JUMP >: the first +16 at once");
-     for (int i = 0; i < 6; i++) { ms(90); map_flx10.tick(); }
-     CHECK(bj_n == 4 && bj_t[3] == 12 && bj_deck[3] == 0, "...and three more: 16 bars (%d)", bj_n);
+     for (int i = 0; i < 3; i++) { ms(90); map_flx10.tick(); }
+     CHECK(bj_n == 1 && bj_t[0] == 12, "SHIFT + BEAT JUMP >: one +16-beat jump");
      bj_n = 0; ON(2, 97); OFF(2, 97);
-     for (int i = 0; i < 6; i++) { ms(90); map_flx10.tick(); }
-     CHECK(bj_n == 4 && bj_t[0] == 11 && bj_deck[0] == 1, "SHIFT + BEAT JUMP < deck 2: 4 x -16");
+     CHECK(bj_n == 1 && bj_t[0] == 11 && bj_deck[0] == 1, "SHIFT + BEAT JUMP < deck 2: one -16");
      reset(); ON(1, 23); OFF(1, 23);
      CHECK(sent_n == 0, "SHIFT+SLIP (VINYL) disabled: nothing sent (%d)", sent_n);
 
