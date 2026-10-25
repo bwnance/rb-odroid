@@ -162,8 +162,6 @@ On the unit, Armbian `6.18.43-current-meson64`, with a 1024×768 bench monitor
   while the DAC is unmuted; look at start/stop ordering and muting in the audio shim.
 * **HOT CUE mode switch lag.** Switching to HOT CUE from another pad mode shows on
   screen a fraction of a second late.
-* **RELEASE FX pad colours**: rbp's own colours are shown; red maps to velocity 40.
-  Check each mode against the RX3 screen.
 * **Booth and master outputs**, by ear, once on the audio system.
 * **Master level meter**: no address found on the FLX10 yet.
 * **Jog feel** after the 12960 PPR fix.
