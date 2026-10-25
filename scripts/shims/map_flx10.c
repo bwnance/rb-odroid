@@ -1371,6 +1371,21 @@ static void flx10_note(int ch, int note, int on)
            * anywhere else (a browse list) it is
            * the RX3's BROWSE key, which toggles back to the player. Decided on
            * the press, and the release goes to the same key. */
+          /* SHIFT + BACK (operator, 2026-10-25): from the player it is the
+           * RX3's PLAYLIST key; from a browse screen it stays TAG LIST.
+           * Decided on the press; the release goes to the same key. */
+          if (note == N_BACK_SHIFT) {
+               static int sb_key;
+               if (on) {
+                    sb_key = flx10_browse_mode() == BROWSE_MODE_PLAY ? K_PLAYLIST
+                                                                     : K_TAGLIST;
+                    send_rx_key(sb_key, OP_PRESS, CH_GLOBAL, 0);
+               } else if (sb_key) {
+                    send_rx_key(sb_key, OP_RELEASE, CH_GLOBAL, 0);
+                    sb_key = 0;
+               }
+               return;
+          }
           if (note == N_VIEW) {
                static int view_key;
                if (on) {
@@ -1630,7 +1645,6 @@ static void flx10_build(void)
      add_abs(CH_MIX, CC_HP_MIX, K_HPMIX, CH_GLOBAL);
      add_abs(CH_MIX, CC_HP_LEVEL, K_HPLEVEL, CH_GLOBAL);
      add_note(CH_MIX, N_BACK, K_BACK, CH_GLOBAL);
-     add_note(CH_MIX, N_BACK_SHIFT, K_TAGLIST, CH_GLOBAL);
      /* VIEW is a named case in flx10_note() (SOURCE from the player, BROWSE
       * from anywhere else). SHIFT + VIEW is SHORTCUT. */
      add_note(CH_MIX, N_VIEW_SHIFT, K_SHORTCUT, CH_GLOBAL);

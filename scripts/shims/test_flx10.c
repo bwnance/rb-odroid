@@ -433,6 +433,16 @@ int main(void)
                           "channel selector note %d -> target %d", ch[i].note, ch[i].target);
           }
      }
+     /* SHIFT + BACK: PLAYLIST from the player, TAG LIST elsewhere */
+     browse_mode = 1;
+     reset(); ON(7, 102); OFF(7, 102);
+     CHECK(sent_n == 2 && is(0, K_PLAYLIST, OP_PRESS, 1) && is(1, K_PLAYLIST, OP_RELEASE, 1),
+           "SHIFT+BACK on the player -> PLAYLIST");
+     browse_mode = 3;
+     reset(); ON(7, 102); OFF(7, 102);
+     CHECK(sent_n == 2 && is(0, K_TAGLIST, OP_PRESS, 1), "SHIFT+BACK in a list -> TAG LIST");
+     browse_mode = 1;
+
      reset(); bpm_auto_n = 0; ON(5, 102); OFF(5, 102);
      CHECK(bpm_auto_n == 1 && sent_n == 0, "SHIFT + BEAT < -> Beat FX BPM AUTO, once");
      reset(); ON(5, 107); ON(5, 74);
