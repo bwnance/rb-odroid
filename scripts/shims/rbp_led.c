@@ -62,6 +62,14 @@
 /* "loop-in armed" latch per deck (0 = deck 1), driven by the LOOP IN/OUT keys;
  * the LED bridge turns it into the SC Live 4 blink pattern. */
 int led_loop_armed[2];
+int led_loop_flash[2];
+
+/* LED_LOOP_REKORDBOX's loop-in flash: four cycles of this, off half first so
+ * the first flash is visible against the solid LED. */
+#define LED_LOOP_FLASH_MS     300
+#define LED_LOOP_FLASH_COUNT  4
+static unsigned long long led_loop_flash_t0[2];
+static int led_loop_flashing[2];
 
 /* The deck LED slots, as this file's own bookkeeping. The panel note for each
  * comes from the surface's table; "which of the nine is this" is rbp-side (each
@@ -512,6 +520,12 @@ static void led_transport_update(void)
           int loaded  = ((int (*)(void *, int))PE_ISLOADED)(pe, i) != 0;
           int sync    = ((int (*)(void *, int))PE_ISSYNCON)(pe, i) != 0;
           int mt      = ((int (*)(void *, int))PE_ISMASTERTEMPO)(pe, i) != 0;
+          int standby = ((int (*)(void *, int))PE_ISINCUESTANDBY)(pe, i) != 0;
+          int sampling = ((int (*)(void *, int))PE_ISCUESAMPLING)(pe, i) != 0;
+          /* Holding CUE plays the track, but it is a preview and not play: the
+           * CDJ / rekordbox convention lights it as paused-on-cue. */
+          int real_play = playing && !sampling;
+          int ph      = led_blink_for(LEDSTAT_PLAY, ch);
           int bits    = 0;
 
           /* Each is computed into a local and the four are stored ONCE, at the end,
@@ -519,12 +533,19 @@ static void led_transport_update(void)
            * of this deck's update would draw a state rbp never had. */
           if (led_from_table_state(LEDSTAT_SYNC, i, sync))
                bits |= RBP_TRANSPORT_SYNC;
-          if (loaded && !playing)
+          /* CUE and PLAY, the CDJ / rekordbox way (operator, against rekordbox
+           * on an FLX10, 2026-10-24):
+           *   paused away from the cue point   CUE blinks   PLAY blinks
+           *   paused on the cue point          CUE solid    PLAY blinks
+           *   CUE held (previewing)            CUE solid    PLAY blinks
+           *   playing                          CUE solid    PLAY solid
+           * The two blink in step, at rbp's own PLAY period. */
+          if (loaded && (real_play || standby || sampling || ph))
                bits |= RBP_TRANSPORT_CUE;
-          if (playing || (loaded && led_blink_for(LEDSTAT_PLAY, ch)))
+          if (real_play || (loaded && ph))
                bits |= RBP_TRANSPORT_PLAY;
-          /* The same `playing`, with the blink stripped out -- see RBP_TRANSPORT_PLAY_SOLID. */
-          if (playing)
+          /* The same play, with the blink stripped out -- see RBP_TRANSPORT_PLAY_SOLID. */
+          if (real_play)
                bits |= RBP_TRANSPORT_PLAY_SOLID;
           /* MASTER TEMPO, from rbp's own predicate rather than from its LED -- the same
            * source the hardware's key-lock LED is read from a few lines down, so the
@@ -742,11 +763,33 @@ static void led_refresh(void)
            *   idle            -> both LEDs solid ON
            *   loop-in set     -> LOOP IN blinks, LOOP OUT solid
            *   loop running    -> both blink */
-          led_send(sch, n->n_loopin, &led_last[i][L_LOOPIN],
-                   (looping || armed) ? blink : 1);
-          led_send(sch, n->n_loopout, &led_last[i][L_LOOPOUT],
-                   looping ? blink : 1);
-          led_send(sch, n->n_autoloop, &led_last[i][L_ALOOP], aloop);
+          if (n->loop_style == LED_LOOP_REKORDBOX) {
+               unsigned long long now = shim_now_ms();
+               int in_on = 1;
+
+               if (led_loop_flash[i]) {
+                    led_loop_flash[i] = 0;
+                    led_loop_flash_t0[i] = now;
+                    led_loop_flashing[i] = 1;
+               }
+               if (led_loop_flashing[i]) {
+                    unsigned long long dt = now - led_loop_flash_t0[i];
+                    if (dt >= (unsigned long long)LED_LOOP_FLASH_MS *
+                              LED_LOOP_FLASH_COUNT)
+                         led_loop_flashing[i] = 0;
+                    else
+                         in_on = (dt % LED_LOOP_FLASH_MS) >= LED_LOOP_FLASH_MS / 2;
+               }
+               led_send(sch, n->n_loopin, &led_last[i][L_LOOPIN], in_on);
+               led_send(sch, n->n_loopout, &led_last[i][L_LOOPOUT], 1);
+               led_send(sch, n->n_autoloop, &led_last[i][L_ALOOP], looping);
+          } else {
+               led_send(sch, n->n_loopin, &led_last[i][L_LOOPIN],
+                        (looping || armed) ? blink : 1);
+               led_send(sch, n->n_loopout, &led_last[i][L_LOOPOUT],
+                        looping ? blink : 1);
+               led_send(sch, n->n_autoloop, &led_last[i][L_ALOOP], aloop);
+          }
 
           /* RGB performance pads: rbp LedDef::ID 18..25 -> whatever note this
            * surface lights for pad p, on its own pad channel. LED_PADS=0 stops

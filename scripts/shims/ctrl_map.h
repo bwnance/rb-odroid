@@ -121,6 +121,18 @@ enum led_enc {
                             * 2026-10-24 with scripts/odroid/led-probe.py) */
 };
 
+/* The loop LEDs' behaviour.
+ *   SCLIVE     idle: IN and OUT solid; loop-in set: IN blinks; looping: both
+ *              blink; the auto-loop LED lit during an auto beat loop.
+ *   REKORDBOX  IN solid, four flashes when a loop-in point is set
+ *              (led_loop_flash); OUT solid; the auto-loop LED (the FLX10's
+ *              4 BEAT/EXIT) lit while ANY loop runs -- rekordbox, as the
+ *              operator watched it on 2026-10-24. */
+enum led_loop_style {
+     LED_LOOP_SCLIVE = 0,
+     LED_LOOP_REKORDBOX,
+};
+
 /* How a meter LEVEL becomes a CC value. Not an led_enc: a meter is a level, not
  * a colour and not a state, and the two panels that have one disagree about the
  * shape of the number. An encoding this build does not know is refused rather
@@ -270,6 +282,10 @@ struct led_notes {
       * for "the pads are showing something rbp has no state for" (they are left
       * dark). NULL = n_pad_base[rbp mode], modes 0..3 only. */
      int (*pad_base)(int deck, int rbp_mode);
+
+     /* How the LOOP IN / OUT / auto-loop LEDs behave (enum led_loop_style).
+      * Zero-init is the SC Live 4 convention the FLX4 and JP21 use. */
+     int loop_style;
 };
 
 /* Empty both tables. Called by the front end exactly once, before any build():

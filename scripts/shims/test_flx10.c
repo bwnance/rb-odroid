@@ -35,6 +35,7 @@ int g_fader[3];
 int g_fader_seen[3];
 static int looping[2];
 int aloop_is_looping(int deck) { return looping[deck]; }
+int led_loop_flash[2];
 static int cue[4], mcue, deleted_deck = -1, deleted_pad = -1;
 int me_get_cue(int idx) { return cue[idx]; }
 void me_set_cue(int idx, int on) { cue[idx] = on; }
@@ -362,6 +363,7 @@ int main(void)
                CHECK(n->n_vinyl == -1 && n->master_ch_first < 0 && n->fx_ch < 0 &&
                      n->meter_master_ch < 0, "unanswered LEDs stay dark");
                CHECK(n->n_quantize == 53, "QUANTIZE LED on 53");
+               CHECK(n->loop_style == LED_LOOP_REKORDBOX, "rekordbox loop LEDs");
                CHECK(n->mode_banks == 1 && n->n_mode[0] == 27 && n->n_mode[1] == 109 &&
                      n->n_mode[2] == 30 && n->n_mode[3] == 32 &&
                      n->n_mode_bank[0] == 105 && n->n_mode_bank[1] == 34 &&
@@ -375,6 +377,13 @@ int main(void)
                CHECK(n->strip_ch_first == 0 && n->strip_count == 2 && n->n_strip_cue == 84,
                      "channel CUE LEDs");
           }
+          /* setting a loop-in point asks for the 4-flash; halving does not */
+          led_loop_flash[0] = led_loop_flash[1] = 0;
+          looping[0] = 0; reset(); ON(1, 16); OFF(1, 16);
+          CHECK(led_loop_flash[0] == 1 && led_loop_flash[1] == 0, "IN outside a loop -> flash deck 1");
+          led_loop_flash[0] = 0; looping[0] = 1; reset(); ON(1, 16); OFF(1, 16);
+          CHECK(led_loop_flash[0] == 0, "IN in a loop (halve) -> no flash");
+          looping[0] = 0;
           /* the pad page follows the unit's own mode buttons */
           reset(); ON(1, 30); OFF(1, 30);
           CHECK(flx10_led_pad_base(0, 0) == 16, "PAD FX1 -> page 16 (%d)",

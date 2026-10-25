@@ -285,15 +285,27 @@ Every LED answers on its own button's input note and channel, ON = 0x7F, OFF = 0
 
 | What | Note (channel) | Driven from |
 | --- | --- | --- |
-| PLAY / CUE / SYNC | 11 / 12 / 88 (deck) | the same transport decision the drawers show |
+| PLAY / CUE / SYNC | 11 / 12 / 88 (deck) | the same transport decision the drawers show (CDJ / rekordbox CUE and PLAY, below) |
 | KEY SYNC | 101 (deck) | MASTER TEMPO |
 | SLIP | 64 (deck) | slip mode |
 | QUANTIZE | 53 (deck) | rbp's QUANTIZE (per-deck struct +0x2e bit 6, `StatWatcher::getPlayQuantizeOn`) |
-| IN / OUT / 4 BEAT | 16 / 17 / 20 (deck) | the loop LEDs, as on the other surfaces |
+| IN / OUT / 4 BEAT | 16 / 17 / 20 (deck) | rekordbox style: IN solid, 4 flashes when a loop-in point is set; OUT solid; 4 BEAT/EXIT lit while any loop runs |
 | channel CUE | 84 (deck) | headphone cue |
 | mode buttons | 27, 109, 30, 32; banks 105, 34, 107, 111 | rbp's mode byte 0..7 |
 | pads | page base + 0..7 on ch 8 / 10 | rbp's pad LEDs, palette-encoded |
 | meters | CC 2 on ch 1 / 2 | as the FLX4 |
+
+CUE and PLAY follow rekordbox (watched on the FLX10, 2026-10-24), for every
+surface and the screen's drawers alike. The source is rbp's back-cue state,
+`PlayEngine::isInCueStandby` (0x5e910) and `isCueSampling` (0x5e958):
+
+| Deck | CUE | PLAY |
+| --- | --- | --- |
+| nothing loaded | off | off |
+| paused away from the cue point | flashing | flashing |
+| paused on the cue point | solid | flashing |
+| CUE held (previewing) | solid | flashing |
+| playing | solid | solid |
 
 The SHIFT mode notes light their parent button *flashing* (105 flashes HOT CUE, 109
 BEAT JUMP, 107 PAD FX1, 111 SAMPLER) -- the unit's own way of showing a shifted
@@ -316,7 +328,7 @@ Sound Color FX, master CUE, master meter. Left dark on purpose: stems/PART, PAGE
 LINK, TEMPO RESET, SLIP REVERSE, sampler CUE, channels 3/4.
 
 **Still to check on the unit:** how the jog feels
-after the fix; LEDs against the table above. Also,
+after the fix; LEDs against the tables above; the loop-in flash rate (0.3 s per flash) against rekordbox's. Also,
 once on the audio system: master and booth output by ear.
 
 **Later, maybe:** RX3 effects matching the FLX10's (ENIGMA JET, MOBIUS, ...).

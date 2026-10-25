@@ -770,6 +770,12 @@ static const signed char bfx_type_to_pos[15] = {
 #define PE_ISAUTOBEATLOOP  0x5ef74
 #define PE_ISLOOPINADJ     0x5f000
 #define PE_ISLOOPOUTADJ    0x5f02c
+/* The back-cue state, both off Player+0xed4 (set while the deck is parked at
+ * or previewing from its cue point) and the sub-state at +0xed8:
+ *   isInCueStandby  0 at +0xed8 -- paused ON the cue point
+ *   isCueSampling   1 at +0xed8 -- CUE held, previewing from the cue point */
+#define PE_ISINCUESTANDBY  0x5e910
+#define PE_ISCUESAMPLING   0x5e958
 
 /* rbp LedStat ids we have identified (channels 1/2 = deck 1/2):
  *   49 = deck PLAY  (state 2 while paused  -> panel must blink)

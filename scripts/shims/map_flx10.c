@@ -65,6 +65,7 @@
 #include "rbp_vu.h"         /* g_fader / g_fader_seen */
 #include "pitch_state.h"
 #include "ctrl_map.h"
+#include "rbp_led.h"        /* led_loop_flash */
 
 /* ---- receive channels, 0-based (MIDI channel minus one) ------------------ */
 #define CH_DECK1   0    /* deck 1: buttons, jog, tempo, mixer strip 1 */
@@ -473,6 +474,8 @@ static void flx10_loop(int deck, int note, int on)
      case N_IN:
           if (!on) { loop_release(deck, 0, sch); return; }
           if (looping && !k_callprev) { not_yet("loop halve (CALL <)", sch); return; }
+          if (!looping)
+               led_loop_flash[deck] = 1;      /* loop-in set: IN flashes 4x */
           loop_press(deck, 0, looping ? k_callprev : K_LOOPIN, sch);
           return;
      case N_OUT:
@@ -482,6 +485,8 @@ static void flx10_loop(int deck, int note, int on)
           return;
      case N_IN_SHIFT:
           if (!on) { loop_release(deck, 2, sch); return; }
+          if (!looping)
+               led_loop_flash[deck] = 1;
           loop_press(deck, 2, K_LOOPIN, sch);
           return;
      case N_OUT_SHIFT:
@@ -1268,6 +1273,7 @@ static const struct led_notes flx10_leds = {
      .n_meter_master_l = -1,
      .n_meter_master_r = -1,
      .n_quantize = N_QUANTIZE,
+     .loop_style = LED_LOOP_REKORDBOX,
 };
 
 const struct ctrl_map map_flx10 = {

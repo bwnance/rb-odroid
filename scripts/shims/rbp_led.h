@@ -32,5 +32,10 @@ extern int led_sweep;
  * are in different modules. */
 extern int led_loop_armed[2];
 
+/* A one-shot request, per deck: a map sets it to 1 when a loop-in point is
+ * set, and the LED refresh (on a LED_LOOP_REKORDBOX surface) flashes LOOP IN
+ * four times and clears it. */
+extern int led_loop_flash[2];
+
 #endif /* RBPI4B_RBP_LED_H */
 
