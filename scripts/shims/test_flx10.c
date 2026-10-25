@@ -40,10 +40,12 @@ int aloop_is_looping(int deck) { return looping[deck]; }
 int led_loop_flash[2];
 /* the last value sent on ch 16 per note / CC number, -1 = never */
 static int jd_note_v[128], jd_cc_v[128], note70_n;
+static int dk_note_v[2][128];                 /* last note value on deck ch 1/2 */
 int midi_cc(int ch, int cc, int v) { if (ch == 15 && cc >= 0 && cc < 128) jd_cc_v[cc] = v; return 1; }
 int midi_note(int ch, int n, int v)
 {
      if (ch == 15 && n >= 0 && n < 128) { jd_note_v[n] = v; if (n == 0x70) note70_n++; }
+     if ((ch == 0 || ch == 1) && n >= 0 && n < 128) dk_note_v[ch][n] = v;
      return 1;
 }
 int midi_sysex_out(const unsigned char *b, unsigned n) { (void)b; (void)n; return 1; }
@@ -132,9 +134,30 @@ int main(void)
      /* SHIFT + BEAT SYNC = MASTER; TEMPO RESET nothing, SHIFT = TEMPO RANGE */
      reset(); ON(1, 92);
      CHECK(sent_n == 2 && is(0, K_MASTER, OP_PRESS, 1), "SHIFT+SYNC -> MASTER");
-     reset(); ON(1, 65); OFF(1, 65); ON(1, 96);
-     CHECK(sent_n == 1 && is(0, K_TEMPO_RANGE, OP_PRESS, 1), "TEMPO RESET nothing, SHIFT -> RANGE");
+     reset(); ON(1, 96);
+     CHECK(sent_n == 1 && is(0, K_TEMPO_RANGE, OP_PRESS, 1), "SHIFT + TEMPO RESET -> RANGE");
      OFF(1, 96);
+
+     /* TEMPO RESET: a toggle; on holds rbp at the centre and ignores the fader,
+      * off sends the fader's current position; LED note 65 follows */
+     {
+          float n0;
+          CC(1, 0, 0x50); CC(1, 32, 0x00);             /* fader off centre */
+          n0 = sent_n ? sent[sent_n - 1].f : 0.0f;
+          reset(); ON(1, 65); OFF(1, 65);
+          CHECK(sent_n == 1 && is(0, K_TEMPO_SLIDER, OP_VALUE, 1) && sent[0].param == 511 &&
+                sent[0].f == 0.0f && sent[0].l == 0x2000, "TEMPO RESET on -> centre");
+          CHECK(dk_note_v[0][65] == 0x7F, "TEMPO RESET LED on");
+          reset(); CC(1, 0, 0x30); CC(1, 32, 0x00);
+          CHECK(sent_n == 0, "fader ignored while TEMPO RESET is on (%d)", sent_n);
+          reset(); ON(1, 65); OFF(1, 65);
+          CHECK(sent_n == 1 && is(0, K_TEMPO_SLIDER, OP_VALUE, 1) && sent[0].l == (0x30 << 7) &&
+                sent[0].f != 0.0f && sent[0].f != n0, "TEMPO RESET off -> the fader's new place");
+          CHECK(dk_note_v[0][65] == 0x00, "TEMPO RESET LED off");
+          reset(); ON(2, 65); OFF(2, 65);
+          CHECK(sent_n == 1 && is(0, K_TEMPO_SLIDER, OP_VALUE, 2), "deck 2 TEMPO RESET is its own");
+          reset(); ON(2, 65); OFF(2, 65);
+     }
 
      /* beat jump / track search, slip reverse, slip / vinyl */
      reset(); ON(2, 94); ON(2, 98);

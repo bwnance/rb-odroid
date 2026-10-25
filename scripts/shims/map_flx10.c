@@ -365,8 +365,47 @@ static void flx10_jog_tick(void)
      }
 }
 
-struct pitch_ctrl { int have_hi, pos; };
-static struct pitch_ctrl pitch_state[2] = { { 0, 0x2000 }, { 0, 0x2000 } };
+struct pitch_ctrl {
+     int have_hi, pos;
+     int valid, v10;          /* the fader's last full reading, for TEMPO RESET */
+     float norm;
+};
+static struct pitch_ctrl pitch_state[2] = { { 0, 0x2000, 0, 512, 0.0f },
+                                            { 0, 0x2000, 0, 512, 0.0f } };
+
+/* TEMPO RESET (operator, 2026-10-25), as rekordbox does it: a toggle per deck.
+ * On, the deck's tempo is held at 0.0% -- rbp is sent the fader's centre and
+ * fader moves are kept but not sent; off, rbp gets wherever the fader is now.
+ * Its LED (deck note 65) is lit while on. rbp has no tempo reset of its own
+ * (IPlayerInnards::onEv_TempoReset exists only as the empty default), so this
+ * is the map's. */
+static int tempo_lock[2];
+#define TEMPO_CENTRE_POS 0x2000
+
+static void tempo_send(int deck, int v10, float norm, int pos)
+{
+     pitch_state_set(deck, norm);
+     send_rx_key_fl(K_TEMPO_SLIDER, OP_VALUE, deck + 1, (long)v10, norm, (long)pos);
+}
+
+static void tempo_reset_led(int deck)
+{
+     midi_note(deck, N_TEMPO_RESET, tempo_lock[deck] ? 0x7F : 0x00);
+}
+
+static void flx10_tempo_reset(int deck)
+{
+     struct pitch_ctrl *s = &pitch_state[deck];
+
+     tempo_lock[deck] = !tempo_lock[deck];
+     if (tempo_lock[deck])
+          tempo_send(deck, 511, 0.0f, TEMPO_CENTRE_POS);
+     else if (s->valid)
+          tempo_send(deck, s->v10, s->norm, s->pos);
+     tempo_reset_led(deck);
+     klog("knobshim2: flx10 deck%d TEMPO RESET %s\n", deck + 1,
+          tempo_lock[deck] ? "on (tempo held at 0.0%)" : "off (back to the fader)");
+}
 
 static void flx10_pitch(int deck, int cc, int val)
 {
@@ -391,8 +430,11 @@ static void flx10_pitch(int deck, int cc, int val)
      v10 = (int)((norm + 1.0f) * 511.5f);
      if (v10 < 0) v10 = 0;
      if (v10 > 1023) v10 = 1023;
-     pitch_state_set(deck, norm);
-     send_rx_key_fl(K_TEMPO_SLIDER, OP_VALUE, deck + 1, (long)v10, norm, (long)pos);
+     s->valid = 1;
+     s->v10 = v10;
+     s->norm = norm;
+     if (!tempo_lock[deck])
+          tempo_send(deck, v10, norm, pos);
      if (tempo_verbose)
           klog("knobshim2: flx10 pitch deck%d pos=0x%04x norm=%.3f\n",
                deck + 1, pos, (double)norm);
@@ -1011,6 +1053,10 @@ static void flx10_note(int ch, int note, int on)
                if (on)
                     pulse(K_MASTER, sch);
                return;
+          case N_TEMPO_RESET:
+               if (on)
+                    flx10_tempo_reset(deck);
+               return;
           case N_KEYSYNC:                    /* KEY SYNC toggles MASTER TEMPO */
                if (on)
                     pulse(K_MT, sch);
@@ -1271,7 +1317,6 @@ static void flx10_build(void)
           /* The pad-mode buttons are named cases in flx10_note()
            * (flx10_set_mode()). Known and deliberately unbound (key 0): logged,
            * nothing sent. */
-          add_note(rch, N_TEMPO_RESET, 0, sch);
           add_note(rch, N_KEYSYNC_LONG, 0, sch);
           add_note(rch, N_SYNC_LONG, 0, sch);
           add_note(rch, N_4BEAT_SHIFT, 0, sch);
@@ -1644,6 +1689,9 @@ static void flx10_display_init(unsigned long long now)
           flx10_bpm_sysex(d, 0, sx);             /* 0F x6: blank, as rekordbox */
           midi_sysex_out(sx, sizeof sx);
      }
+     /* the map's own LEDs, which a power-cycled unit has forgotten */
+     tempo_reset_led(0);
+     tempo_reset_led(1);
      /* everything the display shows goes out again right after */
      jd[0].refresh = jd[1].refresh = 0;
 }
