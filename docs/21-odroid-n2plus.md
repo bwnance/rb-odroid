@@ -187,10 +187,12 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   time remaining, marker, MT, MASTER, SYNC). Phase 1 is complete (key included).
   Left: the HID phase (tempo range box, waveform, clock arm and cue
   marker, two-decimal BPM, artwork) -- see "FLX10 jog displays" above.
-* **TEMPO RESET** (operator, 2026-10-25): the FLX10's TEMPO RESET button (deck note
-  65, unbound today, its LED dark) should reset the deck's tempo to 0% the way
-  rekordbox does -- find whether rbp has a reset of its own, else hold the tempo at
-  centre until the fader is moved.
+* **TEMPO RESET** (operator, 2026-10-25), as rekordbox does it: a TOGGLE on the
+  FLX10's TEMPO RESET button (deck note 65, unbound today). On: the deck's tempo is
+  locked at 0.0% and moving the tempo fader does nothing. Off: the tempo snaps to
+  wherever the fader is now. Its LED (note 65, measured) lit while on. Map-side:
+  while on, send rbp the centre position instead of the fader's, and re-send the
+  fader's real position when it goes off.
 * **MASTER TEMPO on KEY SYNC long press** (operator, 2026-10-25): today a short
   KEY SYNC press toggles master tempo; move that to the long press (the unit sends
   note 26 for it, unbound today) so the short press can be KEY SYNC.
