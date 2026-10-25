@@ -642,6 +642,22 @@ int midi_cc(int midi_ch, int cc, int val)
  * Returns whether the query went out, which is a different question from
  * whether the panel will answer: rbp_vu.c reads the 0 as "nobody is going to
  * tell rbp where the faders are", which is the case it has to seed them for. */
+int surface_has_query(void)
+{
+     const char *nm = midi_surface_name();
+     const struct controller *c = nm ? controllers_by_hint(nm) : NULL;
+
+     if (!c) {
+          const char *m = env_text("MIDI_MAP", NULL);
+          if (m && *m)
+               c = controllers_find(m);
+     }
+     /* The JP21's query is a rawmidi message (led_query_absolute()), so it
+      * keeps the old rule: seeded when that route is not up. */
+     return c && c->init && c->init_len &&
+            strcmp(c->id, JP21_CONTROLLER_ID) != 0;
+}
+
 int led_query_absolute(void)
 {
      const struct controller *jp = controllers_find(JP21_CONTROLLER_ID);

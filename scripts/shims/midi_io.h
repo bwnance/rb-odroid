@@ -55,6 +55,12 @@ int midi_cc(int midi_ch, int cc, int val);
  * until something seeds them -- see rbp_vu.c's vu_thread. */
 int led_query_absolute(void);
 
+/* 1 when the selected surface answers a position query of its own over the
+ * sequencer (the FLX10): rbp_vu.c then never seeds the faders, even on a tick
+ * where the query could not go out yet -- the answer is coming. Known from the
+ * connected port's name, or before it is up from MIDI_MAP. */
+int surface_has_query(void);
+
 /* One whole SysEx, over whichever route is up. 1 when it went out.
  *
  * The three-byte builder above cannot carry this: the panel route's events are

@@ -261,7 +261,10 @@ static void mixer_defaults_tick(unsigned long t)
            * 30 s is the master level's window, reused rather than reinvented --
            * a fader that moved inside it is already safe, and one that never
            * moves wants the seed to stop anyway. */
-          if (!asked) {
+          /* A surface with a query of its own (the FLX10) is never seeded, even
+           * on a tick where the query could not go out yet: the answer is on
+           * its way, and a seed would light ON AIR until it arrived. */
+          if (!asked && !surface_has_query()) {
                static int told;
                for (int m = 1; m <= 2; m++)
                     if (!g_fader_seen[m]) {
