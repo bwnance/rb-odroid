@@ -24,6 +24,7 @@
 #include "rbp_vu.h"
 #include "ctrl_map.h"
 #include "pitch_state.h"
+#include "flx10_hid.h"
 
 static int checks, failures;
 #define CHECK(cond, ...) do { checks++; if (!(cond)) { failures++;           \
@@ -37,8 +38,14 @@ int g_fader_seen[3];
 static int looping[2];
 int aloop_is_looping(int deck) { return looping[deck]; }
 int led_loop_flash[2];
-int midi_cc(int ch, int cc, int v) { (void)ch; (void)cc; (void)v; return 1; }
-int midi_note(int ch, int n, int v) { (void)ch; (void)n; (void)v; return 1; }
+/* the last value sent on ch 16 per note / CC number, -1 = never */
+static int jd_note_v[128], jd_cc_v[128], note70_n;
+int midi_cc(int ch, int cc, int v) { if (ch == 15 && cc >= 0 && cc < 128) jd_cc_v[cc] = v; return 1; }
+int midi_note(int ch, int n, int v)
+{
+     if (ch == 15 && n >= 0 && n < 128) { jd_note_v[n] = v; if (n == 0x70) note70_n++; }
+     return 1;
+}
 int midi_sysex_out(const unsigned char *b, unsigned n) { (void)b; (void)n; return 1; }
 int midi_surface_generation(void) { return 1; }
 int midi_out_ready(void) { return 1; }
@@ -105,6 +112,9 @@ static void build(const char *keys)
 
 int main(void)
 {
+     setenv("FLX10_HID", "0", 1);          /* no sender thread in the tests */
+     memset(jd_note_v, 0xff, sizeof jd_note_v);
+     memset(jd_cc_v, 0xff, sizeof jd_cc_v);
      build(NULL);
 
      /* transport, both decks */
@@ -519,6 +529,48 @@ int main(void)
           reset(); ON(10, 16 + 7); OFF(10, 16 + 7);
           CHECK(flx10_led_pad_base(1, pmode(16)) == 16 && flx10_led_pad_base(0, pmode(96)) == 96,
                 "deck 2 pad on 23 -> deck 2 page 16 only");
+     }
+
+     /* the jog screens' HID packets (flx10_hid.c) */
+     {
+          unsigned char p[FLX10_HID_PKT];
+          static const unsigned char empty[10] = { 0x10, 0x21, 0, 0, 0x20, 0x01, 0, 0, 0x80, 0x10 };
+          int zero = 1;
+
+          flx10_hid_state_pkt(p, 0, 0, 0, 0);
+          for (int i = 10; i < FLX10_HID_PKT; i++) zero &= p[i] == 0;
+          CHECK(!memcmp(p, empty, 10) && zero, "empty deck 1: rekordbox's empty packet");
+          flx10_hid_state_pkt(p, 1, 1, 0, 300);
+          CHECK(p[0] == 0x20 && p[1] == 0x21 && p[2] == 0x02 && p[5] == 0x81 && p[7] == 0x02,
+                "deck 2 loaded, paused: 20 21 02 .. 81 .. 02");
+          CHECK(p[11] == 0x01 && p[12] == 0x2C, "elapsed 300 s -> 01 2C (%02x %02x)", p[11], p[12]);
+          CHECK(p[9] == 0xb4 && p[60] == 0x85 && p[61] == 0x0d && p[64] == 0,
+                "the rest is rekordbox's captured loaded packet");
+          flx10_hid_state_pkt(p, 0, 1, 1, 70000);
+          CHECK(p[2] == 0x00 && p[11] == 0xFF && p[12] == 0xFF, "playing -> 00; elapsed clamps at FFFF");
+          flx10_hid_heartbeat_pkt(p, 3);
+          CHECK(p[0] == 0 && p[1] == 0x3D && p[2] == 3 && p[4] == 5, "heartbeat 00 3D n 00 05");
+     }
+
+     /* the connect sequence: 9F 70 00 first, the rest 300 ms later, with the
+      * unit's own reported settings in place of the captured values */
+     {
+          const struct led_notes *n = map_flx10.leds;
+          struct deck_info di;
+
+          memset(&di, 0, sizeof di);
+          ev(SNDRV_SEQ_EVENT_NOTEON, 15, 0x3C, 0x7F);     /* unit: 9F 3C 7F (capture: 00) */
+          ev(SNDRV_SEQ_EVENT_CONTROLLER, 15, 0x41, 0x05); /* unit: BF 41 05 (capture: 0A) */
+          n->deck_display(0, &di);
+          CHECK(note70_n == 0, "nothing in the first second after a connection");
+          ms(1050); n->deck_display(0, &di);
+          CHECK(note70_n == 1 && jd_note_v[0x40] < 0, "9F 70 00 alone first");
+          ms(350); n->deck_display(0, &di);
+          CHECK(jd_note_v[0x3C] == 0x7F, "9F 3C: the unit's 7F, not the capture's 00 (%d)", jd_note_v[0x3C]);
+          CHECK(jd_cc_v[0x41] == 0x05, "BF 41: the unit's 05 (%d)", jd_cc_v[0x41]);
+          CHECK(jd_note_v[0x3D] == 0x00 && jd_note_v[0x40] == 0x7F && jd_cc_v[0x46] == 0x30,
+                "unreported ones: the captured values");
+          CHECK(note70_n == 1, "9F 70 not sent twice");
      }
 
      printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);

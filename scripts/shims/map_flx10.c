@@ -62,6 +62,7 @@
 #include "ctrl_map.h"
 #include "rbp_led.h"        /* led_loop_flash */
 #include "midi_io.h"        /* midi_cc / midi_note, for the jog displays */
+#include "flx10_hid.h"      /* the jog screens' per-deck HID state */
 
 /* ---- receive channels, 0-based (MIDI channel minus one) ------------------ */
 #define CH_DECK1   0    /* deck 1: buttons, jog, tempo, mixer strip 1 */
@@ -1348,8 +1349,16 @@ static void flx10_tick(void)
      flx10_scfx_tick(t);
 }
 
+static void flx10_unit_setting(int ch, int is_cc, int num, int val);
+
 static void flx10_event(const struct snd_seq_event *ev)
 {
+     if (ev->type == SNDRV_SEQ_EVENT_CONTROLLER)
+          flx10_unit_setting(ev->data.control.channel, 1,
+                             (int)ev->data.control.param, ev->data.control.value);
+     else if (ev->type == SNDRV_SEQ_EVENT_NOTEON || ev->type == SNDRV_SEQ_EVENT_NOTEOFF)
+          flx10_unit_setting(ev->data.note.channel, 0, ev->data.note.note,
+                             ev->type == SNDRV_SEQ_EVENT_NOTEON ? ev->data.note.velocity : 0);
      switch (ev->type) {
      case SNDRV_SEQ_EVENT_CONTROLLER:
           flx10_cc(ev->data.control.channel, ev->data.control.param,
@@ -1376,14 +1385,16 @@ static void flx10_event(const struct snd_seq_event *ev)
  *   playing speed  CC 0x18+d / 0x38+d   (percent + 100) x 10, 14-bit
  *   time           CC 0x42+2d minutes, 0x43+2d seconds, 0..99 each
  *   time mode      Note 0x14+d          0x7F = remaining (the unit draws the -)
- *   marker         CC 0x10+d / 0x30+d   0..359 degrees (the clock arm; shown on
- *                                       a deck only in some state -- still open)
+ *   marker         CC 0x10+d / 0x30+d   0..359 degrees (the clock arm; shown or
+ *                                       hidden per deck on the unit itself, with
+ *                                       a double tap of SHIFT)
  *   (cue marker CC 0x1C+d / 0x3C+d is in the list too; not sent yet)
  *   MASTER / SYNC  Note 0x18+d / 0x1C+d
  *   master tempo   Note 0x20+d
  *   show info      Note 0x5D+d          0x00 show, 0x7F hide
- * The tempo range box, the waveform and the artwork are HID (interface 5) and
- * not driven here. Values go out on change, and all of them once a second. */
+ * After rekordbox's connect sequence the screens also need a per-deck HID state
+ * packet or they say "Not Loaded" (flx10_hid.c). The tempo range box, the
+ * waveform and the artwork are HID too and not driven yet. Values go out on change, and all of them once a second. */
 #define JD_CH 15
 struct jd_cache { int v[24]; unsigned long long refresh; };
 static struct jd_cache jd[2];
@@ -1518,7 +1529,14 @@ void flx10_jog_values(const struct deck_info *di, int *bpm10, int *speed10,
  * first gives udev's flx10-unlock.py run (99-flx10-unlock.rules) time to land,
  * the second covers a unit still booting its displays. Not on a timer: a replay
  * while connected blanks the BPM fields for a tick for nothing. The 11..14 0F x6
- * SysEx blank the per-deck BPM fields as rekordbox does. */
+ * SysEx blank the per-deck BPM fields as rekordbox does.
+ *
+ * 9F 70 00 goes first and the rest FLX10_INIT_REST_MS later, as rekordbox does:
+ * it asks the unit for its own display settings (in the capture the unit
+ * answers 1.3 ms later with 9F 3C..4E / BF 41..4A -- the clock arm on/off,
+ * toggled on the unit with a double tap of SHIFT, is one of them). Those are
+ * recorded (flx10_unit_setting) and sent back in place of the captured values,
+ * so a reconnect does not reset what the operator set on the unit. */
 static const unsigned char flx10_init_sx_0a[] = {
      0xF0, 0x00, 0x40, 0x05, 0x00, 0x00, 0x04, 0x01, 0x00, 0x00, 0x0A, 0x00, 0x28,
      0x00, 0x26, 0x00, 0x1A, 0x3D, 0x12, 0x14, 0x29, 0x55, 0x29, 0x20, 0x28, 0x49,
@@ -1546,11 +1564,42 @@ static const unsigned char flx10_init_short[][3] = {
 };
 #define FLX10_INIT_DELAY1_MS 1000
 #define FLX10_INIT_DELAY2_MS 4000
+#define FLX10_INIT_REST_MS   300
+
+/* The unit's own display settings as it last reported them, ch 16 numbers
+ * 0x3C..0x4E, notes [0] and CCs [1]; -1 = never reported. */
+#define UNIT_SET_LO 0x3C
+#define UNIT_SET_HI 0x4E
+static int unit_set[2][UNIT_SET_HI - UNIT_SET_LO + 1] = {
+     [0 ... 1] = { [0 ... UNIT_SET_HI - UNIT_SET_LO] = -1 } };
+
+static void flx10_unit_setting(int ch, int is_cc, int num, int val)
+{
+     if (ch != JD_CH || num < UNIT_SET_LO || num > UNIT_SET_HI)
+          return;
+     if (unit_set[is_cc][num - UNIT_SET_LO] >= 0 &&     /* a change, not the first report */
+         unit_set[is_cc][num - UNIT_SET_LO] != val)
+          klog("knobshim2: FLX10: unit setting %s 0x%02X = 0x%02X\n",
+               is_cc ? "CC" : "note", num, val);
+     unit_set[is_cc][num - UNIT_SET_LO] = val;
+}
+
+/* What to send for one of rekordbox's setup messages: the unit's own value
+ * when it has reported one, the captured value otherwise. */
+static int flx10_setup_value(const unsigned char *m)
+{
+     int is_cc = (m[0] & 0xF0) == 0xB0;
+     if (m[1] >= UNIT_SET_LO && m[1] <= UNIT_SET_HI &&
+         unit_set[is_cc][m[1] - UNIT_SET_LO] >= 0)
+          return unit_set[is_cc][m[1] - UNIT_SET_LO];
+     return m[2];
+}
 
 static void flx10_display_init(unsigned long long now)
 {
      static int seen_gen;                    /* 0: never connected */
      static unsigned long long at1, at2;     /* 0: nothing pending */
+     static unsigned long long rest_at;      /* the rest, after 9F 70 00 */
      int gen = midi_surface_generation();
      unsigned char sx[17];
 
@@ -1558,17 +1607,25 @@ static void flx10_display_init(unsigned long long now)
           seen_gen = gen;
           at1 = now + FLX10_INIT_DELAY1_MS;
           at2 = now + FLX10_INIT_DELAY2_MS;
+          rest_at = 0;
           klog("knobshim2: FLX10: connection %d; display connect sequence in "
                "%d and %d ms\n", gen, FLX10_INIT_DELAY1_MS, FLX10_INIT_DELAY2_MS);
      }
-     if (at1 && now >= at1)
-          at1 = 0;
-     else if (at2 && !at1 && now >= at2)
-          at2 = 0;
-     else
-          return;
-     if (!midi_out_ready()) {                /* route not up yet: try next tick */
-          if (!at2) at2 = now + 100;
+     if (rest_at && now >= rest_at) {
+          rest_at = 0;
+     } else {
+          if (at1 && now >= at1)
+               at1 = 0;
+          else if (at2 && !at1 && now >= at2)
+               at2 = 0;
+          else
+               return;
+          if (!midi_out_ready()) {            /* route not up yet: try next tick */
+               if (!at2) at2 = now + 100;
+               return;
+          }
+          midi_note(JD_CH, 0x70, 0x00);       /* "report your settings" */
+          rest_at = now + FLX10_INIT_REST_MS;
           return;
      }
      midi_sysex_out(flx10_init_sx_0a, sizeof flx10_init_sx_0a);
@@ -1576,10 +1633,12 @@ static void flx10_display_init(unsigned long long now)
      midi_sysex_out(flx10_init_sx_0c, sizeof flx10_init_sx_0c);
      for (unsigned k = 0; k < sizeof flx10_init_short / sizeof flx10_init_short[0]; k++) {
           const unsigned char *m = flx10_init_short[k];
+          if (m[0] == 0x9F && m[1] == 0x70)
+               continue;                       /* went out first */
           if ((m[0] & 0xF0) == 0x90)
-               midi_note(m[0] & 0x0F, m[1], m[2]);
+               midi_note(m[0] & 0x0F, m[1], flx10_setup_value(m));
           else
-               midi_cc(m[0] & 0x0F, m[1], m[2]);
+               midi_cc(m[0] & 0x0F, m[1], flx10_setup_value(m));
      }
      for (int d = 0; d < 4; d++) {
           flx10_bpm_sysex(d, 0, sx);             /* 0F x6: blank, as rekordbox */
@@ -1596,6 +1655,9 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
 
      if (deck == 0)
           flx10_display_init(now);
+     /* the jog screens draw nothing without this (flx10_hid.h) */
+     flx10_hid_update(deck, di->loaded, di->playing,
+                      di->elapsed_ms > 0 ? di->elapsed_ms / 1000 : 0);
      force = now - jd[deck].refresh >= 1000;
 
      if (force)

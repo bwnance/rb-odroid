@@ -185,8 +185,9 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
 * **Booth and master outputs**, by ear, once on the audio system.
 * **Jog wheel displays.** Phase 1 done (vendor unlock + MIDI ch 16: BPM, tempo %,
   time remaining, marker, MT, MASTER, SYNC). Phase 1 is complete (key included).
-  Left: the HID phase (tempo range box, waveform, clock arm and cue
-  marker, two-decimal BPM, artwork) -- see "FLX10 jog displays" above.
+  The HID phase has started (per-deck state, flx10_hid.c). Left: tempo range
+  box, waveform, cue marker, two-decimal BPM, artwork -- see "FLX10 jog
+  displays" above.
 * **TEMPO RESET** (operator, 2026-10-25), as rekordbox does it: a TOGGLE on the
   FLX10's TEMPO RESET button (deck note 65, unbound today). On: the deck's tempo is
   locked at 0.0% and moving the tempo fader does nothing. Off: the tempo snaps to
@@ -233,17 +234,23 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   absorbs most spikes; `video=...@57` in armbianEnv.txt, if the meson clock and the
   monitor take it), and double-buffering if tearing (rbp draws the band in two
   passes ~2 ms apart into the scanned-out buffer) is ever visible.
-* **Clock arm** (2026-10-25): it needs rekordbox's connect sequence -- after a power
-  cycle with only the Odroid it was gone. map_flx10.c now replays that sequence (the
-  0A/0B/0C SysEx, ~25 ch-16 notes/CCs, the 11-14 blanks) 1 s and 4 s after each
-  (re)connect -- `midi_surface_generation()` moving -- not on a timer. With it, deck
-  2's arm came back but deck 1's did not; narrow which message does it, and retry
-  the two-decimal BPM SysEx in that state.
-* **Jogs say Not Loaded** (2026-10-25): since the reconnect change the connect
-  sequence takes properly and the jogs switch to rekordbox's HID-fed screens (the
-  unit's own display-format button starts working); they then want an "xx 21"
-  state packet per deck on hidraw ~50 Hz and ignore the MIDI values.
-  `scripts/odroid/hid-loaded.py` sends it (rekordbox / VirtualDJ layouts) to test.
+* **Clock arm** (solved 2026-10-25): it is the unit's own per-deck setting,
+  toggled ON THE FLX10 with a double tap of SHIFT -- deck 1's was simply off.
+  The unit reports its display settings (ch 16 9F 3C..4E / BF 41..4A) when asked
+  with 9F 70 00; map_flx10.c now sends 9F 70 00 first, records the answer and
+  sends those values back in the rest of the connect sequence 300 ms later, so a
+  reconnect keeps what was set on the unit (a change on the unit is logged as
+  "FLX10: unit setting ..."). Retry the two-decimal BPM SysEx now that the HID
+  session is up.
+* **Jogs say Not Loaded** (solved 2026-10-25): since the reconnect change the
+  connect sequence takes properly and the jogs switch to rekordbox's HID-fed
+  screens (the unit's display-format button starts working); they then draw
+  nothing until the host sends an "xx 21" state packet per deck on hidraw at
+  ~50 Hz. `scripts/odroid/hid-loaded.py` proved it: rekordbox's loaded packet
+  brings BPM/time/arm up (with `--playing` the mini waveform's position marker
+  goes solid white), VirtualDJ's does not. `shims/flx10_hid.c` now sends the
+  heartbeat + one packet per deck every 20 ms from its own thread, from the deck
+  values rbp_led.c reads (loaded, playing, elapsed s); `FLX10_HID=0` turns it off.
 * **Replug** (2026-10-25): a FLX10 that is power cycled or replugged gets the vendor
   unlock from udev (`99-flx10-unlock.rules`, installed by install.sh), the display
   connect sequence from the map, and every deck that was playing is paused when the
@@ -462,7 +469,8 @@ snd-usb-audio.
 MASTER) and hands them to the map's `deck_display` hook; `map_flx10.c` sends them.
 The marker (clock arm) IS sent, one turn per 1.8 s of play: a first hand test on
 deck 1 moved nothing, but deck 2's arm appeared after a load and followed hand-sent
-values (2026-10-25). What shows or hides it on a deck is still open. The cue marker
+values (2026-10-25). Whether a deck shows it is the unit's own setting (double tap
+SHIFT on the FLX10), kept across reconnects (see "To revisit"). The cue marker
 is not sent yet. BPM is rbp's own screen value (StatWatcher getPlayBpm, x100) sent x10 and
 TRUNCATED like rbp's screen; tried x100 on 2026-10-25 -- the firmware rounds it to tenths
 (105.69 -> 105.70), so a true second decimal needs the HID path. `JOG_DISPLAY_VERBOSE=1` logs the raw
