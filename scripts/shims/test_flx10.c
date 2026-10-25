@@ -812,7 +812,7 @@ int main(void)
                flx10_hid_state_pkt(p, 0, &c);
                CHECK(p[10] == 0x0e, "the length wins when it resolves (%02x)", p[10]);
                c.on_air = 1; flx10_hid_state_pkt(p, 0, &c);
-               CHECK(p[3] == 0x08, "ON AIR not sent while FLX10_ONAIR is unset");
+               CHECK(p[3] == 0x0a, "ON AIR -> [3] 02, the white edges");
                flx10_hid_set_onair(3, 0x04); flx10_hid_state_pkt(p, 0, &c);
                CHECK(p[3] == 0x0c, "FLX10_ONAIR=3:04 -> [3] |= 04 on air");
                c.on_air = 0; flx10_hid_state_pkt(p, 0, &c);
@@ -823,7 +823,7 @@ int main(void)
           hs.master = 1; hs.sync = 1; hs.jog_touch = 1; flx10_hid_state_pkt(p, 0, &hs);
           CHECK(p[5] == 0x91 && p[3] == 0x18, "MASTER + SYNC -> 91, jog touched -> 18 (capture 2)");
           hs.jog_touch = 0; hs.time_remain = 1; flx10_hid_state_pkt(p, 0, &hs);
-          CHECK(p[3] == 0x0a, "rbp's time mode remaining -> [3] 0a");
+          CHECK(p[3] == 0x08, "rbp's time mode not sent ([3] 02 is the white edges)");
           hs.master = 0; hs.sync = 0; hs.jog_touch = 0; hs.time_remain = 0;
           hs.loop_in_ms = hs.loop_out_ms = -1; flx10_hid_state_pkt(p, 0, &hs);
           CHECK(p[25] == 0 && p[27] == 0x80 && p[28] == 0, "no loop -> 00 00 80");

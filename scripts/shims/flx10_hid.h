@@ -35,7 +35,7 @@ struct flx10_hid_deck {
      int loop_num, loop_den;        /* its size in beats as rbp shows it; 0 = unknown */
      int master;            /* this deck is the tempo MASTER */
      int jog_touch;         /* the platter is pressed */
-     int time_remain;       /* show remaining time, not elapsed */
+     int time_remain;       /* rbp shows remaining time (not sent: no byte found) */
      int on_air;            /* rbp's ON AIR icon for the deck: the white edges */
 };
 
@@ -110,8 +110,8 @@ int flx10_key_shift(int tempo_x100);
 int flx10_key_shifted(int key_code, int semitones);
 
 /* Where on_air goes in the packet: OR `mask` into byte `byte` while the deck
- * is on air. Not decoded yet (scripts/odroid/hid-loaded.py finds it), so it
- * is set by FLX10_ONAIR="byte:mask" in hex, e.g. "3:04"; unset = not sent. */
+ * is on air. [3] 0x02 lights the jog's white edges (found 2026-10-25); the
+ * default, overridden by FLX10_ONAIR="byte:mask" in hex. (-1, 0) = not sent. */
 void flx10_hid_set_onair(int byte, int mask);
 
 /* Publish one deck's state (deck 0 = deck 1). Starts the sender thread on the

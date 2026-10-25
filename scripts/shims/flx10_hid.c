@@ -29,8 +29,8 @@
  *   [0]      deck 0x10/0x20/0x30/0x40          [1] 0x21
  *   [2]      0x02 paused away from the cue point; 0x00 playing, or paused on
  *            it (cue standby) -- the capture shows 0x00 after a load and a cue
- *   [3]      0x08, +0x10 while the jog is touched, +0x02 remaining time
- *            (0x0a showed -mm:ss in the probe rounds; rekordbox sent 0x08)
+ *   [3]      0x08, +0x10 while the jog is touched, +0x02 the white edges
+ *            (sent for rbp's ON AIR; rekordbox sent 0x08)
  *   [4]      tempo range box 0x10 +-6, 0x20 +-10, 0x30 +-16, 0x40 WIDE;
  *            0x04 master tempo
  *   [5]      0x01, +0x10 SYNC on, +0x80 tempo MASTER (second capture)
@@ -53,7 +53,7 @@
  * The empty packet is the same header with [9] 0x10, no position/BPM, [27]
  * 0x80, [43..44] 0xff, [60] 0x80, [61] 0x0d, and the range box and tempo %. */
 static const unsigned char range_bits[4] = { 0x10, 0x20, 0x30, 0x40 };
-static int onair_byte = -1, onair_mask;
+static int onair_byte = 3, onair_mask = 0x02;   /* the white edges */
 
 void flx10_hid_set_onair(int byte, int mask)
 {
@@ -177,8 +177,8 @@ void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
      p[2] = (!s->playing && !s->cue_standby) ? 0x02 : 0x00;
      if (s->jog_touch)
           p[3] |= 0x10;
-     if (s->time_remain)
-          p[3] |= 0x02;
+     /* (rbp's time mode is not sent: [3] 0x02, once read as "remaining",
+      * is the white edges -- operator, 2026-10-25 -- see on_air below) */
      if (s->sync)
           p[5] |= 0x10;
      if (s->master)
