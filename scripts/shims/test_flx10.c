@@ -276,7 +276,7 @@ int main(void)
            "VIEW while browsing -> BROWSE (back to the player)");
      browse_mode = 12;
      reset(); ON(7, 122); OFF(7, 122);
-     CHECK(sent_n == 2 && is(0, K_BACK, OP_PRESS, 1), "VIEW on SOURCE -> BACK");
+     CHECK(sent_n == 2 && is(0, K_SOURCE, OP_PRESS, 1), "VIEW on SOURCE -> SOURCE (closes it)");
      browse_mode = 1;
      reset(); ON(7, 122); ON(7, 104); ON(7, 93);
      CHECK(is(0, K_SOURCE, OP_PRESS, 1) && is(1, K_SHORTCUT, OP_PRESS, 1) &&
