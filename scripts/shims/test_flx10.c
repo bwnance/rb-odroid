@@ -191,7 +191,9 @@ int main(void)
      reset(); CC(7, 100, 127);
      CHECK(sent_n == 8 && sent[7].param == -1, "SHIFT+browse = 8 steps");
      reset(); ON(7, 71); map_flx10.tick(); OFF(7, 71);
-     CHECK(sent_n == 2 && is(0, K_LOAD, OP_PRESS, 2), "push 71 loads deck 2");
+     CHECK(sent_n == 4 && is(0, K_LOAD, OP_PRESS, 2) && is(1, K_LOAD, OP_RELEASE, 2) &&
+           is(2, K_SELECTOR, OP_PRESS, 1) && is(3, K_SELECTOR, OP_RELEASE, 1),
+           "push 71: LOAD deck 2, then SELECT");
      /* on SOURCE (browse mode 12) with a stick in slot 1, a push opens USB 1 */
      browse_mode = 12;
      reset(); ON(7, 70); OFF(7, 70);
@@ -199,7 +201,8 @@ int main(void)
            "push on SOURCE -> USB1");
      usb1 = 0;
      reset(); ON(7, 71); OFF(7, 71);
-     CHECK(sent_n == 2 && is(0, K_LOAD, OP_PRESS, 2), "push on SOURCE, slot 1 empty -> LOAD as before");
+     CHECK(sent_n == 4 && is(0, K_LOAD, OP_PRESS, 2) && is(2, K_SELECTOR, OP_PRESS, 1),
+           "push on SOURCE, slot 1 empty -> LOAD + SELECT as elsewhere");
      usb1 = 1; browse_mode = 1;
      reset(); ON(7, 70); ms(650); map_flx10.tick(); OFF(7, 70);
      CHECK(sent_n == 0, "held push: TAG TRACK unset -> nothing, and no LOAD (%d)", sent_n);

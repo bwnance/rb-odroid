@@ -492,7 +492,14 @@ static void flx10_push(int deck, int on)
           klog("knobshim2: flx10 browse push on SOURCE -> open USB1 (0x%04x)\n", K_USB1);
           return;
      }
+     /* LOAD, then SELECT (operator's choice, 2026-10-24): the map cannot see
+      * whether the highlighted row is a track or a playlist/folder, so one
+      * click sends both -- LOAD loads a track (and does nothing on a playlist),
+      * SELECT then opens a playlist or folder. Known side effect: at the top
+      * menu LOAD already opens a category, so the SELECT also opens its first
+      * row. What SELECT does on a track row is not yet observed. */
      pulse(K_LOAD, deck + 1);
+     pulse(K_SELECTOR, CH_GLOBAL);
 }
 
 static void flx10_push_tick(unsigned long long t)
