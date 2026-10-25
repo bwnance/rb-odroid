@@ -1414,6 +1414,58 @@ static void jd_cc14(int deck, int slot, int msb, int lsb, int val, int force)
           jd[deck].v[slot] = val;
 }
 
+/* rbp's key text ("11B", "F#m", "Ebm", ...) as the FLX10's key code (CC 0x49
+ * on the deck channel), 0 = none. The code table, read off the unit by sending
+ * each code (2026-10-25): the major keys in chromatic order from C, each
+ * followed by its relative minor -- 1 8B (C), 2 8A (Am), 3 3B (Db), 4 3A,
+ * 5 10B, 6 10A, 7 5B, 8 5A, 9 12B, 10 12A, 11 7B, 12 7A, 13 2B, 14 2A,
+ * 15 9B, 16 9A, 17 4B, 18 4A, 19 11B, 20 11A, 21 6B, 22 6A, 23 1B, 24 1A. */
+int flx10_key_code(const char *k)
+{
+     /* Camelot number of the major key on each code pair, in code order */
+     static const int camelot_major[12] = { 8, 3, 10, 5, 12, 7, 2, 9, 4, 11, 6, 1 };
+     /* semitone (C = 0) -> Camelot number, major / minor */
+     static const int maj[12] = { 8, 3, 10, 5, 12, 7, 2, 9, 4, 11, 6, 1 };
+     static const int min[12] = { 5, 12, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10 };
+     static const int semis[7] = { 9, 11, 0, 2, 4, 5, 7 };   /* A..G */
+     int num = 0, minor = 0, i;
+
+     if (!k || !k[0])
+          return 0;
+     if (k[0] >= '0' && k[0] <= '9') {                 /* Camelot: 1..12 A/B */
+          num = k[0] - '0';
+          i = 1;
+          if (k[1] >= '0' && k[1] <= '9')
+               num = num * 10 + (k[i++] - '0');
+          if (k[i] == 'A' || k[i] == 'a')
+               minor = 1;
+          else if (k[i] != 'B' && k[i] != 'b')
+               return 0;
+     } else {                                          /* classic: C, F#m, Ebm */
+          int s;
+          char c = k[0];
+          if (c >= 'a' && c <= 'g')
+               c = (char)(c - 'a' + 'A');
+          if (c < 'A' || c > 'G')
+               return 0;
+          s = semis[c - 'A'];
+          i = 1;
+          if (k[i] == '#') { s++; i++; }
+          else if (k[i] == 'b') { s += 11; i++; }
+          s %= 12;
+          if (k[i] == 'm' || k[i] == 'M')
+               minor = 1;
+          num = minor ? min[s] : maj[s];
+     }
+     if (num < 1 || num > 12)
+          return 0;
+     for (i = 0; i < 12; i++)
+          if (camelot_major[i] == num)
+               break;
+     /* a minor key's code is the pair whose MAJOR shares its Camelot number */
+     return 2 * i + (minor ? 2 : 1);
+}
+
 /* The display values, worked out of rbp's raw readings. Pure, for the test. */
 void flx10_jog_values(const struct deck_info *di, int *bpm10, int *speed10,
                       int *min, int *sec, int *deg)
@@ -1447,22 +1499,6 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
      jd_note(deck, 1, 0x20 + d, di->mt ? 0x7F : 0x00, force);
      jd_note(deck, 2, 0x18 + d, di->master ? 0x7F : 0x00, force);
      jd_note(deck, 3, 0x1C + d, di->sync ? 0x7F : 0x00, force);
-     /* JOG_KEY_SWEEP=1: step deck 1's key code 0..24, one every 2 s, logging
-      * each -- to read the code table off the jog (it is a picture in
-      * Pioneer's list). Key: CC 0x49 on the deck's own channel. */
-     {
-          static int sweep = -1, code = -1;
-          static unsigned long long next;
-          if (sweep < 0)
-               sweep = env_on("JOG_KEY_SWEEP", 0);
-          if (sweep && deck == 0 && now >= next) {
-               next = now + 2000;
-               code = (code + 1) % 25;
-               midi_cc(0, 0x4A, 0x0D);
-               midi_cc(0, 0x49, code);
-               klog("knobshim2: flx10 key sweep: code %d (0x%02x)\n", code, code);
-          }
-     }
      /* Key display format (Note 0x5B on the DECK's channel -- the list prints
       * status 9F but channel 1/2/3/4, and only the deck channel works,
       * measured 2026-10-25: 0x00 classic, 0x7F Camelot),
@@ -1479,6 +1515,19 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
      }
      if (!di->loaded)
           return;
+     /* key (CC 0x49) and key change amount (CC 0x4A, 0x0D = 0) on the deck's
+      * own channel; slots 12 and 13 of the cache */
+     {
+          int code = flx10_key_code(di->key);
+          if (force || jd[deck].v[12] != code) {
+               if (midi_cc(deck, 0x49, code))
+                    jd[deck].v[12] = code;
+          }
+          if (force || jd[deck].v[13] != 0x0D) {
+               if (midi_cc(deck, 0x4A, 0x0D))
+                    jd[deck].v[13] = 0x0D;
+          }
+     }
      flx10_jog_values(di, &bpm10, &speed10, &min, &sec, &deg);
      jd_note(deck, 4, 0x14 + d, 0x7F, force);            /* remaining */
      jd_cc(deck, 5, 0x42 + 2 * d, min, force);

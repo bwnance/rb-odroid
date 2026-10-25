@@ -418,6 +418,20 @@ int main(void)
           led_loop_flash[0] = 0; looping[0] = 1; reset(); ON(1, 16); OFF(1, 16);
           CHECK(led_loop_flash[0] == 0, "IN in a loop (halve) -> no flash");
           looping[0] = 0;
+          /* key text -> the FLX10's key code (table read off the unit) */
+          {
+               extern int flx10_key_code(const char *);
+               static const struct { const char *k; int code; } kt[] = {
+                    { "", 0 }, { "8B", 1 }, { "8A", 2 }, { "3B", 3 }, { "11B", 19 },
+                    { "11A", 20 }, { "1A", 24 }, { "12A", 10 }, { "C", 1 }, { "Am", 2 },
+                    { "Db", 3 }, { "C#", 3 }, { "Bbm", 4 }, { "A#m", 4 }, { "F#m", 20 },
+                    { "Gbm", 20 }, { "Ebm", 14 }, { "B", 23 }, { "G#m", 24 }, { "Abm", 24 },
+                    { "x", 0 }, { "13A", 0 },
+               };
+               for (unsigned q = 0; q < sizeof kt / sizeof kt[0]; q++)
+                    CHECK(flx10_key_code(kt[q].k) == kt[q].code, "key '%s' -> code %d (got %d)",
+                          kt[q].k, kt[q].code, flx10_key_code(kt[q].k));
+          }
           /* tempo fader ends: both reach +-1 exactly */
           CHECK(pitch_norm_from_pos14(0) == -1.0f && pitch_norm_from_pos14(16383) == 1.0f &&
                 pitch_norm_from_pos14(16378) == 1.0f && pitch_norm_from_pos14(8192) == 0.0f &&

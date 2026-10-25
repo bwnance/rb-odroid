@@ -184,8 +184,8 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   the hot cue grid's redraw. `scripts/odroid/modelag.py` times it if revisited.
 * **Booth and master outputs**, by ear, once on the audio system.
 * **Jog wheel displays.** Phase 1 done (vendor unlock + MIDI ch 16: BPM, tempo %,
-  time remaining, marker, MT, MASTER, SYNC). Left: key (rbp's source + the 0..0x18
-  code table), then the HID phase (tempo range box, waveform, clock arm and cue
+  time remaining, marker, MT, MASTER, SYNC). Phase 1 is complete (key included).
+  Left: the HID phase (tempo range box, waveform, clock arm and cue
   marker, two-decimal BPM, artwork) -- see "FLX10 jog displays" above.
 * **TEMPO RESET** (operator, 2026-10-25): the FLX10's TEMPO RESET button (deck note
   65, unbound today, its LED dark) should reset the deck's tempo to 0% the way
@@ -391,7 +391,7 @@ documents a display channel, **MIDI ch 16**, whose fields the unit renders itsel
 | cue marker | CC 0x1C+d / 0x3C+d | 0..359; 0x7F/0x7F hides -- **ignored** |
 | MASTER / SYNC | Note 0x18+d / 0x1C+d | on/off |
 | master tempo | Note 0x20+d | on/off |
-| key | CC 0x49 on the deck channel | 0x00..0x18 (table is a picture in the PDF) |
+| key | CC 0x49 on the deck channel | 0 none; 1..24 = the major keys chromatically from C, each followed by its relative minor (1 8B, 2 8A, 3 3B, ... 23 1B, 24 1A; read off the unit) |
 | key change | CC 0x4A on the deck channel | 0x0D = 0 |
 | key display format | Note 0x5B on the deck channel (the list prints 9F; only the deck channel works) | 0x00 classic, 0x7F Camelot; follows rbp's notation |
 | show info | Note 0x5D+d | 0x00 show, 0x7F hide (shows the rekordbox logo) |
@@ -412,8 +412,9 @@ state packet. BPM is rbp's own screen value (StatWatcher getPlayBpm, x100) sent 
 TRUNCATED like rbp's screen; tried x100 on 2026-10-25 -- the firmware rounds it to tenths
 (105.69 -> 105.70), so a true second decimal needs the HID path. `JOG_DISPLAY_VERBOSE=1` logs the raw
 readings once a second (the BPM x100 and tempo x100 units are to be confirmed against
-the screen). Not yet: key (where rbp keeps the loaded track's key, and the code
-table), the cue marker, and the HID-only parts -- tempo range box, waveform, artwork
+the screen). Key: rbp's deck panel keeps a copy of the key text it draws at `0x02683fc0 + deck *
+0x200` (UTF-16, `ui_Deck_Update`); `flx10_key_code()` turns Camelot or classic text into
+the code. Not yet: the HID-only parts -- tempo range box, waveform, artwork
 (interface 5; the community notes in Veezuhz/Mixxx_FLX10_Controller_Mapping never
 got those rendering on Linux).
 
