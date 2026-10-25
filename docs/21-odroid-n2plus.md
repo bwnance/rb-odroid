@@ -164,7 +164,6 @@ On the unit, Armbian `6.18.43-current-meson64`, with a 1024×768 bench monitor
   screen a fraction of a second late.
 * **Booth and master outputs**, by ear, once on the audio system.
 * **Master level meter**: no address found on the FLX10 yet.
-* **Jog feel** after the 12960 PPR fix.
 * **Jog wheel displays** on the FLX10 do nothing yet (probe: note 54 lit nothing;
   the displays are probably fed by SysEx, not notes).
 * **"Deck playing" icons on the HDMI screen flash at start-up.** They should start
@@ -298,6 +297,12 @@ saw 0 ms gaps and pinned nearly every update at the 8 rev/s clamp, so the jog
 and sends at most one update per 4 ms, with speed = counts / real elapsed time on a
 microsecond clock. rbp's position is fed at the FLX4's 720 per revolution.
 `RB_JOG_PPR` overrides the count.
+
+**Jog gain = 12960 / 5484 ≈ 2.363** (2026-10-25). At the true count one turn moved
+the track about 2 beats; rekordbox on the same FLX10 moves 4. The operator tuned it
+by ear against the grid (16 turns within a beat of 64 beats) with `RB_JOG_PPR`, and
+the result is built in as a separate gain on speed and position alike, so the count
+keeps meaning counts. `RB_JOG_GAIN` overrides it.
 
 ### FLX10 LEDs
 

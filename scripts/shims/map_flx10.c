@@ -181,6 +181,13 @@ static int jog_scale = 1;
 #define JOG_WINDOW_US 4000           /* one jog update per window at most */
 #define JOG_POS_PPR   720            /* the resolution rbp's position is fed at */
 static int jog_ppr = FLX10_JOG_PPR;
+/* How far one platter turn moves the track, as a multiple of the turn rbp
+ * would see at the true count -- applied to speed and position alike, so the
+ * scratch sound and the movement stay in step. 12960 / 5484: the operator's
+ * measurement against rekordbox on the same FLX10 (2026-10-25), one turn = 4
+ * beats, 16 turns within a beat. JOG_GAIN overrides it. */
+#define FLX10_JOG_GAIN (12960.0 / 5484.0)
+static double jog_gain = FLX10_JOG_GAIN;
 static int jog_rev = 0;
 static int jog_idle_ms = 120;
 static int jog_verbose = 0;
@@ -303,10 +310,11 @@ static void jog_flush(struct jog_ctrl *s, unsigned long long t_us)
           return;
      if (dt < JOG_WINDOW_US / 1e6)
           dt = JOG_WINDOW_US / 1e6;
-     speed = (float)((double)s->pending / (double)jog_ppr / dt);
+     speed = (float)((double)s->pending * jog_gain / (double)jog_ppr / dt);
      if (speed > 8.0f) speed = 8.0f;
      if (speed < -8.0f) speed = -8.0f;
-     s->fpos += (double)s->pending * jog_scale * JOG_POS_PPR / (double)jog_ppr;
+     s->fpos += (double)s->pending * jog_scale * jog_gain * JOG_POS_PPR /
+                (double)jog_ppr;
      s->pending = 0;
      s->win_us = t_us;
      send_rx_key_fl(K_JOG_ROT, OP_ROTATE, s->sch, 0, speed,
@@ -1210,6 +1218,11 @@ static void flx10_build(void)
      jog_scale = env_num("JOG_SCALE", 1);
      if (jog_scale < 1) jog_scale = 1;
      jog_ppr = env_num("JOG_PPR", FLX10_JOG_PPR);
+     {
+          const char *g = env_text("JOG_GAIN", NULL);
+          double v = (g && *g) ? strtod(g, NULL) : 0.0;
+          jog_gain = (v > 0.0) ? v : FLX10_JOG_GAIN;
+     }
      if (jog_ppr < 1) jog_ppr = 1;
      jog_rev = env_on("JOG_REV", 0);
      jog_idle_ms = env_num("JOG_IDLE_MS", 120);

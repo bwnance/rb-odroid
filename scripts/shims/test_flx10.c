@@ -351,19 +351,21 @@ int main(void)
           for (int i = 0; i < 10; i++) CC(1, 34, 64 + 10);   /* 100 counts at once */
           CHECK(sent_n == 0, "a burst inside the window sends nothing yet (%d)", sent_n);
           ms(5); CC(1, 34, 64 + 10);                          /* 110 counts, ~5 ms */
-          CHECK(sent_n == 1 && sent[0].key == K_JOG_ROT && sent[0].f > 0.8f && sent[0].f < 3.0f,
-                "burst -> about 1.7 rev/s, not the clamp (got %.3f)", sent_n ? sent[0].f : -1.0f);
+          /* x the jog gain (12960/5484, one turn = 4 beats as rekordbox): ~4 */
+          CHECK(sent_n == 1 && sent[0].key == K_JOG_ROT && sent[0].f > 2.0f && sent[0].f < 7.0f,
+                "burst -> about 4 rev/s with the gain, not the clamp (got %.3f)", sent_n ? sent[0].f : -1.0f);
           float fast = sent_n ? sent[0].f : 0.0f;
           ms(200); map_flx10.tick();
           CHECK(sent_n >= 2 && sent[sent_n - 1].f == 0.0f, "idle edge sends speed 0");
           reset();
           CC(1, 34, 64 + 1);
           for (int i = 0; i < 4; i++) { ms(10); CC(1, 34, 64 + 1); }
-          CHECK(sent_n >= 3 && sent[sent_n - 1].f > 0.0f && sent[sent_n - 1].f < 0.05f,
+          CHECK(sent_n >= 3 && sent[sent_n - 1].f > 0.0f && sent[sent_n - 1].f < 0.12f,
                 "slow turn -> slow (got %.4f)", sent_n ? sent[sent_n - 1].f : -1.0f);
           CHECK(fast > 20.0f * (sent_n ? sent[sent_n - 1].f : 1.0f), "fast is much faster than slow");
           ms(200); map_flx10.tick();
-          /* one full revolution of counts moves rbp's position by 720 */
+          /* one full revolution of counts moves rbp's position by 720 x the
+           * gain (12960/5484 = 2.363): ~1702 */
           reset();
           long before = -1;
           CC(2, 35, 64 + 1); ms(5); CC(2, 35, 64 + 1);
@@ -372,7 +374,7 @@ int main(void)
           ms(5); CC(2, 35, 64 + 1); ms(30); map_flx10.tick();
           long after = sent[sent_n - 1].l;
           long moved = (after - before) & 0xFFFF;
-          CHECK(sent[0].ch == 2 && moved > 700 && moved < 740, "one rev moves rbp's position ~720 (%ld)", moved);
+          CHECK(sent[0].ch == 2 && moved > 1680 && moved < 1725, "one rev moves rbp's position ~1702 (%ld)", moved);
           ms(200); map_flx10.tick();
      }
 
