@@ -1507,11 +1507,76 @@ void flx10_jog_values(const struct deck_info *di, int *bpm10, int *speed10,
      *deg = di->elapsed_ms > 0 ? (int)((di->elapsed_ms % 1800) * 360 / 1800) : 0;
 }
 
+/* rekordbox's connect sequence for the display (tools/captures/
+ * flx10-rekordbox-startup.txt, the first ~830 ms, one copy of each, LED clears
+ * left out): without it, after a power cycle, the jog's clock arm is gone and
+ * the marker CCs move nothing; with the unit switched over from rekordbox it
+ * was there (operator, 2026-10-25). Which of these turns the arm on is not
+ * narrowed down -- all of it is what rekordbox sends, so all of it is sent,
+ * once the route is up and again every FLX10_INIT_EVERY_MS (so a power-cycled
+ * unit comes back on its own). The 11..14 0F x6 SysEx blank the per-deck BPM
+ * fields as rekordbox does. */
+static const unsigned char flx10_init_sx_0a[] = {
+     0xF0, 0x00, 0x40, 0x05, 0x00, 0x00, 0x04, 0x01, 0x00, 0x00, 0x0A, 0x00, 0x28,
+     0x00, 0x26, 0x00, 0x1A, 0x3D, 0x12, 0x14, 0x29, 0x55, 0x29, 0x20, 0x28, 0x49,
+     0x4A, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+     0x00, 0xF7 };
+static const unsigned char flx10_init_sx_0b[] = {
+     0xF0, 0x00, 0x40, 0x05, 0x00, 0x00, 0x04, 0x01, 0x00, 0x00, 0x0B, 0x2B, 0x68,
+     0x00, 0x00, 0x00, 0x00, 0xF7 };
+static const unsigned char flx10_init_sx_0c[] = {
+     0xF0, 0x00, 0x40, 0x05, 0x00, 0x00, 0x04, 0x01, 0x00, 0x00, 0x0C, 0x00, 0x00,
+     0x02, 0x0E, 0x0E, 0x00, 0x00, 0x00, 0xF7 };
+/* ch 16 notes (0x9F) and CCs (0xBF), in rekordbox's order */
+static const unsigned char flx10_init_short[][3] = {
+     { 0x9F, 0x70, 0x00 },
+     { 0x9F, 0x40, 0x7F }, { 0x9F, 0x41, 0x00 }, { 0x9F, 0x42, 0x7F },
+     { 0xBF, 0x46, 0x30 }, { 0xBF, 0x3E, 0x20 }, { 0x9F, 0x3C, 0x00 },
+     { 0x9F, 0x3D, 0x00 }, { 0x9F, 0x3F, 0x7F }, { 0xBF, 0x0D, 0x00 },
+     { 0xBF, 0x41, 0x0A }, { 0xBF, 0x42, 0x00 }, { 0x9F, 0x4D, 0x7F },
+     { 0x9F, 0x47, 0x00 }, { 0xBF, 0x43, 0x00 }, { 0x9F, 0x48, 0x7F },
+     { 0x9F, 0x49, 0x7F }, { 0x9F, 0x4A, 0x7F }, { 0x9F, 0x4E, 0x7F },
+     { 0xBF, 0x44, 0x30 }, { 0x9F, 0x45, 0x7F }, { 0x9F, 0x4C, 0x7F },
+     { 0xBF, 0x47, 0x20 }, { 0xBF, 0x49, 0x20 }, { 0xBF, 0x48, 0x40 },
+     { 0xBF, 0x4A, 0x20 },
+};
+#define FLX10_INIT_EVERY_MS 10000
+
+static void flx10_display_init(unsigned long long now)
+{
+     static unsigned long long next;
+     unsigned char sx[17];
+
+     if (now < next)
+          return;
+     next = now + FLX10_INIT_EVERY_MS;
+     midi_sysex_out(flx10_init_sx_0a, sizeof flx10_init_sx_0a);
+     midi_sysex_out(flx10_init_sx_0b, sizeof flx10_init_sx_0b);
+     midi_sysex_out(flx10_init_sx_0c, sizeof flx10_init_sx_0c);
+     for (unsigned k = 0; k < sizeof flx10_init_short / sizeof flx10_init_short[0]; k++) {
+          const unsigned char *m = flx10_init_short[k];
+          if ((m[0] & 0xF0) == 0x90)
+               midi_note(m[0] & 0x0F, m[1], m[2]);
+          else
+               midi_cc(m[0] & 0x0F, m[1], m[2]);
+     }
+     for (int d = 0; d < 4; d++) {
+          flx10_bpm_sysex(d, 0, sx);             /* 0F x6: blank, as rekordbox */
+          midi_sysex_out(sx, sizeof sx);
+     }
+     /* everything the display shows goes out again right after */
+     jd[0].refresh = jd[1].refresh = 0;
+}
+
 static void flx10_deck_display(int deck, const struct deck_info *di)
 {
      unsigned long long now = shim_now_ms();
-     int force = now - jd[deck].refresh >= 1000;
-     int bpm10, speed10, min, sec, deg, d = deck;
+     int force, bpm10, speed10, min, sec, deg, d = deck;
+
+     if (deck == 0)
+          flx10_display_init(now);
+     force = now - jd[deck].refresh >= 1000;
 
      if (force)
           jd[deck].refresh = now;

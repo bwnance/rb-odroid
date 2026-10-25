@@ -221,10 +221,11 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   absorbs most spikes; `video=...@57` in armbianEnv.txt, if the meson clock and the
   monitor take it), and double-buffering if tearing (rbp draws the band in two
   passes ~2 ms apart into the scanned-out buffer) is ever visible.
-* **Clock arm** (2026-10-25): sent again; it showed on deck 2 after switching the
-  FLX10 over from rekordbox with the A/B switch. Check after a power cycle with only
-  the Odroid: if it is gone, replay rekordbox's connect messages (startup capture) at
-  start -- and retry the two-decimal BPM SysEx in that state.
+* **Clock arm** (2026-10-25): it needs rekordbox's connect sequence -- after a power
+  cycle with only the Odroid it was gone. map_flx10.c now replays that sequence (the
+  0A/0B/0C SysEx, ~25 ch-16 notes/CCs, the 11-14 blanks) once the route is up and
+  every 10 s. To confirm on the unit; then narrow which message does it, and retry
+  the two-decimal BPM SysEx in that state.
 * **Later, maybe:** RX3 effects matching the FLX10's (ENIGMA JET, MOBIUS, ...).
 
 ## DDJ-FLX10
