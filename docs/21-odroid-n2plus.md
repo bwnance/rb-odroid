@@ -157,6 +157,13 @@ On the unit, Armbian `6.18.43-current-meson64`, with a 1024×768 bench monitor
 
 ## To revisit (operator's list)
 
+*Fixed 2026-10-25:* **mount table explosion.** `fix-dev.sh` bound `/dev` over the
+chroot's mounted `/dev` on every redeploy, and with Debian's shared propagation each
+stacked bind also landed on the host's `/dev` -- the table roughly doubled per
+redeploy (slow restarts, `mountpoint` eating CPU, `/dev/pts` covered so sudo had no
+pty). Now a mounted chroot `/dev` is left alone and every chroot bind is private.
+Check: `wc -l /proc/self/mountinfo` should stay small across redeploys.
+
 * **Headphone zap on restart.** A "ZZZZ" zappy noise in the headphones when rb
   restarts (2026-10-25). Likely the audio device being opened/closed or clocked
   while the DAC is unmuted; look at start/stop ordering and muting in the audio shim.

@@ -387,6 +387,9 @@ attach() {
             log "attach: slot $aslot: chroot bind $amnt -> $achmnt failed"
             return 1
         fi
+        # private, so it cannot propagate back onto the host (fix-dev.sh)
+        mount --make-private "$achmnt" 2>/dev/null || \
+            log "attach: slot $aslot: could not make $achmnt private"
         log "attach: slot $aslot: chroot bind ok ($achmnt)"
     fi
 

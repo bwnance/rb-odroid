@@ -58,15 +58,29 @@ modprobe vfat exfat nls_cp437 nls_iso8859-1 nls_utf8 2>/dev/null
 # not need clearing in the first place: the bind below covers whatever is there,
 # and a stale mount is shadowed rather than fought. So the umount is checked, its
 # failure is survivable, and nothing is deleted.
-if mountpoint -q "$RB_CHROOT/dev"; then
-    umount "$RB_CHROOT/dev" || \
-        echo "fix-dev: WARNING: $RB_CHROOT/dev is in use and could not be unmounted; binding over it." >&2
-fi
+#
+# NEVER BIND OVER A MOUNTED $RB_CHROOT/dev, AND KEEP EVERY BIND PRIVATE (2026-10-25).
+# This used to unmount the chroot's /dev and, when that failed (rbp running --
+# i.e. every redeploy), bind /dev over it again. Debian's mounts are SHARED, so a
+# bind of /dev joins /dev's peer group and a mount stacked on it propagates back
+# onto the host's /dev as well: the mount table roughly doubled per redeploy until
+# anything reading it (mountpoint, systemd) crawled, and the plain (non-recursive)
+# copies covered the host's /dev/pts, which is what left sudo with no pty. A
+# mounted chroot /dev is already a view of the same devtmpfs -- device nodes added
+# since show up in it -- so there is nothing to refresh: leave it. And each bind
+# is made PRIVATE straight away, so no later mount on either side can cross over.
+bind_private() {
+    mountpoint -q "$2" && return 0
+    mount --bind "$1" "$2" || return 1
+    mount --make-private "$2" 2>/dev/null || \
+        echo "fix-dev: WARNING: could not make $2 private" >&2
+    return 0
+}
 mkdir -p "$RB_CHROOT/dev"
-mount --bind /dev "$RB_CHROOT/dev" || \
+bind_private /dev "$RB_CHROOT/dev" || \
     echo "fix-dev: WARNING: could not bind /dev onto $RB_CHROOT/dev; rbp will see no devices." >&2
 for d in proc sys tmp; do
-    mountpoint -q "$RB_CHROOT/$d" || mount --bind "/$d" "$RB_CHROOT/$d"
+    bind_private "/$d" "$RB_CHROOT/$d"
 done
 
 # /run/rblive4, for the reason the loop above exists: THE LIVE SWITCH FILES. The config page writes
@@ -76,7 +90,7 @@ done
 # "not present" at start-up and never once changed route -- the config page was writing the switch
 # exactly where nothing reads it. Just this directory and not all of /run: the rest is systemd's.
 mkdir -p "$RB_CHROOT/run/rblive4"
-mountpoint -q "$RB_CHROOT/run/rblive4" || mount --bind /run/rblive4 "$RB_CHROOT/run/rblive4" || \
+bind_private /run/rblive4 "$RB_CHROOT/run/rblive4" || \
     echo "fix-dev: WARNING: could not bind /run/rblive4 onto the chroot; the player's live switches" >&2
 
 echo "fix-dev: dev mounted: $(mountpoint -q "$RB_CHROOT/dev" && echo yes || echo NO)"
