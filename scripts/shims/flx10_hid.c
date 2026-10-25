@@ -237,11 +237,16 @@ void flx10_hid_heartbeat_pkt(unsigned char p[FLX10_HID_PKT], int n)
 #define HID_PERIOD_US 10000          /* 100 Hz, about rekordbox's rate */
 #define EXTRAP_MAX_MS 200
 #define NO_BACKSTEP_MS 100
-#define JOG_ACTIVE_MS 150            /* the jog counts as moving this long after a turn */
+#define JOG_ACTIVE_MS 60             /* the jog counts as turning this long after a count */
+#define JOG_LEAD_MS 25               /* how far ahead of rbp's reading a turning jog is drawn */
+#define JOG_LEAD_MAX_MS 60
+#define JOG_STILL_MS 40              /* a held jog's reading wobbles this much */
+#define TEMPO_HOLD_MS 3000           /* sync + jog: tempo held this long after the jog */
 
 struct hid_slot {
      struct flx10_hid_deck s;
      struct flx10_hid_track k;
+     struct flx10_hid_tempo_hold th;
      unsigned long long jog_at;       /* last jog turn (flx10_hid_jog_activity) */
 };
 static struct hid_slot hd[4];
@@ -277,10 +282,37 @@ void flx10_hid_track_init(struct flx10_hid_track *k)
 int flx10_hid_merge(struct flx10_hid_track *k, int reading, int mov, int jog,
                     int tempo_x100, int total_ms, unsigned long long now)
 {
-     if (jog) {
-          /* the hand moves the playhead: show rbp's reading as it is, no
-           * running ahead at the tempo and no holding back */
-          k->base_ms = k->shown = reading;
+     /* how fast rbp's reading moves, from its changes (it moves in audio
+      * blocks), for the jog's lead */
+     if (reading != k->last_reading) {
+          long dt = (long)(now - k->changed_at);
+          float v = (dt > 0 && dt < 100) ?
+                    (float)(reading - k->last_reading) / (float)dt : 0.0f;
+          k->vel = 0.5f * k->vel + 0.5f * v;
+          k->last_reading = reading;
+          k->changed_at = now;
+     }
+     if (jog == FLX10_JOG_TURNING) {
+          /* the hand moves the playhead: rbp's reading, carried on at its
+           * own speed to now and JOG_LEAD_MS beyond (the reading is a block
+           * old by the time the screen draws it) */
+          long ahead = (long)(now - k->changed_at) + JOG_LEAD_MS;
+          long v;
+          if (ahead > JOG_LEAD_MAX_MS)
+               ahead = JOG_LEAD_MAX_MS;
+          v = reading + (long)(k->vel * (float)ahead);
+          if (v < 0) v = 0;
+          if (total_ms > 0 && v > total_ms) v = total_ms;
+          k->base_ms = reading;
+          k->shown = (int)v;
+          k->hold = -1;
+     } else if (jog == FLX10_JOG_HELD) {
+          /* held still: rbp's reading wobbles around the spot, so it moves
+           * the arm only past JOG_STILL_MS */
+          k->vel = 0.0f;
+          if (k->shown - reading > JOG_STILL_MS || reading - k->shown > JOG_STILL_MS)
+               k->shown = reading;
+          k->base_ms = reading;
           k->hold = -1;
      } else if (mov) {
           int pred = flx10_hid_extrapolate(k->base_ms, (long)(now - k->at),
@@ -314,6 +346,34 @@ int flx10_hid_merge(struct flx10_hid_track *k, int reading, int mov, int jog,
      k->at = now;
      k->was_moving = mov && !jog;
      return k->shown;
+}
+
+void flx10_hid_tempo_hold(struct flx10_hid_tempo_hold *h, struct flx10_hid_deck *s,
+                          int turning, unsigned long long now)
+{
+     if (!s->loaded || !s->sync) {
+          h->on = 0;
+          return;
+     }
+     if (turning) {
+          if (!h->on) {               /* the value from before the jog */
+               h->on = 1;
+               h->tempo_x100 = h->last_tempo;
+               h->bpm_x100 = h->last_bpm;
+          }
+          h->until = now + TEMPO_HOLD_MS;
+     } else if (h->on) {
+          int dt = s->tempo_x100 - h->tempo_x100;
+          if (now >= h->until || (dt > -5 && dt < 5))
+               h->on = 0;             /* back where it was, or given up */
+     }
+     if (!h->on) {
+          h->last_tempo = s->tempo_x100;
+          h->last_bpm = s->bpm_x100;
+          return;
+     }
+     s->tempo_x100 = h->tempo_x100;
+     s->bpm_x100 = h->bpm_x100;
 }
 
 void flx10_hid_set_pos_reader(int (*fn)(int deck, int *pos_ms, int *moving))
@@ -416,8 +476,10 @@ static void *hid_thread(void *arg)
                }
                if (s.loaded) {
                     /* touched on a playing deck does nothing (no vinyl mode) */
-                    int jog = (s.jog_touch && !mov) ||
-                              t - hd[d].jog_at < JOG_ACTIVE_MS;
+                    int jog = t - hd[d].jog_at < JOG_ACTIVE_MS ? FLX10_JOG_TURNING :
+                              (s.jog_touch && !mov) ? FLX10_JOG_HELD : 0;
+                    flx10_hid_tempo_hold(&hd[d].th, &s, t - hd[d].jog_at < JOG_ACTIVE_MS,
+                                         t);
                     s.elapsed_ms = flx10_hid_merge(&hd[d].k, pos, mov, jog,
                                                    s.tempo_x100, s.total_ms, t);
                     if (live) {

@@ -63,16 +63,36 @@ int flx10_hid_extrapolate(int base_ms, long dt_ms, int moving, int tempo_x100,
  *               behind, which is block lag and not a seek;
  *   stopped  -- the reading; right after a pause, the last position shown,
  *               while rbp's position stays where it stopped (no step back);
- *   jog      -- the reading as it is (touched, or turned in the last
- *               JOG_ACTIVE_MS), so the arm follows the hand.
+ *   turning  -- the reading carried on at its own measured speed to
+ *               JOG_LEAD_MS past now (it is a block old when drawn), so the
+ *               arm keeps up with the hand;
+ *   held     -- (paused, platter held still) the reading only once it moves
+ *               more than JOG_STILL_MS: rbp's wobbles around the spot.
  * Exposed for the tests. */
 struct flx10_hid_track {
      int base_ms, shown, was_moving, hold, hold_src;
      unsigned long long at;
+     int last_reading;                /* rbp's reading and when it last changed */
+     unsigned long long changed_at;
+     float vel;                       /* its speed, ms per ms */
 };
+#define FLX10_JOG_HELD    1           /* `jog`: platter held, not turning */
+#define FLX10_JOG_TURNING 2           /* `jog`: counts in the last JOG_ACTIVE_MS */
 void flx10_hid_track_init(struct flx10_hid_track *k);
 int flx10_hid_merge(struct flx10_hid_track *k, int reading, int moving, int jog,
                     int tempo_x100, int total_ms, unsigned long long now_ms);
+
+/* The tempo % / BPM on a synced deck while its jog is turned: rbp's tempo
+ * follows the bend (and the key shift with it), which the screen should not
+ * show. The value from before the jog is kept until rbp's tempo is back
+ * within 0.05% of it, or TEMPO_HOLD_MS after the last turn. Exposed for the
+ * tests. */
+struct flx10_hid_tempo_hold {
+     int on, tempo_x100, bpm_x100, last_tempo, last_bpm;
+     unsigned long long until;
+};
+void flx10_hid_tempo_hold(struct flx10_hid_tempo_hold *h, struct flx10_hid_deck *s,
+                          int turning, unsigned long long now_ms);
 
 /* Where the sender reads rbp's playhead (map_flx10.c sets it): fills the
  * position in ms and whether the deck is moving (playing, not in cue
