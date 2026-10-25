@@ -157,6 +157,22 @@
 #define UIBROWSE_OFF_INITIAL 0x3bc    /* int, getInitialNo(list)    @0x1128bc */
 #define UIBROWSE_LIST_STRIDE 0x1ce4   /* between list 0's and list 1's blocks */
 
+/* "Is the highlighted row a track?" -- rbp's own UiBrowseComm_IsTrackList
+ * @0x105e60, which is what decides whether a push loads or opens:
+ *   browse mode 3, 13 or 14:  IsTrackList(0) || IsCursorItemTrack()
+ *   browse mode 4 (tag list): getTaglistDepth() == 1
+ *   anything else:            not a track
+ * IsTrackList(0) @0x112d3c   = bit 6 of byte uiBrowse + 0x3b7
+ * IsCursorItemTrack @0x112ce4 = bit 1 of byte uiBrowse + (cursor0 + 1) * 0x238
+ *                               + 0x3c3 (row records, the title at index 0)
+ * getTaglistDepth @0x112a38  = halfword uiBrowse + 0x52 */
+#define UIBROWSE_OFF_LISTFLAGS   0x3b7
+#define UIBROWSE_LISTFLAG_TRACKS 0x40
+#define UIBROWSE_ROW_STRIDE      0x238
+#define UIBROWSE_OFF_ROWFLAGS    0x3c3
+#define UIBROWSE_ROWFLAG_TRACK   0x02
+#define UIBROWSE_OFF_TAGDEPTH    0x52
+
 /* The calibration sub-screen, and it is NOT a mode: IsUtilityCalibrationOn()
  * @0x112e80 is `return [uiBrowse+0xac] != 0 && [uiBrowse+0xb8] != 0` -- two words
  * of uiBrowse itself, no pointer and nothing to guard. rbp draws its own touch

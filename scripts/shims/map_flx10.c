@@ -525,6 +525,27 @@ __attribute__((weak)) int flx10_usb1_present(void)
      return access("/media/usb1/sda1/PIONEER/rekordbox/export.pdb", F_OK) == 0;
 }
 
+/* Is the highlighted browse row a track? rbp's own answer (rbp_abi.h,
+ * UiBrowseComm_IsTrackList). WEAK so the host test can answer for rbp. */
+__attribute__((weak)) int flx10_cursor_is_track(void)
+{
+     const volatile unsigned char *b = (const volatile unsigned char *)UIBROWSE_GLOBAL;
+     int mode = *(const volatile int *)(b + UIBROWSE_OFF_MODE);
+
+     if (mode == 3 || mode == 13 || mode == 14) {
+          int cur = *(const volatile int *)(b + UIBROWSE_OFF_CURSOR);
+          if (b[UIBROWSE_OFF_LISTFLAGS] & UIBROWSE_LISTFLAG_TRACKS)
+               return 1;
+          if (cur < 0 || cur > 11)
+               return 0;
+          return (b[(cur + 1) * UIBROWSE_ROW_STRIDE + UIBROWSE_OFF_ROWFLAGS] &
+                  UIBROWSE_ROWFLAG_TRACK) != 0;
+     }
+     if (mode == 4)
+          return *(const volatile unsigned short *)(b + UIBROWSE_OFF_TAGDEPTH) == 1;
+     return 0;
+}
+
 /* ---- the browse knobs' pushes --------------------------------------------
  * Both knobs TURN with the same message (ch 7 CC 64), so they scroll one list;
  * only the pushes say which deck: 70 = deck 1, 71 = deck 2. A push is LOAD on
@@ -569,14 +590,14 @@ static void flx10_push(int deck, int on)
           klog("knobshim2: flx10 browse push on SOURCE -> open USB1 (0x%04x)\n", K_USB1);
           return;
      }
-     /* LOAD, then SELECT (operator's choice, 2026-10-24): the map cannot see
-      * whether the highlighted row is a track or a playlist/folder, so one
-      * click sends both -- LOAD loads a track (and does nothing on a playlist),
-      * SELECT then opens a playlist or folder. Known side effect: at the top
-      * menu LOAD already opens a category, so the SELECT also opens its first
-      * row. What SELECT does on a track row is not yet observed. */
-     pulse(K_LOAD, deck + 1);
-     pulse(K_SELECTOR, CH_GLOBAL);
+     /* A track row LOADs to this knob's deck; anything else (folder,
+      * playlist, category) is SELECTed, which opens it. It used to be LOAD
+      * then SELECT for every row, and the SELECT on a track opened rbp's track
+      * menu (operator, 2026-10-25). */
+     if (flx10_cursor_is_track())
+          pulse(K_LOAD, deck + 1);
+     else
+          pulse(K_SELECTOR, CH_GLOBAL);
 }
 
 static void flx10_push_tick(unsigned long long t)
