@@ -1463,6 +1463,14 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
                klog("knobshim2: flx10 key sweep: code %d (0x%02x)\n", code, code);
           }
      }
+     /* Key display format (Note 0x5B on ch 16: 0x00 classic, 0x7F Camelot),
+      * following the notation rbp's own panel shows: a key text starting with
+      * a digit ("3B") is Camelot. Before any key is known, Camelot -- the
+      * operator's RX3 shows Camelot. */
+     {
+          int camelot = di->key[0] ? (di->key[0] >= '0' && di->key[0] <= '9') : 1;
+          jd_note(deck, 11, 0x5B, camelot ? 0x7F : 0x00, force);
+     }
      if (!di->loaded)
           return;
      flx10_jog_values(di, &bpm10, &speed10, &min, &sec, &deg);
