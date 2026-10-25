@@ -99,6 +99,7 @@
 #include "rbp_vu.h"        /* g_fader, g_fader_seen */
 #include "rbp_led.h"       /* led_loop_armed */
 #include "ctrl_map.h"
+#include "pitch_state.h"   /* PITCH_END_SNAP */
 #include "mididump.h"
 
 #ifndef FLX4_FIXTURE
@@ -319,9 +320,14 @@ struct expect {
      int fval_sign;   /* compare the sign, not the value */
 };
 
-/* The pitch fader's float, spelled the way flx4_pitch() computes it, so the two
- * cannot drift: (pos - 0x2000) / 8192, both ends exact in single precision. */
-#define PITCH_NORM(pos) (((float)(pos) - 0x2000) / 8192.0f)
+/* The pitch fader's float, spelled the way pitch_norm_from_pos14() (pitch_state.h)
+ * computes it, as a constant expression for the table below: each half scaled by
+ * its own length, the last PITCH_END_SNAP counts at either end snapped to +-1. */
+#define PITCH_NORM(pos) \
+     ((pos) <= PITCH_END_SNAP ? -1.0f : \
+      (pos) >= 0x3fff - PITCH_END_SNAP ? 1.0f : \
+      (pos) >= 0x2000 ? (float)((pos) - 0x2000) / (float)(0x3fff - 0x2000 - PITCH_END_SNAP) \
+                      : (float)((pos) - 0x2000) / (float)(0x2000 - PITCH_END_SNAP))
 
 static const struct expect expect[] = {
      /* ---- deck 1 buttons (sch 1 = rbp player 1) ---- */
@@ -420,7 +426,7 @@ static const struct expect expect[] = {
       * +end (0x7F/0x7F), centre (0x40/0x00), -end (0x00/0x00). v10 is rbp's
       * 10-bit position and lval the raw 14-bit one; the MSB alone sends nothing
       * (a row here would be an extra entry). */
-     { 2, K_TEMPO_SLIDER,   OP_VALUE,   1, 1022, PITCH_NORM(0x3FFF), 0x3FFF, 0 },
+     { 2, K_TEMPO_SLIDER,   OP_VALUE,   1, 1023, PITCH_NORM(0x3FFF), 0x3FFF, 0 },
      { 2, K_TEMPO_SLIDER,   OP_VALUE,   1, 511,  PITCH_NORM(0x2000), 0x2000, 0 },
      { 2, K_TEMPO_SLIDER,   OP_VALUE,   1, 0,    PITCH_NORM(0x0000), 0x0000, 0 },
 

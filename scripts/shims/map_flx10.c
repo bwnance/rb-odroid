@@ -382,7 +382,7 @@ static void flx10_pitch(int deck, int cc, int val)
      if (!s->have_hi)
           return;
      pos = s->pos;
-     norm = ((float)pos - 0x2000) / 8192.0f;
+     norm = pitch_norm_from_pos14(pos);
      if (norm > 1.0f) norm = 1.0f;
      if (norm < -1.0f) norm = -1.0f;
      if (tempo_rev)

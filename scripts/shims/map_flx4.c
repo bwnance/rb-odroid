@@ -753,7 +753,7 @@ static void flx4_pitch(int ch, int cc, int val)
      int pos = s->pos;
      if (pos < 0) pos = 0;
      if (pos > 0x3FFF) pos = 0x3FFF;
-     float norm = ((float)pos - 0x2000) / 8192.0f;
+     float norm = pitch_norm_from_pos14(pos);
      if (norm > 1.0f) norm = 1.0f;
      if (norm < -1.0f) norm = -1.0f;
      if (tempo_rev)

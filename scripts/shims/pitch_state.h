@@ -57,6 +57,24 @@ void pitch_state_set(int deck, float norm);
  * surface names. It also cannot be pushed out of the fader's travel, which a
  * five-point tempo step can -- at +-6% that would be most of the slider.
  * ------------------------------------------------------------------------- */
+/* A 14-bit tempo fader position (0..16383, centre 0x2000) as -1..+1.
+ * Each half is scaled by its OWN length: the + half has 8191 counts and the -
+ * half 8192, and dividing both by 8192 left the + end at 0.99988 -- +15.95 on a
+ * +-16 range, where the - end reached -16 (operator, 2026-10-25). The last
+ * PITCH_END_SNAP counts at either end count as the end, for a fader that stops
+ * a hair short. */
+#define PITCH_END_SNAP 8
+static inline float pitch_norm_from_pos14(int pos)
+{
+    if (pos <= PITCH_END_SNAP)
+        return -1.0f;
+    if (pos >= 0x3fff - PITCH_END_SNAP)
+        return 1.0f;
+    if (pos >= 0x2000)
+        return (float)(pos - 0x2000) / (float)(0x3fff - 0x2000 - PITCH_END_SNAP);
+    return (float)(pos - 0x2000) / (float)(0x2000 - PITCH_END_SNAP);
+}
+
 static inline float pitch_norm_clamp(float n)
 {
     if (n > 1.0f)

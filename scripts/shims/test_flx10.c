@@ -23,6 +23,7 @@
 #include "rbp_bridge.h"
 #include "rbp_vu.h"
 #include "ctrl_map.h"
+#include "pitch_state.h"
 
 static int checks, failures;
 #define CHECK(cond, ...) do { checks++; if (!(cond)) { failures++;           \
@@ -417,6 +418,13 @@ int main(void)
           led_loop_flash[0] = 0; looping[0] = 1; reset(); ON(1, 16); OFF(1, 16);
           CHECK(led_loop_flash[0] == 0, "IN in a loop (halve) -> no flash");
           looping[0] = 0;
+          /* tempo fader ends: both reach +-1 exactly */
+          CHECK(pitch_norm_from_pos14(0) == -1.0f && pitch_norm_from_pos14(16383) == 1.0f &&
+                pitch_norm_from_pos14(16378) == 1.0f && pitch_norm_from_pos14(8192) == 0.0f &&
+                pitch_norm_from_pos14(5) == -1.0f,
+                "tempo fader: 0/16383/16378/8192/5 -> -1/+1/+1/0/-1");
+          CHECK(pitch_norm_from_pos14(8192 + 4096) > 0.49f && pitch_norm_from_pos14(8192 + 4096) < 0.51f,
+                "tempo fader half way up is ~+0.5");
           /* jog display values */
           {
                extern void flx10_jog_values(const struct deck_info *, int *, int *,
