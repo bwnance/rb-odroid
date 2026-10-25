@@ -45,6 +45,7 @@ void me_set_master_cue(int on) { mcue = on; }
 int hotcue_delete(int deck, int pad) { deleted_deck = deck; deleted_pad = pad; return 0; }
 static int browse_mode = 1, usb1 = 1, cursor_track = 1;
 int flx10_cursor_is_track(void) { return cursor_track; }
+void flx10_cursor_debug(int *m, int *c, int *l, int *r) { *m = 3; *c = 0; *l = 0; *r = 2; }
 static int padmode[2];                     /* what rbp's pad-mode byte would read */
 int flx10_pad_mode(int deck) { return padmode[deck]; }
 int flx10_browse_mode(void) { return browse_mode; }
@@ -231,8 +232,11 @@ int main(void)
      reset(); CC(7, 100, 127);
      CHECK(sent_n == 8 && sent[7].param == -1, "SHIFT+browse = 8 steps");
      reset(); ON(7, 71); map_flx10.tick(); OFF(7, 71);
-     CHECK(sent_n == 2 && is(0, K_LOAD, OP_PRESS, 2) && is(1, K_LOAD, OP_RELEASE, 2),
-           "push 71 on a track: LOAD deck 2 only (%d)", sent_n);
+     CHECK(sent_n == 1 && is(0, K_LOAD, OP_PRESS, 2), "push 71 on a track: LOAD down (%d)", sent_n);
+     ms(30); map_flx10.tick();
+     CHECK(sent_n == 1, "LOAD still held at 30 ms");
+     ms(30); map_flx10.tick();
+     CHECK(sent_n == 2 && is(1, K_LOAD, OP_RELEASE, 2), "LOAD up after ~50 ms (%d)", sent_n);
      cursor_track = 0;
      reset(); ON(7, 70); OFF(7, 70);
      CHECK(sent_n == 2 && is(0, K_SELECTOR, OP_PRESS, 1) && is(1, K_SELECTOR, OP_RELEASE, 1),
@@ -245,8 +249,9 @@ int main(void)
            "push on SOURCE -> USB1");
      usb1 = 0;
      reset(); ON(7, 71); OFF(7, 71);
-     CHECK(sent_n == 2 && is(0, K_LOAD, OP_PRESS, 2),
+     CHECK(sent_n == 1 && is(0, K_LOAD, OP_PRESS, 2),
            "push on SOURCE, slot 1 empty -> as elsewhere (%d)", sent_n);
+     ms(60); map_flx10.tick();
      usb1 = 1; browse_mode = 1;
      reset(); ON(7, 70); ms(450); map_flx10.tick();
      CHECK(sent_n == 0, "push held 0.45 s: nothing yet (%d)", sent_n);

@@ -527,6 +527,17 @@ __attribute__((weak)) int flx10_usb1_present(void)
 
 /* Is the highlighted browse row a track? rbp's own answer (rbp_abi.h,
  * UiBrowseComm_IsTrackList). WEAK so the host test can answer for rbp. */
+/* For the push's log line: what the track test read. WEAK with the test. */
+__attribute__((weak)) void flx10_cursor_debug(int *mode, int *cur, int *lf, int *rf)
+{
+     const volatile unsigned char *b = (const volatile unsigned char *)UIBROWSE_GLOBAL;
+     *mode = *(const volatile int *)(b + UIBROWSE_OFF_MODE);
+     *cur = *(const volatile int *)(b + UIBROWSE_OFF_CURSOR);
+     *lf = b[UIBROWSE_OFF_LISTFLAGS];
+     *rf = (*cur >= 0 && *cur <= 11)
+           ? b[(*cur + 1) * UIBROWSE_ROW_STRIDE + UIBROWSE_OFF_ROWFLAGS] : -1;
+}
+
 __attribute__((weak)) int flx10_cursor_is_track(void)
 {
      const volatile unsigned char *b = (const volatile unsigned char *)UIBROWSE_GLOBAL;
@@ -569,6 +580,10 @@ __attribute__((weak)) int flx10_cursor_is_track(void)
  * no USB2 keycode has been measured. */
 static unsigned long long push_at[2];
 static int push_fired[2];            /* the long press went out; selector held */
+/* LOAD is held ~50 ms like a real tap: rbp did nothing with a press and a
+ * release sent in the same instant (operator, 2026-10-25). */
+#define LOAD_HOLD_MS 50
+static unsigned long long load_up_at[2];
 
 static void flx10_push(int deck, int on)
 {
@@ -594,15 +609,30 @@ static void flx10_push(int deck, int on)
       * playlist, category) is SELECTed, which opens it. It used to be LOAD
       * then SELECT for every row, and the SELECT on a track opened rbp's track
       * menu (operator, 2026-10-25). */
-     if (flx10_cursor_is_track())
-          pulse(K_LOAD, deck + 1);
-     else
-          pulse(K_SELECTOR, CH_GLOBAL);
+     {
+          int mode, cur, lf, rf, track = flx10_cursor_is_track();
+          flx10_cursor_debug(&mode, &cur, &lf, &rf);
+          klog("knobshim2: flx10 push deck%d: browse mode %d cursor %d listflags "
+               "0x%02x rowflags 0x%02x -> %s\n", deck + 1, mode, cur, lf, rf & 0xff,
+               track ? "LOAD (held)" : "SELECT");
+          if (track) {
+               if (load_up_at[deck])
+                    send_rx_key(K_LOAD, OP_RELEASE, deck + 1, 0);
+               send_rx_key(K_LOAD, OP_PRESS, deck + 1, 0);
+               load_up_at[deck] = shim_now_ms() + LOAD_HOLD_MS;
+          } else {
+               pulse(K_SELECTOR, CH_GLOBAL);
+          }
+     }
 }
 
 static void flx10_push_tick(unsigned long long t)
 {
      for (int d = 0; d < 2; d++) {
+          if (load_up_at[d] && t >= load_up_at[d]) {
+               load_up_at[d] = 0;
+               send_rx_key(K_LOAD, OP_RELEASE, d + 1, 0);
+          }
           if (!push_at[d] || push_fired[d] ||
               t - push_at[d] < (unsigned long long)browse_hold_ms)
                continue;
