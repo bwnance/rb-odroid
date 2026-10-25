@@ -18,10 +18,21 @@ Veezuhz/Mixxx_FLX10_Controller_Mapping (docs/21): 128 bytes, byte 0 the deck
     python3 scripts/odroid/hid-loaded.py --vdj        # VirtualDJ's simpler layout
     python3 scripts/odroid/hid-loaded.py --pos 75     # elapsed seconds in bytes 11-12
     python3 scripts/odroid/hid-loaded.py --no-heartbeat
+
+While it runs, type byte edits and Enter; they apply to the loaded packet live,
+for finding which byte is what (stop rb's own sender first: RB_FLX10_HID=0 in
+rb.local.conf and restart rb, or the two fight):
+
+    60=87          byte 60 = 0x87 on both decks (values are hex)
+    16=2f 17=a8    several at once
+    1:60=81        deck 1 only (2: for deck 2)
+    show           the current packet for deck 1, with edits
+    clear          drop all edits
 """
 import argparse
 import os
 import sys
+import threading
 import time
 
 VID, PID = "2B73", "0041"
@@ -76,6 +87,59 @@ def vdj_state(deck, loaded, playing, pos):
     return p
 
 
+# byte edits typed while running: {deck index or None: {byte: value}}
+edits = {None: {}, 0: {}, 1: {}}
+edits_lock = threading.Lock()
+
+
+def apply_edits(p, di):
+    with edits_lock:
+        for k, v in list(edits[None].items()) + list(edits[di].items()):
+            p[k] = v
+    return p
+
+
+def dump(p):
+    for row in range(0, 64, 16):
+        print("  %3d: %s" % (row, " ".join("%02x" % b for b in p[row:row + 16])))
+
+
+def read_edits(build, a):
+    for line in sys.stdin:
+        words = line.split()
+        if not words:
+            continue
+        if words[0] == "clear":
+            with edits_lock:
+                for d in edits.values():
+                    d.clear()
+            print("edits cleared")
+            continue
+        if words[0] == "show":
+            dump(apply_edits(build(DECKS[0], not a.empty, a.playing, a.pos), 0))
+            continue
+        for w in words:
+            deck = None
+            if ":" in w:
+                ds, w = w.split(":", 1)
+                if ds not in ("1", "2"):
+                    print("deck must be 1 or 2: %s" % ds)
+                    continue
+                deck = int(ds) - 1
+            try:
+                k, v = w.split("=")
+                k, v = int(k), int(v, 16)
+                if not (0 <= k < 128 and 0 <= v < 256):
+                    raise ValueError
+            except ValueError:
+                print("not byte=hex: %s" % w)
+                continue
+            with edits_lock:
+                edits[deck][k] = v
+            print("byte %d = 0x%02x on %s" % (k, v, "both decks" if deck is None
+                                                  else "deck %d" % (deck + 1)))
+
+
 def heartbeat(n):
     p = bytearray(128)
     p[1], p[2], p[4] = 0x3D, n, 0x05
@@ -103,6 +167,7 @@ def main():
         "empty" if a.empty else ("loaded, playing" if a.playing else "loaded, paused"),
         ", heartbeat" if hb else "", a.hz))
 
+    threading.Thread(target=read_edits, args=(build, a), daemon=True).start()
     period, n, sent, t0 = 1.0 / a.hz, 0, 0, time.monotonic()
     try:
         while True:
@@ -110,7 +175,8 @@ def main():
             if hb:
                 n = n % 5 + 1
                 pkts.append(heartbeat(n))
-            pkts += [build(d, not a.empty, a.playing, a.pos) for d in DECKS]
+            pkts += [apply_edits(build(d, not a.empty, a.playing, a.pos), i)
+                     for i, d in enumerate(DECKS)]
             for p in pkts:
                 # hidraw: byte 0 is the report number; 0 = the unit has none
                 os.write(fd, b"\x00" + bytes(p))
