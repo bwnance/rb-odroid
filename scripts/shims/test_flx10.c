@@ -72,6 +72,8 @@ int flx10_trrev_goes_back(int d) { return goes_back[d]; }
 static int bpm_auto_n;
 void flx10_bfx_bpm_auto(void) { bpm_auto_n++; }
 void flx10_beat_jump(int d, int type) { if (bj_n < 16) { bj_deck[bj_n] = d; bj_t[bj_n] = type; } bj_n++; }
+static int pj_n, pj_deck[16]; static float pj_b[16];
+int flx10_plain_jump(int d, float b) { if (pj_n < 16) { pj_deck[pj_n] = d; pj_b[pj_n] = b; } pj_n++; return 1; }
 /* the rbp mode each FLX10 pad page belongs to */
 static int pmode(int pg) { static const int m[8] = { 0, 2, 3, 5, 4, 6, 1, 7 }; return pg < 0 ? 0 : m[(pg >> 4) & 7]; }
 void flx10_cursor_debug(int *m, int *c, int *l, int *r) { *m = 3; *c = 0; *l = 0; *r = 2; }
@@ -216,15 +218,18 @@ int main(void)
      slipmode[0] = 0;
 
      /* beat jump / track search, slip / vinyl */
-     /* 4 BEAT JUMP: real 4-beat jumps; SHIFT = one 16-beat jump */
-     bj_n = 0; reset(); ON(2, 94); OFF(2, 94); ON(1, 95); OFF(1, 95);
-     CHECK(bj_n == 2 && bj_deck[0] == 1 && bj_t[0] == 7 && bj_deck[1] == 0 && bj_t[1] == 8 &&
-           sent_n == 0, "BEAT JUMP < deck 2 -4, > deck 1 +4, no keys");
-     bj_n = 0; ON(1, 98); OFF(1, 98);
-     for (int i = 0; i < 3; i++) { ms(90); map_flx10.tick(); }
-     CHECK(bj_n == 1 && bj_t[0] == 12, "SHIFT + BEAT JUMP >: one +16-beat jump");
-     bj_n = 0; ON(2, 97); OFF(2, 97);
-     CHECK(bj_n == 1 && bj_t[0] == 11 && bj_deck[0] == 1, "SHIFT + BEAT JUMP < deck 2: one -16");
+     /* 4 BEAT JUMP: the plain loop's jump, every press at once; SHIFT = 16 beats;
+      * inside a loop rbp's own beat jump (a loop move) */
+     looping[0] = looping[1] = 0;
+     pj_n = 0; bj_n = 0; reset(); ON(2, 94); OFF(2, 94); ON(1, 95); OFF(1, 95);
+     CHECK(pj_n == 2 && pj_deck[0] == 1 && pj_b[0] == -4.0f && pj_deck[1] == 0 && pj_b[1] == 4.0f &&
+           bj_n == 0 && sent_n == 0, "BEAT JUMP < deck 2 -4, > deck 1 +4, plain jumps, no keys");
+     pj_n = 0; for (int i = 0; i < 3; i++) { ON(1, 98); OFF(1, 98); }
+     CHECK(pj_n == 3 && pj_b[0] == 16.0f && pj_b[2] == 16.0f, "SHIFT + BEAT JUMP > x3: three +16 jumps at once");
+     looping[1] = 1; pj_n = 0; bj_n = 0; ON(2, 97); OFF(2, 97);
+     CHECK(pj_n == 0 && bj_n == 1 && bj_t[0] == 11 && bj_deck[0] == 1, "in a loop: rbp's own -16 (loop move)");
+     looping[1] = 0;
+     bj_n = 1;
      reset(); ON(1, 23); OFF(1, 23);
      CHECK(sent_n == 0, "SHIFT+SLIP (VINYL) disabled: nothing sent (%d)", sent_n);
 

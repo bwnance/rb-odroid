@@ -823,6 +823,26 @@ static const signed char bfx_type_to_pos[15] = {
 #define BPMMGR_GET_INSTANCE    0x000516b4   /* dsp::BpmManager::getInstance() */
 #define BPMMGR_SET_DETECTMODE  0x00051784   /* dsp::BpmManager::setBfxBpmDetectMode(mode) */
 #define BFX_BPM_AUTO 0
+/* TotalTrackSearch_JdgTrackBack @0xeab60 treats a TRACK SEARCH < seen within
+ * 500 ms of the time stored at stTotalTrackSearchWk_Deck + deck*32 + 28 as a
+ * double press (= previous track). CmnFunc_OsTim_GetTime @0x187290 is the
+ * clock it compares against. */
+#define TTS_WK_GLOBAL      0x03251eecUL
+#define TTS_WK_STRIDE      32
+#define TTS_WK_LASTPRESS   28
+#define OSTIM_GET_TIME     0x00187290
+/* The jump itself, without the quantize detour. playengine::Player keeps two
+ * loop objects and selectCurrentLoop @0x656d8 picks the quantizing one into
+ * Player+0xee8 while the deck quantizes; the plain one is always at
+ * Player+0xeec. playengine::Loop::playBeatJump(const float &beats) @0xad2f4
+ * (the plain one's) moves the playhead straight away -- Player::
+ * setPlayingPosition, then setBeatPosSearch -- by `beats` (signed, any size).
+ * The Players are PlayEngine's vector of Player* at +12 (begin) / +16 (end),
+ * indexed by channel, as PlayEngine::getReverse @0x5e010 reads it. */
+#define PE_PLAYERS_BEGIN_OFF  12
+#define PE_PLAYERS_END_OFF    16
+#define PLAYER_PLAIN_LOOP_OFF 0xeec
+#define LOOP_PLAY_BEATJUMP    0x000ad2f4
 #define BEATJUMP_M4  7
 #define BEATJUMP_P4  8
 #define BEATJUMP_M16 11

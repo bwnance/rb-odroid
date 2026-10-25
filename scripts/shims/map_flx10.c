@@ -629,12 +629,51 @@ static void flx10_rev_tick(unsigned long long t)
  * Real beat jumps (operator, 2026-10-25): 4 beats, and with SHIFT 16 beats.
  * These used to be rbp's SEARCH keys, which jump only while playing -- on a
  * paused deck onKey_SearchRev @0x304908 does a one-step msSearch, which is the
- * "tiny amount" the operator saw. Now they call what a BEAT JUMP pad calls,
- * DjEngineIF::playBeatJump, which works paused or playing; 16 beats is one of
- * its own steps, so either is a single jump. */
+ * "tiny amount" the operator saw.
+ *
+ * Then they called DjEngineIF::playBeatJump, what a BEAT JUMP pad calls. With
+ * quantize on that goes through the deck's quantizing loop object, and fast
+ * repeated presses were sometimes late and sometimes lost (operator,
+ * 2026-10-25). So the jump is now the plain loop object's
+ * Loop::playBeatJump (rbp_abi.h, LOOP_PLAY_BEATJUMP), which moves the playhead
+ * at once by exactly that many beats, every press -- an integer number of
+ * beats keeps the phase. Inside a loop rbp's own call is kept (a jump there is
+ * a loop move). Both are WEAK so the host test can answer for rbp. */
 __attribute__((weak)) void flx10_beat_jump(int deck, int type)
 {
      ((void (*)(void *, int, int))DJE_PLAY_BEATJUMP)(NULL, deck, type);
+}
+
+__attribute__((weak)) int flx10_plain_jump(int deck, float beats)
+{
+     void *pe = *(void **)PLAYENGINE_GLOBAL;
+     void **b, **e, *player, *loop;
+
+     if (!pe)
+          return 0;
+     b = *(void ***)((char *)pe + PE_PLAYERS_BEGIN_OFF);
+     e = *(void ***)((char *)pe + PE_PLAYERS_END_OFF);
+     if (!b || deck < 0 || deck >= (int)(e - b))
+          return 0;
+     player = b[deck];
+     if (!player)
+          return 0;
+     loop = *(void **)((char *)player + PLAYER_PLAIN_LOOP_OFF);
+     if (!loop)
+          return 0;
+     return ((int (*)(void *, const float *))LOOP_PLAY_BEATJUMP)(loop, &beats) & 0xff;
+}
+
+static void flx10_jump(int deck, int beats)
+{
+     static const int type_m[17] = { [4] = BEATJUMP_M4, [16] = BEATJUMP_M16 };
+     static const int type_p[17] = { [4] = BEATJUMP_P4, [16] = BEATJUMP_P16 };
+     int n = beats < 0 ? -beats : beats;
+
+     if (aloop_is_looping(deck))
+          flx10_beat_jump(deck, beats < 0 ? type_m[n] : type_p[n]);
+     else
+          flx10_plain_jump(deck, (float)beats);
 }
 
 /* ---- SHIFT + CUE: back to the start of the track ----------------------------
@@ -1348,10 +1387,10 @@ static void flx10_note(int ch, int note, int on)
                     track_key(deck, K_TRFWD);
                }
                return;
-          case N_BJ_PREV:       if (on) flx10_beat_jump(deck, BEATJUMP_M4);  return;
-          case N_BJ_NEXT:       if (on) flx10_beat_jump(deck, BEATJUMP_P4);  return;
-          case N_BJ_PREV_SHIFT: if (on) flx10_beat_jump(deck, BEATJUMP_M16); return;
-          case N_BJ_NEXT_SHIFT: if (on) flx10_beat_jump(deck, BEATJUMP_P16); return;
+          case N_BJ_PREV:       if (on) flx10_jump(deck, -4);  return;
+          case N_BJ_NEXT:       if (on) flx10_jump(deck, 4);   return;
+          case N_BJ_PREV_SHIFT: if (on) flx10_jump(deck, -16); return;
+          case N_BJ_NEXT_SHIFT: if (on) flx10_jump(deck, 16);  return;
           case N_SLIP_REVERSE:
                flx10_slip_reverse(deck, on);
                return;
