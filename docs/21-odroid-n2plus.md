@@ -256,8 +256,7 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   [2] 00 playing / 02 paused; [4] 0x04 MT, 0x70 range box (0x10 +-6, 0x20 +-10,
   0x30 +-16, 0x40 WIDE, 0x00/0x60 none; 0x80 moved the blue tone arm);
   [9] b4, 00 = Not Loaded;
-  [11..12] elapsed s BE, [13] fraction /256 (moves the arm); [18] BPM hundredths
-  (was the captured 03 -- every BPM read .03); [16] key (only 00 =
+  [11..12] elapsed s BE, [13] fraction /256 (moves the arm); [16] key (only 00 =
   blank found -- sent blank); [21..22] BPM whole number LE; [23..24] tempo % x100
   signed LE; [3] 0a shows remaining time (-02:38 with elapsed 0 -- from what
   total, not found; 08 hid the white edge arcs). Round 3: under HID the unit
@@ -266,8 +265,19 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   100 ms, no change), so everything on the screen has to come over HID. Byte 16
   is not the key code: after a reload any value leaves the key blank, so the
   key likely comes in another packet sent at load. Not found yet: key, BPM
-  decimals, MASTER/SYNC, arm position, track length -- a rekordbox HID capture
+  decimals (every BPM shows .03 from some captured byte; [18], captured 03,
+  changed nothing when filled), MASTER/SYNC, arm position, track length -- a rekordbox HID capture
   with a track loaded is the way to get them.
+* **HID jog screens, to do** (operator, 2026-10-25) -- the capture
+  (`tools/flx10-pcap-decode.py`) should show most of these:
+  - SYNC icon lit when the deck is synced; the BEAT SYNC icon too (when
+    rekordbox lights it is to be found).
+  - BPM decimals (stuck at .03).
+  - Key (blank).
+  - Album art; waveforms (maybe).
+  - Arm: rotate like a record at 33 1/3 rpm (one turn per 1.8 s). The second
+    arm (blue, sometimes orange) sits at the cue point once a cue is set; in a
+    loop, the arm jumps back to the loop start each time the loop wraps.
 * **Replug** (2026-10-25): a FLX10 that is power cycled or replugged gets the vendor
   unlock from udev (`99-flx10-unlock.rules`, installed by install.sh), the display
   connect sequence from the map, and every deck that was playing is paused when the

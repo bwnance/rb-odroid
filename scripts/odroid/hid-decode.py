@@ -135,6 +135,8 @@ ROUND3 = [
 # 0x10 = +-6, 0x40 = WIDE, 0x60 none, 0x80 moved the blue tone arm; key stays
 # blank after a reload whatever byte 16 is; 10/14/28/29/30 not the decimals;
 # 3=0a shows remaining (-02:38 at elapsed 0).
+# In rb (2026-10-25): every BPM showed .03; filling byte 18 with the hundredths
+# changed nothing -- the decimals are elsewhere.
 ROUNDS = {1: ROUND1, 2: ROUND2, 3: ROUND3}
 
 

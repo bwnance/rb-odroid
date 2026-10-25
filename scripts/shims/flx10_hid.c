@@ -44,10 +44,11 @@ static const unsigned char rb_loaded[64] = {
  *   [11..12] elapsed seconds, big-endian; [13] the fraction, /256 (the arm
  *            moves with it)
  *   [16]     the key; encoding not found, 00 = blank, so blank
- *   [18]     BPM hundredths, 0..99 (captured 03: every BPM showed .03 until
- *            this was filled, 2026-10-25)
  *   [21..22] BPM, whole number, little-endian
  *   [23..24] tempo % x100, signed little-endian
+ * Not found yet: the BPM's decimals -- every BPM shows .03 from some captured
+ * byte; [18] (captured 03) changed nothing when filled, 2026-10-25 -- the key
+ * encoding, MASTER/SYNC, the arm position, the track length.
  */
 void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
                          const struct flx10_hid_deck *s)
@@ -75,7 +76,6 @@ void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
      p[16] = 0x00;
      bpm = s->bpm_x100 > 0 ? s->bpm_x100 / 100 : 0;
      if (bpm > 0xFFFF) bpm = 0xFFFF;
-     p[18] = (unsigned char)(s->bpm_x100 > 0 ? s->bpm_x100 % 100 : 0);
      p[21] = (unsigned char)bpm;
      p[22] = (unsigned char)(bpm >> 8);
      tempo = s->tempo_x100;
