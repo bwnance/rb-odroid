@@ -98,7 +98,7 @@
 #define N_4BEAT         20    /* 4 BEAT / EXIT */
 #define N_IN_SHIFT      76    /* SHIFT + IN (IN ADJUST) */
 #define N_OUT_SHIFT     77    /* SHIFT + OUT (OUT ADJUST / RELOOP) */
-#define N_4BEAT_SHIFT   80    /* SHIFT + 4 BEAT (ACTIVE): nothing */
+#define N_4BEAT_SHIFT   80    /* SHIFT + 4 BEAT (ACTIVE): elapsed / remaining */
 #define N_BJ_PREV       94    /* 4 BEAT JUMP <: 4 beats back */
 #define N_BJ_NEXT       95
 #define N_BJ_PREV_SHIFT 97    /* SHIFT: 16 beats back */
@@ -786,6 +786,19 @@ __attribute__((weak)) int flx10_pos_now(int deck, int *pos_ms, int *moving)
      *moving = ((int (*)(void *, int))PE_ISPLAYING)(pe, deck) != 0 &&
                ((int (*)(void *, int))PE_ISINCUESTANDBY)(pe, deck) == 0;
      return 1;
+}
+
+/* rbp's time mode for the deck, flipped (elapsed <-> remaining): what the
+ * RX3's TIME MODE shortcut sets, there being no touch screen or mouse here
+ * (operator, 2026-10-25). The jog screen follows rbp's mode. WEAK for the
+ * host test. */
+__attribute__((weak)) void flx10_toggle_time_mode(int deck)
+{
+     int remain = ((int (*)(int))UI_GET_KEYTIMEMODE)(deck) == 1;
+
+     ((void (*)(int, int))UI_SET_KEYTIMEMODE)(deck, !remain);
+     klog("knobshim2: flx10 deck%d time mode -> %s\n", deck + 1,
+          remain ? "elapsed" : "remaining");
 }
 
 /* The main cue point in ms (the jog's cue arm), -1 when there is none: the
@@ -1553,6 +1566,10 @@ static void flx10_note(int ch, int note, int on)
                if (on)
                     klog("knobshim2: flx10 deck%d KEY SYNC: rbp has no key sync; "
                          "hold the button for MASTER TEMPO\n", sch);
+               return;
+          case N_4BEAT_SHIFT:
+               if (on)
+                    flx10_toggle_time_mode(deck);
                return;
           case N_KEYSYNC_LONG:
                if (on)

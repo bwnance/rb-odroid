@@ -70,6 +70,8 @@ static int bj_n, bj_deck[16], bj_t[16];
 static int goes_back[2];
 int flx10_trrev_goes_back(int d) { return goes_back[d]; }
 int flx10_cue_ms(int d, int total_ms) { (void)d; (void)total_ms; return 1000; }
+static int timemode_n[2];
+void flx10_toggle_time_mode(int d) { timemode_n[d]++; }
 int flx10_pos_now(int d, int *pos, int *mov) { (void)d; *pos = 0; *mov = 0; return 0; }
 static int loop_primes[2];
 void flx10_loop_prime(int d) { loop_primes[d]++; }
@@ -478,6 +480,9 @@ int main(void)
      CHECK(sent_n == 2 && is(0, K_TAGLIST, OP_PRESS, 1), "SHIFT+BACK in a list it did not open -> TAG LIST");
      browse_mode = 1;
 
+     reset(); ON(2, 80); OFF(2, 80);
+     CHECK(timemode_n[1] == 1 && timemode_n[0] == 0 && sent_n == 0,
+           "SHIFT + 4 BEAT on deck 2 -> its time mode flipped, once");
      reset(); bpm_auto_n = 0; ON(5, 102); OFF(5, 102);
      CHECK(bpm_auto_n == 1 && sent_n == 0, "SHIFT + BEAT < -> Beat FX BPM AUTO, once");
      reset(); ON(5, 107); ON(5, 74);

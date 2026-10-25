@@ -909,6 +909,10 @@ static const signed char bfx_type_to_pos[15] = {
  * 1 = REMAINING, 0 = elapsed (ComputePlayAddRemain @0x12419c counts down when
  * it is non-zero; ComputeDispTime blinks the remaining time only on 1). */
 #define UI_GET_KEYTIMEMODE 0x000fe0c8
+/* ...and its setter, UiSetKeyTimeMode(deck, remain) @0xfe100: posts the
+ * change through ui::StatWatcher::setKeyTimeMode, as the RX3's shortcut menu
+ * does, so rbp's own screen follows. */
+#define UI_SET_KEYTIMEMODE 0x000fe100
 /* The playing loop's size in beats as rbp's own screen shows it, numerator
  * and denominator (512/1 .. 1/128 on the RX3): UiGetPlayLoopBeatNumer(deck)
  * @0xfd4bc / UiGetPlayLoopBeatDenom(deck) @0xfd4e4, exported C functions
