@@ -80,6 +80,8 @@
 #define N_PLAY          11
 #define N_CUE           12
 #define N_CUE_SHIFT     72    /* SHIFT + CUE: back to the track's start */
+#define N_MIXPOINT_PREV 89    /* MIX POINT SELECT <: previous track */
+#define N_MIXPOINT_NEXT 90    /* MIX POINT SELECT >: next track */
 #define N_SHIFT         63
 #define N_SYNC          88    /* sent when the finger LEAVES (as on the FLX4) */
 #define N_SYNC_SHIFT    92    /* SHIFT + BEAT SYNC = MASTER */
@@ -675,6 +677,32 @@ static void flx10_restart(int deck)
      trrev(deck);
 }
 
+/* ---- MIX POINT SELECT < >: previous / next track ---------------------------
+ * (operator, 2026-10-25.) Next is rbp's TRACK SEARCH > (K_TRFWD). Previous is
+ * TRACK SEARCH <, which goes back a track only when rbp thinks the deck is at
+ * its start (flx10_trrev_goes_back); otherwise its first press goes to the top
+ * and a second within 500 ms goes back a track -- so then two are sent,
+ * PREV_SECOND_MS apart. */
+#define PREV_SECOND_MS 150
+static unsigned long long prev_second_at[2];
+
+static void flx10_prev_track(int deck)
+{
+     int back = flx10_trrev_goes_back(deck);
+     trrev(deck);
+     if (!back)
+          prev_second_at[deck] = shim_now_ms() + PREV_SECOND_MS;
+}
+
+static void flx10_track_tick(unsigned long long t)
+{
+     for (int d = 0; d < 2; d++)
+          if (prev_second_at[d] && t >= prev_second_at[d]) {
+               prev_second_at[d] = 0;
+               trrev(d);
+          }
+}
+
 /* ---- the loop section ----------------------------------------------------
  * The operator's table (docs/21):
  *
@@ -1266,6 +1294,8 @@ static void flx10_note(int ch, int note, int on)
                     flx10_tempo_reset(deck);
                return;
           case N_CUE_SHIFT:     if (on) flx10_restart(deck); return;
+          case N_MIXPOINT_PREV: if (on) flx10_prev_track(deck); return;
+          case N_MIXPOINT_NEXT: if (on) pulse(K_TRFWD, sch); return;
           case N_BJ_PREV:       if (on) flx10_bj(deck, BEATJUMP_M4, 1);  return;
           case N_BJ_NEXT:       if (on) flx10_bj(deck, BEATJUMP_P4, 1);  return;
           case N_BJ_PREV_SHIFT: if (on) flx10_bj(deck, BEATJUMP_M16, 4); return;
@@ -1618,6 +1648,7 @@ static void flx10_tick(void)
      flx10_jog_tick();
      flx10_rev_tick(t);
      flx10_bj_tick(t);
+     flx10_track_tick(t);
      flx10_push_tick(t);
      flx10_scfx_tick(t);
 }

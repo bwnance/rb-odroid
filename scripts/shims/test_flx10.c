@@ -630,6 +630,20 @@ int main(void)
           di.loaded = 1; n->deck_display(1, &di);
      }
 
+     /* MIX POINT >: next track; <: previous track -- one TRREV when rbp would
+      * go back already, else two, 150 ms apart */
+     reset(); ON(1, 90); OFF(1, 90);
+     CHECK(sent_n == 2 && is(0, K_TRFWD, OP_PRESS, 1), "MIX POINT > -> TRACK SEARCH >");
+     goes_back[0] = 1;
+     reset(); ON(1, 89); OFF(1, 89); ms(200); map_flx10.tick();
+     CHECK(sent_n == 2 && is(0, K_TRREV, OP_PRESS, 1), "MIX POINT < at the start: one TRREV");
+     goes_back[1] = 0; ms(650);
+     reset(); ON(2, 89); OFF(2, 89);
+     CHECK(sent_n == 2 && is(0, K_TRREV, OP_PRESS, 2), "MIX POINT < mid-track: first TRREV...");
+     ms(200); map_flx10.tick();
+     CHECK(sent_n == 4 && is(2, K_TRREV, OP_PRESS, 2), "...and a second 150 ms later");
+     goes_back[0] = 0;
+
      /* the jog screens' HID packets (flx10_hid.c) */
      {
           unsigned char p[FLX10_HID_PKT];
