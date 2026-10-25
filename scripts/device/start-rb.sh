@@ -98,6 +98,19 @@ sleep 1
 rb_bootmsg "device binds, stubs and FIFOs (fix-dev.sh)"
 sh "$HERE/fix-dev.sh" || { echo "start-rb: fix-dev.sh failed" >&2; rb_bootmsg "fix-dev.sh FAILED"; exit 1; }
 
+# --- 3b. the DDJ-FLX10's vendor unlock -----------------------------------------
+# Without it the FLX10's jogs say NO AUDIO DRIVER and ignore the display channel
+# (flx10-unlock.py has the seven requests). Every start, before rbp opens the
+# card; a no-op exit 2 when no FLX10 is plugged in, a warning if it fails.
+if [ -f "$HERE/flx10-unlock.py" ] && command -v python3 >/dev/null 2>&1; then
+    python3 "$HERE/flx10-unlock.py" >&2
+    case $? in
+        0) rb_bootmsg "DDJ-FLX10 unlocked" ;;
+        2) ;;
+        *) echo "start-rb: WARNING: the FLX10 unlock failed; its jogs will say NO AUDIO DRIVER" >&2 ;;
+    esac
+fi
+
 # --- 4. optional shim/player overrides --------------------------------------
 #
 # A clean deploy needs none of this: build-chroot.sh already placed the player,

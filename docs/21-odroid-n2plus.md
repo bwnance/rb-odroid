@@ -187,6 +187,7 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   the displays are fed by SysEx: the rekordbox capture has `... 04 01 00 0a ...`,
   `0b`, `0c`, `11`-`14` messages, `tools/captures/flx10-rekordbox-startup.txt`).
 * is similarly odd at start-up.
+* **Waveform jittering** (operator, 2026-10-25): details to collect.
 * **Later, maybe:** RX3 effects matching the FLX10's (ENIGMA JET, MOBIUS, ...).
 
 ## DDJ-FLX10
@@ -383,6 +384,13 @@ documents a display channel, **MIDI ch 16**, whose fields the unit renders itsel
 | key | CC 0x49 on the deck channel | 0x00..0x18 (table is a picture in the PDF) |
 | key change | CC 0x4A on the deck channel | 0x0D = 0 |
 | show info | Note 0x5D+d | 0x00 show, 0x7F hide |
+
+**The vendor unlock.** Until it gets seven vendor control requests (bmRequestType
+0x40, bRequest 3, wLength 0; (wValue, wIndex) = (0100,C028) (0000,C029) (0200,C013)
+(0000,C02B) (0100,C026) (0000,C01D) (0100,C027), from the community USB captures) the
+FLX10's jogs say NO AUDIO DRIVER and ignore ch 16. `scripts/device/flx10-unlock.py`
+sends them (stdlib, USBDEVFS_CONTROL, no interface claim) and `start-rb.sh` runs it on
+every start before rbp opens the card; `--rebind` also rebinds snd-usb-audio.
 
 `rbp_led.c` reads the deck values each tick (`PE_GETTOTALTIME`, `PE_GETPLAYINGTIME`
 -- ms --, `PE_GETQBPMDISPLAY`, `PE_GETTEMPOX100`, `PE_GETTEMPORANGE`, MT / SYNC /
