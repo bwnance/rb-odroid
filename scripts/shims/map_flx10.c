@@ -635,20 +635,44 @@ __attribute__((weak)) int flx10_trrev_goes_back(int deck)
      return 0;
 }
 
+/* TRACK SEARCH is HELD, not pulsed. ui::TotalMainIfUi::onKey ->
+ * TotalMainIf::InputKey_Track @0xd50d8 only records the key as down (1) or up
+ * (0) in stTrackSearchKeyWk_Deck; TotalCnt_SentinelTASK polls that state
+ * (PnlCom_RcvTrackSearch, a few ms per round) and acts on a press it SEES. A
+ * press and release sent together are never seen -- why SHIFT + CUE and MIX
+ * POINT did nothing (operator, 2026-10-25). So the key is held TRACK_HOLD_MS,
+ * well under the 500 ms after which rbp starts repeating
+ * (PnlCom_RcvTrackSearchSt_Rept), and released by the tick. */
+#define TRACK_HOLD_MS 100
+static int tr_key[2];
+static unsigned long long tr_up_at[2];
+
+static void track_key(int deck, int key)
+{
+     if (tr_key[deck])
+          send_rx_key(tr_key[deck], OP_RELEASE, deck + 1, 0);
+     send_rx_key(key, OP_PRESS, deck + 1, 0);
+     tr_key[deck] = key;
+     tr_up_at[deck] = shim_now_ms() + TRACK_HOLD_MS;
+}
+
 static void trrev(int deck)
 {
-     pulse(K_TRREV, deck + 1);
+     track_key(deck, K_TRREV);
      trrev_at[deck] = shim_now_ms();
 }
 
 static void flx10_restart(int deck)
 {
-     if (!deck_loaded[deck] || shim_now_ms() - trrev_at[deck] < TRREV_GAP_MS ||
-         flx10_trrev_goes_back(deck)) {
+     int back = flx10_trrev_goes_back(deck);
+
+     if (!deck_loaded[deck] || shim_now_ms() - trrev_at[deck] < TRREV_GAP_MS || back) {
           klog("knobshim2: flx10 deck%d SHIFT+CUE: at the start already "
-               "(%d ms); nothing sent\n", deck + 1, deck_elapsed_ms[deck]);
+               "(%d ms, loaded %d, rbp would go back %d); nothing sent\n", deck + 1,
+               deck_elapsed_ms[deck], deck_loaded[deck], back);
           return;
      }
+     klog("knobshim2: flx10 deck%d SHIFT+CUE -> TRACK SEARCH < (to the top)\n", deck + 1);
      trrev(deck);
 }
 
@@ -658,24 +682,30 @@ static void flx10_restart(int deck)
  * its start (flx10_trrev_goes_back); otherwise its first press goes to the top
  * and a second within 500 ms goes back a track -- so then two are sent,
  * PREV_SECOND_MS apart. */
-#define PREV_SECOND_MS 150
+#define PREV_SECOND_MS 250                /* after the first one's release */
 static unsigned long long prev_second_at[2];
 
 static void flx10_prev_track(int deck)
 {
      int back = flx10_trrev_goes_back(deck);
+     klog("knobshim2: flx10 deck%d MIX POINT < -> previous track (%s)\n", deck + 1,
+          back ? "at the start: one TRACK SEARCH <" : "two TRACK SEARCH <");
      trrev(deck);
-     if (!back)
-          prev_second_at[deck] = shim_now_ms() + PREV_SECOND_MS;
+     prev_second_at[deck] = back ? 0 : shim_now_ms() + PREV_SECOND_MS;
 }
 
 static void flx10_track_tick(unsigned long long t)
 {
-     for (int d = 0; d < 2; d++)
+     for (int d = 0; d < 2; d++) {
+          if (tr_key[d] && t >= tr_up_at[d]) {
+               send_rx_key(tr_key[d], OP_RELEASE, d + 1, 0);
+               tr_key[d] = 0;
+          }
           if (prev_second_at[d] && t >= prev_second_at[d]) {
                prev_second_at[d] = 0;
                trrev(d);
           }
+     }
 }
 
 /* ---- Beat FX AUTO (SHIFT + BEAT <) -------------------------------------------
@@ -1282,7 +1312,12 @@ static void flx10_note(int ch, int note, int on)
                return;
           case N_CUE_SHIFT:     if (on) flx10_restart(deck); return;
           case N_MIXPOINT_PREV: if (on) flx10_prev_track(deck); return;
-          case N_MIXPOINT_NEXT: if (on) pulse(K_TRFWD, sch); return;
+          case N_MIXPOINT_NEXT:
+               if (on) {
+                    klog("knobshim2: flx10 deck%d MIX POINT > -> next track\n", sch);
+                    track_key(deck, K_TRFWD);
+               }
+               return;
           case N_BJ_PREV:       if (on) flx10_beat_jump(deck, BEATJUMP_M4);  return;
           case N_BJ_NEXT:       if (on) flx10_beat_jump(deck, BEATJUMP_P4);  return;
           case N_BJ_PREV_SHIFT: if (on) flx10_beat_jump(deck, BEATJUMP_M16); return;
