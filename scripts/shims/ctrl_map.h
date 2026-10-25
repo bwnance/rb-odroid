@@ -144,6 +144,7 @@ struct deck_info {
      int tempo_raw;         /* getTempoX100 */
      int tempo_range;       /* getTempoRange, 0..3 */
      int mt, sync, master;
+     int cue_standby;       /* paused on the cue point (PE_ISINCUESTANDBY) */
      char key[16];          /* rbp's deck-panel key text, ASCII ("" = none) */
 };
 

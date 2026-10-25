@@ -1,0 +1,45 @@
+# rekordbox <-> DDJ-FLX10 HID capture, 2026-10-25 (Intel Mac, Wireshark on XHC20)
+# capture: operator's ~/Downloads/capture.pcapng (1.1 GB, not in the repo)
+# decoded with: python3 tools/flx10-pcap-decode.py capture.pcapng --midi
+#                python3 tools/flx10-pcap-decode.py capture.pcapng --dump 0x21
+# Clock: the Intel Mac's local time (18:26..18:32); the operator's notes are
+# "6:27" etc. (pm).
+#
+# Operator's notes, as given:
+#   loaded track with bpm of 164.56 and a key of 8B at 6:27 ish
+#   played for about 10 seconds, then paused
+#   set cue, rewound with jog, then played past it at 6:28
+#   set a 4 beat loop, looped it a few times
+#   tempo fader was already at 2% - moved to 0, then back to 2%, still at 6:28
+#   bpm at 2% at +-6 is 167.90
+#   bpm at +-10 (now 3.3%) is 170.12
+#   bpm at +-16 (now +5.4%) is 173.45
+#   bpm at wide (now +33.7%) is 220.15
+#   mt was off, turned it on, key became 8B
+#   turning mt off sets the key on the jog to 7B, and puts a "+5" to the left of the key
+#   turned sync on, then off
+#   loaded the same track by accident to deck 2, then loaded a different one
+#   (source bpm is 152.16, checked via tempo reset); key for song on deck 2 is 5B
+#
+# Endpoints: iso 0x01 (audio), bulk 0x03 (USB-MIDI), interrupt 0x05 (HID, 128 B).
+# HID types seen (byte 1): 0x21 per-deck state (50 Hz/deck), 0x3d heartbeat,
+# 0x2b-0x30, 0x33, 0x39, 0x3b, 0x3c, 0x3e (at load: metadata / art?),
+# 0x2c overview (35 x 4 decks at connect), 0x37 / 0x38 waveform (at load).
+#
+# 0x21 fields (bytes 0..63; 64..127 always zero), checked against the notes:
+#   [2]  0x02 paused off the cue; 0x00 playing or in cue standby
+#   [3]  0x08; +0x10 jog touched          [4] range 0x10/20/30/40, +0x04 MT
+#   [5]  0x01, +0x10 SYNC                  [6] 0x02  [7] 0x02 deck 1 / 0x01 deck 2
+#   [9]  0xb4 loaded, 0xbc looping, 0x10 empty   [10] 0x0e while looping
+#   [11..14] position min, sec, ms LE16    [15..18] track length, same
+#   [21] BPM whole (low 8)  [22] tenths<<4 | whole>>8  [49] hundredths<<4
+#        164.56 -> a4 50 / 60   167.9x -> a7 90 / 30   170.12 -> aa 10 / 20
+#        173.45 -> ad 40 / 50   220.15 -> dc 10 / 50   152.16 -> 98 10 / 60
+#   [23..24] tempo % x100 signed LE: cd 00 = 2.05, 52 01 = 3.38, 1c 02 = 5.40,
+#        32 0d = 33.78, 70 fc = -9.12
+#   [25..27] loop in ms LE24, [28..30] loop out; [27] 0x80 = no loop
+#        4-beat loop: 0x3168 = 12648 -> 0x371b = 14107 (1.459 s = 4 x 60/164.56)
+#   [31..33], [55..57] cue ms LE24: 0x2d22 = 11554 at the cue set (6:28)
+#   [43..44] ff ff  [45] 02 (deck 2's second load: 00)  [58] 01
+#   [60] 0x80 | key code (8B = 0x81, 3B = 0x83, 7B = 0x8b, 5B = 0x87)
+#   [61] 0x0d + key shift (MT off): +33.78% -> 0x12 = +5, +3.38% -> 0x0e = +1

@@ -21,80 +21,135 @@
 #include "shimutil.h"
 #include "syscalls.h"
 
-/* rekordbox, deck 1 loaded and paused, bytes 0..63 (the rest are zero) */
-static const unsigned char rb_loaded[64] = {
-     0x10, 0x21, 0x00, 0x00, 0x2c, 0x01, 0x00, 0x02,
-     0x80, 0xb4, 0x00, 0x00, 0x00, 0x02, 0x00, 0x02,
-     0x26, 0x32, 0x03, 0x00, 0x00, 0x7c, 0x00, 0x03,
-     0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x02,
-     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-     0x00, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00,
-     0x00, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
-     0x00, 0x00, 0x01, 0x00, 0x85, 0x0d, 0x00, 0x00,
-};
+/* ---- the per-deck state packet ("xx 21") -------------------------------------
+ * Decoded from a USB capture of rekordbox driving the unit (tools/captures/
+ * flx10-rekordbox-hid-notes.txt, tools/flx10-pcap-decode.py; 2026-10-25),
+ * every field checked against the operator's notes. Only bytes 0..63 are ever
+ * non-zero.
+ *   [0]      deck 0x10/0x20/0x30/0x40          [1] 0x21
+ *   [2]      0x02 paused away from the cue point; 0x00 playing, or paused on
+ *            it (cue standby) -- the capture shows 0x00 after a load and a cue
+ *   [3]      0x08 (+0x10 while the jog is touched -- not sent)
+ *   [4]      tempo range box 0x10 +-6, 0x20 +-10, 0x30 +-16, 0x40 WIDE;
+ *            0x04 master tempo
+ *   [5]      0x01, +0x10 SYNC on
+ *   [6]      0x02          [7] 0x02 decks 1/3, 0x01 decks 2/4
+ *   [8]      0x80          [9] 0xb4 loaded (0x10 empty; 0xbc while looping)
+ *   [11..14] position: minutes, seconds, milliseconds (LE16)
+ *   [15..18] track length, the same way
+ *   [21]     BPM, whole number (low 8 bits)
+ *   [22]     tenths << 4 | whole number >> 8
+ *   [23..24] tempo % x100, signed LE16
+ *   [25..30] loop in / out, ms LE24 each; [27] 0x80 = no loop  (not sent yet)
+ *   [31..33] the cue point, ms LE24 (the cue arm); again at [55..57]
+ *   [43..44] 0xff 0xff     [45] 0x02     [58] 0x01
+ *   [49]     hundredths << 4
+ *   [60]     0x80 | key code (flx10_key_code's table), the key as shown
+ *   [61]     0x0d + the key shift in semitones (MT off; "+5" beside it)
+ * The empty packet is the same header with [9] 0x10, no position/BPM, [27]
+ * 0x80, [43..44] 0xff, [60] 0x80, [61] 0x0d, and the range box and tempo %. */
+static const unsigned char range_bits[4] = { 0x10, 0x20, 0x30, 0x40 };
 
-/* The loaded packet is rekordbox's captured one with these fields filled
- * (decoded 2026-10-25, scripts/odroid/hid-decode.py rounds 1-2):
- *   [2]      00 playing, 02 paused
- *   [4]      flags: 0x04 master tempo; 0x70 the tempo range box, 0x10 = +-6,
- *            0x20 = +-10, 0x30 = +-16, 0x40 = WIDE (0x00 / 0x60 = none);
- *            0x08 kept as captured (0x80 moved the blue tone arm)
- *   [5]      0x81 active
- *   [9]      0xb4 as captured; 00 reads as Not Loaded
- *   [11..12] elapsed seconds, big-endian; [13] the fraction, /256 (the arm
- *            moves with it)
- *   [16]     the key; encoding not found, 00 = blank, so blank
- *   [21..22] BPM, whole number, little-endian
- *   [23..24] tempo % x100, signed little-endian
- * Not found yet: the BPM's decimals -- every BPM shows .03 from some captured
- * byte; [18] (captured 03) changed nothing when filled, 2026-10-25 -- the key
- * encoding, MASTER/SYNC, the arm position, the track length.
- */
+int flx10_key_shift(int tempo_x100)
+{
+     const double semi = 1.0594630943592953;      /* 2^(1/12) */
+     const double half = 1.0293022366434920;      /* 2^(1/24) */
+     double r = 1.0 + tempo_x100 / 10000.0, up = half, down = 1.0 / half;
+     int k = 0;
+
+     if (r <= 0.0)
+          return -12;
+     while (r >= up && k < 24) { k++; up *= semi; }
+     while (r < down && k > -24) { k--; down /= semi; }
+     return k;
+}
+
+int flx10_key_shifted(int code, int k)
+{
+     int idx;
+
+     if (code < 1 || code > 24)
+          return 0;
+     idx = (((code - 1) / 2 + k) % 12 + 12) % 12;   /* one step = one semitone */
+     return idx * 2 + 1 + ((code - 1) & 1);
+}
+
+static void put_time(unsigned char *p, int ms)
+{
+     int min;
+
+     if (ms < 0) ms = 0;
+     min = ms / 60000;
+     p[0] = (unsigned char)(min > 255 ? 255 : min);
+     p[1] = (unsigned char)((ms / 1000) % 60);
+     p[2] = (unsigned char)((ms % 1000) & 0xff);
+     p[3] = (unsigned char)((ms % 1000) >> 8);
+}
+
+static void put_le24(unsigned char *p, int v)
+{
+     p[0] = (unsigned char)v;
+     p[1] = (unsigned char)(v >> 8);
+     p[2] = (unsigned char)(v >> 16);
+}
+
 void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
                          const struct flx10_hid_deck *s)
 {
-     static const unsigned char range_bits[4] = { 0x10, 0x20, 0x30, 0x40 };
-     unsigned char db = (unsigned char)(0x10 * (deck + 1));
-     int sec, bpm, tempo;
+     int tempo, bpm, whole, k, code;
 
      memset(p, 0, FLX10_HID_PKT);
-     if (!s || !s->loaded) {          /* 10 21 00 00 20 01 00 00 80 10 */
-          p[0] = db; p[1] = 0x21; p[4] = 0x20; p[5] = 0x01; p[8] = 0x80; p[9] = 0x10;
-          if (!s)
-               return;
-          /* The tempo range box and tempo % show on an empty deck too and
-           * follow the deck's buttons and fader (operator, 2026-10-25): the
-           * captured empty packet's [4] = 0x20 is the range field (+-10), so
-           * fill it, and [23..24], as on the loaded packet. */
-          p[4] = (unsigned char)((s->mt ? 0x04 : 0) | range_bits[s->range & 3]);
-          tempo = s->tempo_x100;
-          if (tempo > 32767) tempo = 32767;
-          if (tempo < -32768) tempo = -32768;
-          p[23] = (unsigned char)(tempo & 0xFF);
-          p[24] = (unsigned char)((tempo >> 8) & 0xFF);
+     p[0] = (unsigned char)(0x10 * (deck + 1));
+     p[1] = 0x21;
+     p[3] = 0x08;
+     p[5] = 0x01;
+     p[6] = 0x02;
+     p[7] = (deck & 1) ? 0x01 : 0x02;
+     p[8] = 0x80;
+     p[9] = 0x10;
+     p[27] = 0x80;
+     p[43] = p[44] = 0xff;
+     p[60] = 0x80;
+     p[61] = 0x0d;
+     if (!s) {
+          p[4] = 0x20;
           return;
      }
-     memcpy(p, rb_loaded, sizeof rb_loaded);
-     p[0] = db;
-     p[2] = s->playing ? 0x00 : 0x02;
-     p[4] = (unsigned char)((p[4] & ~0x74) | (s->mt ? 0x04 : 0) |
-                            range_bits[s->range & 3]);
-     p[5] = 0x81;
-     sec = s->elapsed_ms > 0 ? s->elapsed_ms / 1000 : 0;
-     if (sec > 0xFFFF) sec = 0xFFFF;
-     p[11] = (unsigned char)(sec >> 8);
-     p[12] = (unsigned char)sec;
-     p[13] = s->elapsed_ms > 0 ? (unsigned char)((s->elapsed_ms % 1000) * 256 / 1000) : 0;
-     p[16] = 0x00;
-     bpm = s->bpm_x100 > 0 ? s->bpm_x100 / 100 : 0;
-     if (bpm > 0xFFFF) bpm = 0xFFFF;
-     p[21] = (unsigned char)bpm;
-     p[22] = (unsigned char)(bpm >> 8);
+     p[4] = (unsigned char)((s->mt ? 0x04 : 0) | range_bits[s->range & 3]);
      tempo = s->tempo_x100;
      if (tempo > 32767) tempo = 32767;
      if (tempo < -32768) tempo = -32768;
-     p[23] = (unsigned char)(tempo & 0xFF);
-     p[24] = (unsigned char)((tempo >> 8) & 0xFF);
+     p[23] = (unsigned char)(tempo & 0xff);
+     p[24] = (unsigned char)((tempo >> 8) & 0xff);
+     if (!s->loaded)
+          return;
+
+     p[2] = (!s->playing && !s->cue_standby) ? 0x02 : 0x00;
+     if (s->sync)
+          p[5] |= 0x10;
+     p[9] = 0xb4;
+     put_time(p + 11, s->elapsed_ms);
+     put_time(p + 15, s->total_ms);
+     bpm = s->bpm_x100 > 0 ? s->bpm_x100 : 0;
+     whole = bpm / 100;
+     if (whole > 0xfff) whole = 0xfff;
+     p[21] = (unsigned char)(whole & 0xff);
+     p[22] = (unsigned char)((((bpm / 10) % 10) << 4) | ((whole >> 8) & 0x0f));
+     p[49] = (unsigned char)((bpm % 10) << 4);
+     if (s->cue_ms >= 0) {
+          put_le24(p + 31, s->cue_ms);
+          put_le24(p + 55, s->cue_ms);
+     }
+     p[45] = 0x02;
+     p[58] = 0x01;
+     k = s->mt ? 0 : flx10_key_shift(tempo);
+     if (k > 12) k = 12;
+     if (k < -12) k = -12;
+     code = flx10_key_shifted(s->key_code, k);
+     if (code) {
+          p[60] = (unsigned char)(0x80 | code);
+          p[61] = (unsigned char)(0x0d + k);
+     }
 }
 
 void flx10_hid_heartbeat_pkt(unsigned char p[FLX10_HID_PKT], int n)

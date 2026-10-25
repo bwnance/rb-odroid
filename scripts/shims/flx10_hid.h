@@ -22,13 +22,21 @@
 /* One deck as the jog screen shows it. Fields decoded from the unit with
  * scripts/odroid/hid-decode.py (2026-10-25); see flx10_hid_state_pkt(). */
 struct flx10_hid_deck {
-     int loaded, playing;
-     int elapsed_ms;
+     int loaded, playing, cue_standby;
+     int elapsed_ms, total_ms;
      int bpm_x100;          /* the BPM rbp's screen shows, x100 */
      int tempo_x100;        /* tempo %, x100, signed */
      int range;             /* getTempoRange: 0 = 6%, 1 = 10%, 2 = 16%, 3 = WIDE */
-     int mt;
+     int mt, sync;
+     int key_code;          /* the track's key, flx10_key_code()'s 1..24, 0 = none */
+     int cue_ms;            /* the main cue, ms; -1 = none */
 };
+
+/* Key shown with master tempo off: the tempo moves it by a whole number of
+ * semitones (round(12 * log2(1 + tempo%/100))), as rekordbox draws it -- the
+ * key moved and "+5" beside it. Exposed for the tests. */
+int flx10_key_shift(int tempo_x100);
+int flx10_key_shifted(int key_code, int semitones);
 
 /* Publish one deck's state (deck 0 = deck 1). Starts the sender thread on the
  * first call, unless FLX10_HID=0. */

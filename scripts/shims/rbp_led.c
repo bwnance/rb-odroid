@@ -746,6 +746,7 @@ static void led_deck_display(const struct led_notes *n, void *pe)
           di.playing = ((int (*)(void *, int))PE_ISPLAYING)(pe, i) != 0;
           di.mt      = ((int (*)(void *, int))PE_ISMASTERTEMPO)(pe, i) != 0;
           di.sync    = ((int (*)(void *, int))PE_ISSYNCON)(pe, i) != 0;
+          di.cue_standby = ((int (*)(void *, int))PE_ISINCUESTANDBY)(pe, i) != 0;
           di.master  = led_from_table_state(LEDSTAT_MASTER, i, 0);
           if (di.loaded) {
                di.total_ms    = ((int (*)(void *, int))PE_GETTOTALTIME)(pe, i);

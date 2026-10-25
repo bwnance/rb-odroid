@@ -254,6 +254,14 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   decimals (every BPM shows .03 from some captured byte; [18], captured 03,
   changed nothing when filled), MASTER/SYNC, arm position, track length -- a rekordbox HID capture
   with a track loaded is the way to get them.
+* **xx 21 decoded from a rekordbox capture** (2026-10-25,
+  `tools/captures/flx10-rekordbox-hid-notes.txt`): position and track length
+  (min / sec / ms), BPM with tenths ([22] high nibble) and hundredths ([49]),
+  key ([60] = 0x80 | key code) and key shift ([61], MT off), cue point ms
+  ([31..33] and [55..57]), SYNC ([5] 0x10), loop in/out ms ([25..30]).
+  flx10_hid.c now builds the packet from that layout; the rounds-1-3 guesses
+  above are superseded where they differ. Not sent yet: loop in/out, jog
+  touch; not in the capture: MASTER, BEAT SYNC.
 * **HID jog screens, to do** (operator, 2026-10-25) -- the capture
   (`tools/flx10-pcap-decode.py`) should show most of these. (Empty decks now
   carry the range box and tempo % too -- byte 4 and 23..24 of the empty packet.)

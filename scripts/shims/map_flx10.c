@@ -769,6 +769,29 @@ __attribute__((weak)) void flx10_seek(int deck, long pos)
      ((void (*)(void *))PLAYER_SET_BEATPOS_SEARCH)(player);
 }
 
+/* The main cue point in ms (the jog's cue arm), -1 when there is none: the
+ * reader's cue object for LAST_CUE, as flx10_start_pos reads it, scaled from
+ * samples by the track's length. WEAK so the host test can answer for rbp. */
+__attribute__((weak)) int flx10_cue_ms(int deck, int total_ms)
+{
+     void *player = pe_player(deck), *reader, *cue;
+     long pos, len;
+
+     if (!player || total_ms <= 0)
+          return -1;
+     reader = *(void **)((char *)player + PLAYER_READER_OFF);
+     if (!reader)
+          return -1;
+     cue = ((void *(*)(void *, int))(*(void ***)reader)[READER_VT_GETCUE])(reader, 0);
+     if (!cue)
+          return -1;
+     pos = *(long *)((char *)cue + CUE_POS_OFF);
+     len = ((long (*)(void *))PLAYER_TOTAL_LENGTH)(player);
+     if (pos < 0 || len <= 0)
+          return -1;
+     return (int)((long long)pos * total_ms / len);
+}
+
 static void track_tap(int deck, int key)
 {
      if (tr_key[deck])
@@ -2210,9 +2233,13 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
      {
           struct flx10_hid_deck hs = {
                .loaded = di->loaded, .playing = di->playing,
-               .elapsed_ms = di->elapsed_ms, .bpm_x100 = di->bpm_raw,
+               .cue_standby = di->cue_standby,
+               .elapsed_ms = di->elapsed_ms, .total_ms = di->total_ms,
+               .bpm_x100 = di->bpm_raw,
                .tempo_x100 = di->tempo_raw, .range = di->tempo_range,
-               .mt = di->mt,
+               .mt = di->mt, .sync = di->sync,
+               .key_code = flx10_key_code(di->key),
+               .cue_ms = di->loaded ? flx10_cue_ms(deck, di->total_ms) : -1,
           };
           flx10_hid_update(deck, &hs);
      }

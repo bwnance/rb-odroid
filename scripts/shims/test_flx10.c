@@ -69,6 +69,7 @@ void flx10_set_reverse(int d, int on) { reversing[d] = on; rev_sets++; }
 static int bj_n, bj_deck[16], bj_t[16];
 static int goes_back[2];
 int flx10_trrev_goes_back(int d) { return goes_back[d]; }
+int flx10_cue_ms(int d, int total_ms) { (void)d; (void)total_ms; return 1000; }
 static int loop_primes[2];
 void flx10_loop_prime(int d) { loop_primes[d]++; }
 static int xf_assign[2] = { -1, -1 };
@@ -705,48 +706,72 @@ int main(void)
      OFF(1, 22); OFF(1, 24); ON(1, 29);
      CHECK(xf_assign[0] == 0 && xf_assign[1] == 2, "channel 1 THRU, channel 2 untouched");
 
-     /* the jog screens' HID packets (flx10_hid.c) */
+     /* the jog screens' HID packets (flx10_hid.c), against the rekordbox capture
+      * (tools/captures/flx10-rekordbox-hid-notes.txt) */
      {
           unsigned char p[FLX10_HID_PKT];
-          static const unsigned char empty[10] = { 0x10, 0x21, 0, 0, 0x20, 0x01, 0, 0, 0x80, 0x10 };
-          int zero = 1;
-
           struct flx10_hid_deck hs;
+          /* deck 2 empty, WIDE + MT, -9.12% (capture 18:26:35.987) */
+          static const unsigned char cap_empty[64] = {
+               0x20,0x21,0x00,0x08,0x44,0x01,0x02,0x01,0x80,0x10,0,0,0,0,0,0,
+               0,0,0,0,0,0,0,0x70,0xfc,0,0,0x80,0,0,0,0,
+               0,0,0,0,0,0,0,0,0,0,0,0xff,0xff,0,0,0,
+               0,0,0,0,0,0,0,0,0,0,0,0,0x80,0x0d,0,0 };
+          /* deck 2 loaded, cue standby at 0:00.358, 2:32.869 long, 139.05 BPM,
+           * -9.12% WIDE MT, key 5B, cue 358 ms (capture 18:31:30.000) */
+          static const unsigned char cap_loaded[64] = {
+               0x20,0x21,0x00,0x08,0x44,0x01,0x02,0x01,0x80,0xb4,0x00,0x00,0x00,0x66,0x01,0x02,
+               0x20,0x65,0x03,0x00,0x00,0x8b,0x00,0x70,0xfc,0x00,0x00,0x80,0x00,0x00,0x00,0x66,
+               0x01,0,0,0,0,0,0,0,0,0,0,0xff,0xff,0x00,0,0,
+               0,0x50,0,0,0,0,0,0x66,0x01,0x00,0x01,0x00,0x87,0x0d,0x00,0x00 };
+          int same = 1, rest = 1;
 
           memset(&hs, 0, sizeof hs);
-          hs.range = 1;                              /* +-10, MT off, 0.0% */
-          flx10_hid_state_pkt(p, 0, &hs);
-          for (int i = 10; i < FLX10_HID_PKT; i++) zero &= p[i] == 0;
-          CHECK(!memcmp(p, empty, 10) && zero, "empty deck 1 at +-10 / 0%%: rekordbox's empty packet");
-          hs.range = 2; hs.mt = 1; hs.tempo_x100 = -250;
-          flx10_hid_state_pkt(p, 0, &hs);
-          CHECK(p[7] == 0 && p[9] == 0x10 && p[4] == 0x34 && p[23] == 0x06 && p[24] == 0xFF,
-                "empty deck still carries range +-16, MT and -2.50%% (%02x %02x %02x)", p[4], p[23], p[24]);
-          memset(&hs, 0, sizeof hs);
-          hs.loaded = 1; hs.elapsed_ms = 300250; hs.bpm_x100 = 12403;
-          hs.tempo_x100 = 100; hs.range = 1; hs.mt = 1;
+          hs.range = 3; hs.mt = 1; hs.tempo_x100 = -912;
           flx10_hid_state_pkt(p, 1, &hs);
-          CHECK(p[0] == 0x20 && p[1] == 0x21 && p[2] == 0x02 && p[5] == 0x81 && p[7] == 0x02,
-                "deck 2 loaded, paused: 20 21 02 .. 81 .. 02");
-          CHECK(p[11] == 0x01 && p[12] == 0x2C && p[13] == 64,
-                "elapsed 300.25 s -> 01 2C, fraction 64/256 (%02x %02x %d)", p[11], p[12], p[13]);
-          CHECK(p[21] == 124 && p[22] == 0, "BPM 124.03 -> 7C 00 (%02x %02x)", p[21], p[22]);
-          CHECK(p[23] == 0x64 && p[24] == 0x00, "tempo +1.00%% -> 64 00");
-          CHECK(p[4] == 0x2C, "MT on, range +-10 -> byte 4 = 2C as captured (%02x)", p[4]);
-          CHECK(p[16] == 0, "key blank until decoded");
-          CHECK(p[9] == 0xb4 && p[60] == 0x85 && p[61] == 0x0d && p[64] == 0,
-                "the rest is rekordbox's captured loaded packet");
-          hs.playing = 1; hs.elapsed_ms = 70000000; hs.tempo_x100 = -100;
-          hs.range = 2; hs.mt = 0; hs.bpm_x100 = 38000;
+          for (int i = 0; i < 64; i++) same &= p[i] == cap_empty[i];
+          for (int i = 64; i < FLX10_HID_PKT; i++) rest &= p[i] == 0;
+          CHECK(same && rest, "empty deck 2 = rekordbox's empty packet, byte for byte");
+
+          hs.loaded = 1; hs.cue_standby = 1; hs.elapsed_ms = 358; hs.total_ms = 152869;
+          hs.bpm_x100 = 13905; hs.key_code = 7; hs.cue_ms = 358;
+          flx10_hid_state_pkt(p, 1, &hs);
+          same = 1;
+          for (int i = 0; i < 64; i++)
+               if (i != 45 && p[i] != cap_loaded[i]) {
+                    same = 0;
+                    printf("  byte %d: %02x, capture %02x\n", i, p[i], cap_loaded[i]);
+               }
+          CHECK(same, "loaded deck 2 = rekordbox's packet (byte 45 aside)");
+
+          /* deck 1 at WIDE +33.78%, MT off: 220.15 BPM, key 8B shown 7B "+5" */
+          memset(&hs, 0, sizeof hs);
+          hs.loaded = 1; hs.playing = 1; hs.range = 3; hs.tempo_x100 = 3378;
+          hs.bpm_x100 = 22015; hs.key_code = 1; hs.elapsed_ms = 75123; hs.total_ms = 186306;
+          hs.cue_ms = 11554; hs.sync = 1;
           flx10_hid_state_pkt(p, 0, &hs);
-          CHECK(p[2] == 0x00 && p[11] == 0xFF && p[12] == 0xFF, "playing -> 00; elapsed clamps at FFFF");
-          CHECK(p[23] == 0x9C && p[24] == 0xFF, "tempo -1.00%% -> 9C FF");
-          CHECK(p[21] == 0x7C && p[22] == 0x01, "BPM 380 -> 7C 01");
-          CHECK(p[18] == 0x03, "byte 18 left as captured (not the decimals)");
-          CHECK(p[4] == 0x38, "MT off, range +-16 -> 38 (%02x)", p[4]);
-          hs.range = 3;
-          flx10_hid_state_pkt(p, 0, &hs);
-          CHECK(p[4] == 0x48, "WIDE -> 0x40 (%02x)", p[4]);
+          CHECK(p[0] == 0x10 && p[7] == 0x02 && p[2] == 0x00, "deck 1 playing: 10 .. 00 .. 02");
+          CHECK(p[21] == 0xdc && p[22] == 0x10 && p[49] == 0x50, "220.15 BPM -> dc 10 / 50");
+          CHECK(p[23] == 0x32 && p[24] == 0x0d, "tempo +33.78%% -> 32 0d");
+          CHECK(p[60] == 0x8b && p[61] == 0x12, "8B at +33.78%%, MT off -> 7B, +5 (%02x %02x)", p[60], p[61]);
+          CHECK(p[11] == 1 && p[12] == 15 && p[13] == 123 && p[14] == 0, "1:15.123 -> 01 0f 7b 00");
+          CHECK(p[15] == 3 && p[16] == 6 && p[17] == 0x32 && p[18] == 0x01, "3:06.306 -> 03 06 32 01");
+          CHECK(p[31] == 0x22 && p[32] == 0x2d && p[55] == 0x22 && p[56] == 0x2d, "cue 11554 ms -> 22 2d (twice)");
+          CHECK(p[5] == 0x11, "SYNC on -> 11");
+          hs.mt = 1; flx10_hid_state_pkt(p, 0, &hs);
+          CHECK(p[60] == 0x81 && p[61] == 0x0d && p[4] == 0x44, "MT on -> the track's own 8B, no shift");
+          hs.mt = 0; hs.tempo_x100 = 338; hs.range = 1; flx10_hid_state_pkt(p, 0, &hs);
+          CHECK(p[60] == 0x83 && p[61] == 0x0e && p[4] == 0x20, "+3.38%% -> 3B, +1 (capture)");
+          hs.tempo_x100 = 205; flx10_hid_state_pkt(p, 0, &hs);
+          CHECK(p[60] == 0x81 && p[61] == 0x0d, "+2.05%% -> 8B, no shift (capture)");
+          hs.playing = 0; hs.cue_standby = 0; hs.bpm_x100 = 38056; flx10_hid_state_pkt(p, 0, &hs);
+          CHECK(p[2] == 0x02 && p[21] == 0x7c && p[22] == 0x51 && p[49] == 0x60,
+                "paused off the cue -> 02; 380.56 BPM -> 7c 51 / 60");
+          CHECK(flx10_key_shift(-912) == -2 && flx10_key_shifted(7, -2) == 3, "-9.12%% -> -2 semitones; 5B -2 = 3B");
+          hs.key_code = 0; flx10_hid_state_pkt(p, 0, &hs);
+          CHECK(p[60] == 0x80 && p[61] == 0x0d, "no key -> 80 0d");
+          hs.cue_ms = -1; flx10_hid_state_pkt(p, 0, &hs);
+          CHECK(p[31] == 0 && p[55] == 0, "no cue -> zeros");
           flx10_hid_heartbeat_pkt(p, 3);
           CHECK(p[0] == 0 && p[1] == 0x3D && p[2] == 3 && p[4] == 5, "heartbeat 00 3D n 00 05");
      }
