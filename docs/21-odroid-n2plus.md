@@ -211,6 +211,12 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   rekordbox. Today it is rbp's TRACK SEARCH < (K_TRREV), which on the RX3 is the
   previous-track / track-start key; check what rbp does with it mid-track and, if
   it is not "restart this track", find rbp's own jump-to-start.
+* **Beat jump while paused moves only a tiny amount** (operator, 2026-10-25): it
+  jumps the right distance while the deck is playing, but on a paused deck each
+  press barely moves the playhead. Check what the pad sends (keycode, op, param)
+  against what the RX3's own BEAT JUMP does when paused, e.g. whether rbp reads
+  the jump as a needle/search nudge without play, or wants the beat length from
+  the grid in a param we send as 0.
 * **Waveform smoothness** (parked, good enough 2026-10-25). Fixed the main cause: rbp
   paced on FBIO_WAITFORVSYNC, which meson's drm_fbdev answers ENOTTY, so its own
   limiter ran it at 57.7 fps against 60 Hz (~2 repeated refreshes a second). fb_shim
