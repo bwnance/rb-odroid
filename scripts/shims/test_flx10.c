@@ -247,7 +247,11 @@ int main(void)
 
      /* Sound Color FX radio group */
      reset(); ON(7, 0);
-     CHECK(sent_n == 4 && is(0, K_SPACE, OP_PRESS, 1) && is(2, K_SPACE, OP_PRESS, 2), "SPACE on both players");
+     CHECK(sent_n == 4 && is(0, 0x50a1, OP_PRESS, 1) && is(2, 0x50a1, OP_PRESS, 2),
+           "SPACE -> 0x50a1 on both players (measured, docs/21)");
+     reset(); OFF(7, 0); ON(7, 2);
+     CHECK(sent_n == 4 && is(0, 0x50a5, OP_PRESS, 1), "CRUSH -> 0x50a5");
+     reset(); OFF(7, 2); ON(7, 0);
      reset(); OFF(7, 0); ON(7, 3); ms(80); map_flx10.tick();
      CHECK(sent_n == 4 && sent[0].key == K_SWEEP, "PITCH -> SWEEP, and the old one's off is not a toggle");
      reset(); OFF(7, 3); ms(80); map_flx10.tick();

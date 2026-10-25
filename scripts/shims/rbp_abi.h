@@ -377,8 +377,12 @@
 #define K_DUBECHO    0x50a2    /* Sound Color FX: Dub Echo button */
 #define K_SWEEP      0x50a3    /* Sound Color FX: Sweep button */
 #define K_NOISE      0x50a4    /* Sound Color FX: Noise button */
-#define K_SPACE      0x50a5    /* Sound Color FX: Space button */
-#define K_CRUSH      0x50a1    /* Sound Color FX: Crush button */
+/* SPACE and CRUSH were the other way round here (0x50a5 / 0x50a1) until the
+ * FLX10 map first sent them: on the unit, 2026-10-24, the SPACE button produced
+ * CRUSH and CRUSH produced SPACE (docs/21). Nothing else in the tree uses these
+ * two, which is why the swap went unnoticed. */
+#define K_SPACE      0x50a1    /* Sound Color FX: Space button */
+#define K_CRUSH      0x50a5    /* Sound Color FX: Crush button */
 #define K_BFXTYPE    0x448b    /* Beat FX Type Select (0=Delay, 1=Echo, etc.) */
 #define K_BFXCH      0x448c    /* Beat FX Channel Assign (5 = MASTER) */
 #define BFX_CH_MASTER 5

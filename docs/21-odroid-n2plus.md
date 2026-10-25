@@ -209,7 +209,7 @@ are the operator's table, agreed control by control on 2026-10-24:
 | pads; SHIFT + pad in HOT CUE | pads in rbp's mode; delete that cue |
 | ch 1/2 TRIM, EQ, COLOR, FADER, CUE; master CUE, crossfader, HP mix/level | the same |
 | MASTER LEVEL | the unit's own volume; feeds only the HDMI mirror (as on the FLX4) |
-| SCFX SPACE, D.ECHO, CRUSH, NOISE, FILTER / PITCH | the same names / SWEEP |
+| SCFX SPACE, D.ECHO, CRUSH, NOISE, FILTER / PITCH | the same names / SWEEP. SPACE is 0x50a1 and CRUSH 0x50a5: rbp_abi.h had them swapped, corrected from the unit (2026-10-24) |
 | SAMPLER VOL | SCFX PARAMETER (0x50a7, channels 1 and 2) |
 | BEAT < > / SHIFT; LEVEL/DEPTH / SHIFT; ON/OFF | BEAT < > / TAP; DEPTH / TIME; Beat FX ON/OFF |
 | effect selector | by name: ECHO, MT DELAY→DELAY, SPIRAL, REVERB, TRANS, FLANGER, PHASER, SLIP ROLL, ROLL; others nothing. Note 32 is fully counter-clockwise (confirmed). rbp's positions are its own order, not the RX3 knob's printing (docs/13 S5.9) |
