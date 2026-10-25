@@ -1447,6 +1447,22 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
      jd_note(deck, 1, 0x20 + d, di->mt ? 0x7F : 0x00, force);
      jd_note(deck, 2, 0x18 + d, di->master ? 0x7F : 0x00, force);
      jd_note(deck, 3, 0x1C + d, di->sync ? 0x7F : 0x00, force);
+     /* JOG_KEY_SWEEP=1: step deck 1's key code 0..24, one every 2 s, logging
+      * each -- to read the code table off the jog (it is a picture in
+      * Pioneer's list). Key: CC 0x49 on the deck's own channel. */
+     {
+          static int sweep = -1, code = -1;
+          static unsigned long long next;
+          if (sweep < 0)
+               sweep = env_on("JOG_KEY_SWEEP", 0);
+          if (sweep && deck == 0 && now >= next) {
+               next = now + 2000;
+               code = (code + 1) % 25;
+               midi_cc(0, 0x4A, 0x0D);
+               midi_cc(0, 0x49, code);
+               klog("knobshim2: flx10 key sweep: code %d (0x%02x)\n", code, code);
+          }
+     }
      if (!di->loaded)
           return;
      flx10_jog_values(di, &bpm10, &speed10, &min, &sec, &deg);

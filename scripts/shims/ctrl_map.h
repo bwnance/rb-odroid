@@ -144,6 +144,7 @@ struct deck_info {
      int tempo_raw;         /* getTempoX100 */
      int tempo_range;       /* getTempoRange, 0..3 */
      int mt, sync, master;
+     char key[16];          /* rbp's deck-panel key text, ASCII ("" = none) */
 };
 
 /* Pad rendering.

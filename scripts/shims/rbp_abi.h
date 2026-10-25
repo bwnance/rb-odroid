@@ -771,6 +771,13 @@ static const signed char bfx_type_to_pos[15] = {
  *   UiGetPlayOrgnalBpm @0xfd244 -> StatWatcher::getPlayOrignalBpm +0x18
  *   UiGetPlayTempoBpm @0xfd28c  -> StatWatcher::getPlayTempoBpm   +0x1c
  * -1 (0xffff from the Ui wrappers) = none. */
+/* The key text rbp's deck panel shows. ui_Deck_Update @0x28fa1c sets the
+ * panel's one text field (ui_com_draw_SetTextStringByBuffer @0x28fdb8) and then
+ * keeps its own copy to compare against next time: memcpy into
+ * 0x02683fc0 + deck * 0x200 (the literal at 0x2909bc), a UTF-16 string, so the
+ * last key drawn, in the notation the export uses. */
+#define UI_DECK_KEYTEXT_GLOBAL   0x02683fc0UL
+#define UI_DECK_KEYTEXT_STRIDE   0x200
 #define STAT_PLAYBPM_OFF         0x14
 #define STAT_ORIGBPM_OFF         0x18
 #define STAT_TEMPOBPM_OFF        0x1c

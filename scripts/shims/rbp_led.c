@@ -764,6 +764,20 @@ static void led_deck_display(const struct led_notes *n, void *pe)
                di.tempo_raw   = ((int (*)(void *, int))PE_GETTEMPOX100)(pe, i);
                di.tempo_range = ((int (*)(void *, int))PE_GETTEMPORANGE)(pe, i);
           }
+          /* the key text the deck panel last drew (rbp_abi.h), UTF-16 */
+          {
+               const unsigned short *w = (const unsigned short *)
+                    (UI_DECK_KEYTEXT_GLOBAL + (unsigned long)i * UI_DECK_KEYTEXT_STRIDE);
+               unsigned k;
+               for (k = 0; k < sizeof di.key - 1 && w[k]; k++) {
+                    unsigned short c = w[k];
+                    di.key[k] = c == 0x266F ? '#' : c == 0x266D ? 'b' :
+                                (c >= 0x20 && c < 0x7f) ? (char)c : '?';
+               }
+               di.key[k] = '\0';
+          }
+          if (verbose && now - last_log >= 1000)
+               klog("knobshim2: jogdisp deck%d key='%s'\n", i + 1, di.key);
           if (verbose && now - last_log >= 1000)
                klog("knobshim2: jogdisp deck%d loaded=%d playing=%d total=%d "
                     "elapsed=%d bpm_play=%d bpm_orig=%d bpm_tempo=%d tempo_raw=%d "
