@@ -171,8 +171,11 @@ same `startup_gain()` (default 1.5 s mute + 0.3 s fade). Confirmed on the unit.
 * **HDMI audio mirror** looks for the Pi's `vc4hdmi0/1` cards, which the Odroid
   does not have (harmless retry noise in audioshim.log). Point `RB_AUDIO_MIRROR_DEV`
   at the Odroid's HDMI card.
-* **HOT CUE mode switch lag.** Switching to HOT CUE from another pad mode shows on
-  screen a fraction of a second late.
+* **HOT CUE mode switch lag** (parked, low priority). Switching to HOT CUE shows on
+  screen a fraction of a second late, even with no track loaded. Not the key
+  path: `onKey_HotCue` @0x3030ec switches the mode on the press, and SYNC (the
+  only other key with HOT CUE's 1 s long-press time) reacts instantly. Likely
+  the hot cue grid's redraw. `scripts/odroid/modelag.py` times it if revisited.
 * **Booth and master outputs**, by ear, once on the audio system.
 * **Jog wheel displays** on the FLX10 do nothing yet (probe: note 54 lit nothing;
   the displays are probably fed by SysEx, not notes).
