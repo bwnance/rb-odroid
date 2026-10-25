@@ -1301,7 +1301,7 @@ static void flx10_note(int ch, int note, int on)
            * KEY SYNC, which rbp does not have: no key sync or key shift exists
            * anywhere in its engine (DjEngineIF has no key/pitch-shift call;
            * the RX3 has no KEY SYNC on its panel), so it is logged and does
-           * nothing. The KEY SYNC LED keeps following master tempo. */
+           * nothing. Its LED is kept dark (operator, 2026-10-25). */
           case N_KEYSYNC:
                if (on)
                     klog("knobshim2: flx10 deck%d KEY SYNC: rbp has no key sync; "
@@ -1960,6 +1960,8 @@ static void flx10_display_init(unsigned long long now)
      /* the map's own LEDs, which a power-cycled unit has forgotten */
      tempo_reset_led(0);
      tempo_reset_led(1);
+     midi_note(0, N_KEYSYNC, 0x00);        /* KEY SYNC: dark, whatever MT is */
+     midi_note(1, N_KEYSYNC, 0x00);
      rev_led_v[0] = rev_led_v[1] = -1;     /* the tick re-sends them */
      /* everything the display shows goes out again right after */
      jd[0].refresh = jd[1].refresh = 0;
@@ -2061,7 +2063,7 @@ static const struct led_notes flx10_leds = {
      .n_sync = N_SYNC,
      .n_cue = N_CUE,
      .n_play = N_PLAY,
-     .n_keylock = N_KEYSYNC,       /* KEY SYNC's LED shows MASTER TEMPO */
+     .n_keylock = -1,              /* KEY SYNC's LED stays dark (operator) */
      .n_vinyl = -1,                /* no VINYL LED */
      .n_slip = N_SLIP,
      .n_loopin = N_IN,

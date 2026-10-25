@@ -407,7 +407,7 @@ Every LED answers on its own button's input note and channel, ON = 0x7F, OFF = 0
 | What | Note (channel) | Driven from |
 | --- | --- | --- |
 | PLAY / CUE / SYNC | 11 / 12 / 88 (deck) | the same transport decision the drawers show (CDJ / rekordbox CUE and PLAY, below) |
-| KEY SYNC | 101 (deck) | MASTER TEMPO |
+| KEY SYNC | 101 (deck) | kept dark (sent off on connect) |
 | TEMPO RESET | 65 (deck) | the map's tempo lock |
 | SLIP REVERSE | 21 (deck) | held, or the deck reversing (`PlayEngine::getReverse`) |
 | SLIP | 64 (deck) | slip mode |

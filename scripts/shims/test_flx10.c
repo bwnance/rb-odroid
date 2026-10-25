@@ -493,7 +493,7 @@ int main(void)
           CHECK(n != NULL, "map_flx10 has an LED table");
           if (n) {
                CHECK(n->deck_ch == 0 && n->n_sync == 88 && n->n_cue == 12 &&
-                     n->n_play == 11 && n->n_keylock == 101 && n->n_slip == 64,
+                     n->n_play == 11 && n->n_keylock == -1 && n->n_slip == 64,
                      "deck LED notes");
                CHECK(n->n_loopin == 16 && n->n_loopout == 17 && n->n_autoloop == 20,
                      "loop LED notes");
@@ -721,6 +721,7 @@ int main(void)
           CHECK(jd_note_v[0x3D] == 0x00 && jd_note_v[0x40] == 0x7F && jd_cc_v[0x46] == 0x30,
                 "unreported ones: the captured values");
           CHECK(note70_n == 1, "9F 70 not sent twice");
+          CHECK(dk_note_v[0][101] == 0 && dk_note_v[1][101] == 0, "KEY SYNC LED sent dark on connect");
      }
 
      printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);
