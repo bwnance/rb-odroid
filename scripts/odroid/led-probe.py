@@ -165,12 +165,8 @@ def probe_notes(out, items, data, save):
         else:
             res = a
         data["notes"][cid] = {"group": g, "expect": what, "ch": ch, "note": n, "result": res}
-        if res == "lit":
-            # does the LED dim/brighten with velocity? one extra look, cheap
-            out.note(ch, n, 1)
-            b = ask("     same note at vel 1 -> lit / dim / off? ")
-            out.note(ch, n, 0)
-            data["notes"][cid]["vel1"] = b
+        # No brightness question: on the FLX10 a button LED at velocity 1 looked
+        # exactly like 127 every time (operator, 2026-10-24) -- on/off only.
         save()
     return True
 
