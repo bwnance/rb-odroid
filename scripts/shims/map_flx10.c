@@ -781,8 +781,7 @@ static const int mode_key[4] = { K_HOTCUE, K_ALOOP, K_SLIPLOOP, K_BEATJUMP };
  * whenever one of its eight mode buttons is pressed, whatever rbp does with the
  * press -- so the LED bridge has to light the page the unit is on, not the one
  * rbp's mode would suggest. -1 = no mode button seen yet (the bridge then goes by
- * rbp's mode, below); FLX10_PAGE_NONE = SAMPLER, which drives nothing in rbp. */
-#define FLX10_PAGE_NONE (-2)
+ * rbp's mode, below). */
 static int flx10_page[2] = { -1, -1 };
 
 static int flx10_mode_page(int note)
@@ -791,7 +790,7 @@ static int flx10_mode_page(int note)
      case N_MODE_HOT:      return 0;
      case N_MODE_PADFX1:   return 16;
      case N_MODE_BEATJUMP: return 32;
-     case N_MODE_SAMPLER:  return FLX10_PAGE_NONE;
+     case N_MODE_SAMPLER:  return 48;
      case N_MODE_KEYBOARD: return 64;
      case N_MODE_PADFX2:   return 80;
      case N_MODE_BEATLOOP: return 96;
@@ -803,7 +802,7 @@ static int flx10_mode_page(int note)
 /* struct led_notes' pad_base hook. Before any mode button has been pressed the
  * unit is on whatever page it powered up on, which this side cannot know; rbp's
  * mode, put through the operator's table (docs/21), is the best guess. */
-static const int flx10_page_for_rbp[8] = { 0, 96, 16, 32, 64, 96, 80, 112 };
+static const int flx10_page_for_rbp[8] = { 0, 96, 16, 32, 64, 48, 80, 112 };
 
 int flx10_led_pad_base(int deck, int rbp_mode)
 {
@@ -812,8 +811,6 @@ int flx10_led_pad_base(int deck, int rbp_mode)
      if (deck < 0 || deck > 1)
           return -1;
      pg = flx10_page[deck];
-     if (pg == FLX10_PAGE_NONE)
-          return -1;
      if (pg >= 0)
           return pg;
      return (rbp_mode >= 0 && rbp_mode < 8) ? flx10_page_for_rbp[rbp_mode] : -1;
@@ -835,6 +832,15 @@ static void flx10_set_mode(int deck, int want)
      }
      if (verbose)
           klog("knobshim2: flx10 deck%d pad mode %d -> %d\n", sch, cur, want);
+}
+
+/* A main mode button (operator, 2026-10-24): the first press goes to its mode,
+ * a second press does what SHIFT + that button does, a third comes back -- the
+ * FLX10's own double-press behaviour under rekordbox. `a` is the button's mode,
+ * `b` its SHIFT mode, both as rbp's mode byte. */
+static void flx10_main_mode(int deck, int a, int b)
+{
+     flx10_set_mode(deck, flx10_pad_mode(deck) == a ? b : a);
 }
 
 /* ---- notes ---------------------------------------------------------------- */
@@ -885,16 +891,19 @@ static void flx10_note(int ch, int note, int on)
           case N_IN_SHIFT: case N_OUT_SHIFT:
                flx10_loop(deck, note, on);
                return;
-          /* Pad modes (operator's table, docs/21): a main button is one press
-           * of its mode's key (a repeat press clicks through the banks, as on
-           * the RX3); a SHIFT button goes to its bank via flx10_set_mode().
-           * SAMPLER is a table row with no key. */
-          case N_MODE_HOT:      if (on) pulse(K_HOTCUE, sch);   return;
-          case N_MODE_BEATLOOP: if (on) pulse(K_ALOOP, sch);    return;
-          case N_MODE_PADFX1:   if (on) pulse(K_SLIPLOOP, sch); return;
-          case N_MODE_BEATJUMP: if (on) pulse(K_BEATJUMP, sch); return;
+          /* Pad modes (operator's table, docs/21), by rbp's mode byte:
+           *   button      press           SHIFT / second press
+           *   HOT CUE     0 HOT CUE       4 GATE CUE
+           *   PAD FX1     2 SLIP LOOP     6 RELEASE FX
+           *   BEAT JUMP   3 BEAT JUMP     1 BEAT LOOP
+           *   SAMPLER     5 BEAT LOOP 2   7 BEAT JUMP 2 */
+          case N_MODE_HOT:      if (on) flx10_main_mode(deck, 0, 4); return;
+          case N_MODE_PADFX1:   if (on) flx10_main_mode(deck, 2, 6); return;
+          case N_MODE_BEATJUMP: if (on) flx10_main_mode(deck, 3, 1); return;
+          case N_MODE_SAMPLER:  if (on) flx10_main_mode(deck, 5, 7); return;
           case N_MODE_KEYBOARD: if (on) flx10_set_mode(deck, 4); return;
           case N_MODE_PADFX2:   if (on) flx10_set_mode(deck, 6); return;
+          case N_MODE_BEATLOOP: if (on) flx10_set_mode(deck, 1); return;
           case N_MODE_KEYSHIFT: if (on) flx10_set_mode(deck, 7); return;
           default:
                break;
@@ -1110,7 +1119,6 @@ static void flx10_build(void)
           /* The pad-mode buttons are named cases in flx10_note()
            * (flx10_set_mode()). Known and deliberately unbound (key 0): logged,
            * nothing sent. */
-          add_note(rch, N_MODE_SAMPLER, 0, sch);
           add_note(rch, N_TEMPO_RESET, 0, sch);
           add_note(rch, N_KEYSYNC_LONG, 0, sch);
           add_note(rch, N_SYNC_LONG, 0, sch);
@@ -1127,8 +1135,7 @@ static void flx10_build(void)
       * pad mode: 0 HOT CUE, 16 PAD FX1, 32 BEAT JUMP, 48 SAMPLER, 64 KEYBOARD,
       * 80 PAD FX2, 96 BEAT LOOP, 112 KEY SHIFT (0/16/32/48/64/96 measured; 80 and
       * 112 follow the stride). rbp's K_PAD1..8 act in rbp's current mode, so a
-      * base is bound only where the map puts rbp in a mode for it -- every base
-      * but SAMPLER's. */
+      * base is bound only where the map puts rbp in a mode for it -- all eight. */
      for (int d = 0; d < 2; d++) {
           int rch = d ? CH_PADS2 : CH_PADS1;
           int sch = 1 + d;
@@ -1137,6 +1144,7 @@ static void flx10_build(void)
                add_note(rch, 16 + p, K_PAD1 + p, sch);  /* PAD FX1   -> SLIP LOOP */
                add_note(rch, 32 + p, K_PAD1 + p, sch);  /* BEAT JUMP -> BEAT JUMP */
                add_note(rch, 96 + p, K_PAD1 + p, sch);  /* BEAT LOOP -> BEAT LOOP */
+               add_note(rch, 48 + p, K_PAD1 + p, sch);  /* SAMPLER   -> BEAT LOOP 2 */
                add_note(rch, 64 + p, K_PAD1 + p, sch);   /* KEYBOARD  -> GATE CUE    */
                add_note(rch, 80 + p, K_PAD1 + p, sch);   /* PAD FX2   -> RELEASE FX  */
                add_note(rch, 112 + p, K_PAD1 + p, sch);  /* KEY SHIFT -> BEAT JUMP 2 */
@@ -1216,7 +1224,7 @@ static void flx10_event(const struct snd_seq_event *ev)
  * LED answers on its own button's input note and channel, ON = 0x7F. The second
  * bank buttons (SHIFT + mode) light their PARENT button flashing -- 105 flashes
  * HOT CUE, 109 BEAT JUMP, 107 PAD FX1, 111 SAMPLER -- which is exactly how the
- * unit shows the shifted mode. Pads take the palette (LED_ENC_FLX10_PALETTE) and
+ * unit shows the shifted mode. BEAT LOOP 2 lives on SAMPLER (34, solid). Pads take the palette (LED_ENC_FLX10_PALETTE) and
  * show only the page the unit is on, hence the pad_base hook. The meters are the
  * FLX4's: CC 2 on the deck's channel, same scale.
  *
@@ -1237,7 +1245,7 @@ static const struct led_notes flx10_leds = {
      .n_mode = { N_MODE_HOT, N_MODE_BEATLOOP, N_MODE_PADFX1, N_MODE_BEATJUMP },
      .mode_banks = 1,
      /* 4 GATE CUE, 5 BEAT LOOP 2, 6 RELEASE FX, 7 BEAT JUMP 2 */
-     .n_mode_bank = { N_MODE_KEYBOARD, N_MODE_BEATLOOP, N_MODE_PADFX2,
+     .n_mode_bank = { N_MODE_KEYBOARD, N_MODE_SAMPLER, N_MODE_PADFX2,
                       N_MODE_KEYSHIFT },
      .pad_ch = CH_PADS1,
      .pad_ch2 = CH_PADS2,

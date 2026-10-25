@@ -204,8 +204,8 @@ are the operator's table, agreed control by control on 2026-10-24:
 | browse push (per deck) / held 0.6 s / double | LOAD that deck **then SELECT** (loads a track, opens a playlist/folder; at the top menu it also opens the category's first row) / TAG TRACK (0x420e) / twice; **on the SOURCE screen with a stick in slot 1: open USB 1** (rbp ignores the knob there) |
 | BACK / VIEW; SHIFT+BACK / SHIFT+VIEW | BACK / SOURCE; TAG LIST / SHORTCUT |
 | SHIFT + deck 1's browse push | TRACK FILTER (deck 2's SHIFT push not yet recorded) |
-| pad modes HOT CUE / PAD FX1 / BEAT JUMP / SAMPLER | HOT CUE / SLIP LOOP / BEAT JUMP / nothing |
-| SHIFT + those: KEYBOARD / PAD FX2 / BEAT LOOP / KEY SHIFT | GATE CUE / RELEASE FX / BEAT LOOP / BEAT JUMP 2 (a SHIFT button goes straight to its bank; a main button is one press, so pressing it again clicks through to the second bank and back, as on the RX3) |
+| pad modes HOT CUE / PAD FX1 / BEAT JUMP / SAMPLER | HOT CUE / SLIP LOOP / BEAT JUMP / BEAT LOOP 2 |
+| SHIFT + those: KEYBOARD / PAD FX2 / BEAT LOOP / KEY SHIFT | GATE CUE / RELEASE FX / BEAT LOOP / BEAT JUMP 2 (a SHIFT button goes straight to its mode; pressing a main button again does what SHIFT + it does, and a third press comes back -- the FLX10's double-press behaviour) |
 | pads; SHIFT + pad in HOT CUE | pads in rbp's mode; delete that cue |
 | ch 1/2 TRIM, EQ, COLOR, FADER, CUE; master CUE, crossfader, HP mix/level | the same |
 | MASTER LEVEL | the unit's own volume; feeds only the HDMI mirror (as on the FLX4) |
@@ -291,19 +291,18 @@ Every LED answers on its own button's input note and channel, ON = 0x7F, OFF = 0
 | QUANTIZE | 53 (deck) | rbp's QUANTIZE (per-deck struct +0x2e bit 6, `StatWatcher::getPlayQuantizeOn`) |
 | IN / OUT / 4 BEAT | 16 / 17 / 20 (deck) | the loop LEDs, as on the other surfaces |
 | channel CUE | 84 (deck) | headphone cue |
-| mode buttons | 27, 109, 30, 32; banks 105, 109, 107, 111 | rbp's mode byte 0..7 |
+| mode buttons | 27, 109, 30, 32; banks 105, 34, 107, 111 | rbp's mode byte 0..7 |
 | pads | page base + 0..7 on ch 8 / 10 | rbp's pad LEDs, palette-encoded |
 | meters | CC 2 on ch 1 / 2 | as the FLX4 |
 
 The SHIFT mode notes light their parent button *flashing* (105 flashes HOT CUE, 109
 BEAT JUMP, 107 PAD FX1, 111 SAMPLER) -- the unit's own way of showing a shifted
-mode. BEAT LOOP and BEAT LOOP 2 share 109; the bridge sends it once per tick.
+mode. BEAT LOOP 2 lights SAMPLER solid (34).
 
 The pads only show the page the unit itself is on, which moves with the unit's mode
 buttons whatever rbp does, so `map_flx10.c` tracks the last mode button per deck and
-hands the base to the bridge (`struct led_notes.pad_base`). SAMPLER's page (48) has
-nothing behind it and is left dark; before any mode button the page is guessed from
-rbp's mode.
+hands the base to the bridge (`struct led_notes.pad_base`). SAMPLER's page (48) is
+BEAT LOOP 2; before any mode button the page is guessed from rbp's mode.
 
 Pad palette (velocity): 4 blue, 8 light blue, 12 teal, 16 greener teal, 20 green,
 24 yellow-green, 28 yellow, 32 orange, 36 darker orange, 40 even darker orange, 44

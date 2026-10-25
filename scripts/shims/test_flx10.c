@@ -166,7 +166,7 @@ int main(void)
       * rbp there from what its pad-mode byte reads (0..3 modes, 4..7 banks) */
      {
           static const struct { int note, from, presses, key; const char *what; } pm[] = {
-               { 27, 0, 1, K_HOTCUE,   "HOT CUE while in HOT CUE: one press (clicks to GATE CUE)" },
+               { 27, 0, 1, K_HOTCUE,   "HOT CUE while in HOT CUE: to GATE CUE (as SHIFT+HOT CUE)" },
                { 27, 4, 1, K_HOTCUE,   "HOT CUE from GATE CUE: one press (back)" },
                { 27, 3, 1, K_HOTCUE,   "HOT CUE from BEAT JUMP: enter" },
                { 105, 0, 1, K_HOTCUE,  "SHIFT+HOT CUE from HOT CUE: flip to GATE CUE" },
@@ -175,11 +175,18 @@ int main(void)
                { 30, 6, 1, K_SLIPLOOP, "PAD FX1 from RELEASE FX: flip back to SLIP LOOP" },
                { 107, 1, 2, K_SLIPLOOP, "PAD FX2 from BEAT LOOP: enter SLIP LOOP + flip" },
                { 32, 7, 1, K_BEATJUMP, "BEAT JUMP from BEAT JUMP 2: flip back" },
+               { 32, 3, 1, K_ALOOP,    "BEAT JUMP while in BEAT JUMP: to BEAT LOOP (as SHIFT+BEAT JUMP)" },
+               { 32, 1, 1, K_BEATJUMP, "BEAT JUMP while in BEAT LOOP: back to BEAT JUMP" },
+               { 30, 2, 1, K_SLIPLOOP, "PAD FX1 while in SLIP LOOP: to RELEASE FX" },
+               { 111, 5, 2, K_BEATJUMP, "KEY SHIFT from BEAT LOOP 2: enter BEAT JUMP + flip" },
                { 111, 3, 1, K_BEATJUMP, "KEY SHIFT from BEAT JUMP: flip to BEAT JUMP 2" },
                { 109, 5, 1, K_ALOOP,   "BEAT LOOP from BEAT LOOP 2: one press" },
-               { 109, 1, 1, K_ALOOP,   "BEAT LOOP while in BEAT LOOP: one press (to BEAT LOOP 2)" },
+               { 109, 1, 0, K_ALOOP,   "SHIFT+BEAT JUMP while in BEAT LOOP: nothing" },
                { 109, 0, 1, K_ALOOP,   "BEAT LOOP from HOT CUE: enter" },
-               { 34, 0, 0, 0,          "SAMPLER: nothing" },
+               { 34, 0, 2, K_ALOOP,    "SAMPLER from HOT CUE: BEAT LOOP 2 (enter + flip)" },
+               { 34, 1, 1, K_ALOOP,    "SAMPLER from BEAT LOOP: flip to BEAT LOOP 2" },
+               { 34, 5, 2, K_BEATJUMP, "SAMPLER while in BEAT LOOP 2: to BEAT JUMP 2" },
+               { 34, 7, 2, K_ALOOP,    "SAMPLER while in BEAT JUMP 2: back to BEAT LOOP 2" },
                { 27, -1, 1, K_HOTCUE,  "HOT CUE with rbp not up (-1): enter" },
           };
           for (unsigned i = 0; i < sizeof pm / sizeof pm[0]; i++) {
@@ -204,8 +211,8 @@ int main(void)
      /* pads */
      reset(); ON(10, 7 + 32); OFF(10, 7 + 32);
      CHECK(is(0, K_PAD1 + 7, OP_PRESS, 2), "deck 2 pad 8 in BEAT JUMP");
-     reset(); ON(10, 50);
-     CHECK(sent_n == 0, "SAMPLER-base pad unbound"); OFF(10, 50);
+     reset(); ON(10, 50); OFF(10, 50);
+     CHECK(sent_n == 2 && is(0, K_PAD1 + 2, OP_PRESS, 2), "SAMPLER-base pad 3 bound (BEAT LOOP 2)");
      ON(11, 3);
      CHECK(deleted_deck == 1 && deleted_pad == 4, "SHIFT+pad 4 deck 2 deletes its hot cue");
 
@@ -357,7 +364,7 @@ int main(void)
                CHECK(n->n_quantize == 53, "QUANTIZE LED on 53");
                CHECK(n->mode_banks == 1 && n->n_mode[0] == 27 && n->n_mode[1] == 109 &&
                      n->n_mode[2] == 30 && n->n_mode[3] == 32 &&
-                     n->n_mode_bank[0] == 105 && n->n_mode_bank[1] == 109 &&
+                     n->n_mode_bank[0] == 105 && n->n_mode_bank[1] == 34 &&
                      n->n_mode_bank[2] == 107 && n->n_mode_bank[3] == 111,
                      "mode LEDs by rbp mode 0..7");
                CHECK(n->pad_ch == 7 && n->pad_ch2 == 9 &&
@@ -375,9 +382,9 @@ int main(void)
           reset(); ON(1, 109); OFF(1, 109);
           CHECK(flx10_led_pad_base(0, 0) == 96, "SHIFT+BEAT JUMP -> page 96");
           reset(); ON(1, 34); OFF(1, 34);
-          CHECK(flx10_led_pad_base(0, 0) == -1, "SAMPLER -> no pad LEDs");
+          CHECK(flx10_led_pad_base(0, 0) == 48, "SAMPLER -> page 48");
           reset(); ON(2, 111); OFF(2, 111);
-          CHECK(flx10_led_pad_base(1, 0) == 112 && flx10_led_pad_base(0, 0) == -1,
+          CHECK(flx10_led_pad_base(1, 0) == 112 && flx10_led_pad_base(0, 0) == 48,
                 "deck 2 KEY SHIFT -> 112, deck 1 untouched");
           reset(); ON(1, 27); OFF(1, 27);
           CHECK(flx10_led_pad_base(0, 5) == 0, "HOT CUE -> page 0");
