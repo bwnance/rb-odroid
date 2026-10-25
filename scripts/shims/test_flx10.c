@@ -74,6 +74,10 @@ void flx10_loop_prime(int d) { loop_primes[d]++; }
 static int xf_assign[2] = { -1, -1 };
 void flx10_set_xf_assign(int d, int a) { xf_assign[d] = a; }
 static int second_press[2];
+static long start_pos[2] = { 22050, 22050 }; static int start_ms[2] = { 500, 500 };
+static int seek_n, seek_deck; static long seek_pos;
+long flx10_start_pos(int d, int *ms) { *ms = start_ms[d]; return start_pos[d]; }
+void flx10_seek(int d, long pos) { seek_n++; seek_deck = d; seek_pos = pos; }
 void flx10_trrev_as_second_press(int d) { second_press[d]++; }
 static int bpm_auto_n;
 void flx10_bfx_bpm_auto(void) { bpm_auto_n++; }
@@ -652,42 +656,46 @@ int main(void)
                 "deck 2 pad on 23 -> deck 2 page 16 only");
      }
 
-     /* SHIFT + CUE: TRACK SEARCH < once, only when the deck is not at its start */
+     /* SHIFT + CUE: a seek straight to the start (the auto cue point); no keys,
+      * nothing on the release, nothing repeats while held */
      {
           const struct led_notes *n = map_flx10.leds;
           struct deck_info di;
           memset(&di, 0, sizeof di);
           di.loaded = 1; di.elapsed_ms = 60000; di.total_ms = 200000;
           n->deck_display(1, &di);
-          reset(); ON(2, 72);
-          CHECK(sent_n == 1 && is(0, K_TRREV, OP_PRESS, 2), "SHIFT+CUE mid-track -> TRACK SEARCH < pressed");
-          ms(150); map_flx10.tick();
-          CHECK(sent_n == 1, "...held while the button is");
+          seek_n = 0; reset(); ON(2, 72);
+          for (int i = 0; i < 8; i++) { ms(100); map_flx10.tick(); }
           OFF(2, 72);
-          CHECK(sent_n == 2 && is(1, K_TRREV, OP_RELEASE, 2), "...released with it");
-          CHECK(second_press[1] == 0, "SHIFT+CUE is a first press (to the top)");
-          reset(); ON(2, 72); OFF(2, 72);
-          CHECK(sent_n == 0, "SHIFT+CUE again within 600 ms: nothing (rbp would load the previous track)");
-          ms(650); goes_back[1] = 1;
-          reset(); ON(2, 72); OFF(2, 72);
-          CHECK(sent_n == 0, "SHIFT+CUE where rbp would go back a track: nothing");
-          goes_back[1] = 0; di.loaded = 0; n->deck_display(1, &di);
-          reset(); ON(2, 72); OFF(2, 72);
-          CHECK(sent_n == 0, "SHIFT+CUE, nothing loaded: nothing");
-          di.loaded = 1; n->deck_display(1, &di);
+          CHECK(seek_n == 1 && seek_deck == 1 && seek_pos == 22050 && sent_n == 0,
+                "SHIFT+CUE -> one seek to the auto cue point, no keys, held 0.8 s (%d, %d)", seek_n, sent_n);
+          /* at the start already: SHIFT+CUE seeks again (harmless) */
+          di.elapsed_ms = 900; n->deck_display(1, &di);
+          seek_n = 0; reset(); ON(2, 72); OFF(2, 72);
+          CHECK(seek_n == 1 && sent_n == 0, "SHIFT+CUE at the start: just the seek, never a track");
+
+          /* MIX POINT <: mid-track = the same seek; at the start = previous track */
+          di.elapsed_ms = 60000; n->deck_display(1, &di);
+          seek_n = 0; second_press[1] = 0; reset(); ON(2, 89); OFF(2, 89);
+          CHECK(seek_n == 1 && sent_n == 0 && second_press[1] == 0, "MIX POINT < mid-track -> seek to the start");
+          di.elapsed_ms = 1800; n->deck_display(1, &di);          /* 500 + 1500 zone */
+          seek_n = 0; reset(); ON(2, 89);
+          for (int i = 0; i < 8; i++) { ms(100); map_flx10.tick(); }
+          OFF(2, 89);
+          CHECK(seek_n == 0 && second_press[1] == 1 && sent_n == 2 && is(0, K_TRREV, OP_PRESS, 2) &&
+                is(1, K_TRREV, OP_RELEASE, 2), "MIX POINT < at the start -> previous track, one 100 ms tap (%d)", sent_n);
+          di.elapsed_ms = 60000; goes_back[1] = 1; n->deck_display(1, &di);
+          seek_n = 0; reset(); ON(2, 89); ms(120); map_flx10.tick(); OFF(2, 89);
+          CHECK(seek_n == 0 && sent_n == 2, "MIX POINT < where rbp says at the start -> previous track");
+          goes_back[1] = 0;
      }
 
-     /* MIX POINT >: next track; <: previous track, one press stamped as rbp's
-      * "second press"; both held with the button */
+     /* MIX POINT >: next track, one 100 ms tap however long it is held */
      reset(); ON(1, 90);
      CHECK(sent_n == 1 && is(0, K_TRFWD, OP_PRESS, 1), "MIX POINT > -> TRACK SEARCH > pressed");
+     for (int i = 0; i < 8; i++) { ms(100); map_flx10.tick(); }
      OFF(1, 90);
-     CHECK(sent_n == 2 && is(1, K_TRFWD, OP_RELEASE, 1), "...released with the button");
-     ms(650); second_press[1] = 0;
-     reset(); ON(2, 89); OFF(2, 89);
-     for (int i = 0; i < 4; i++) { ms(100); map_flx10.tick(); }
-     CHECK(sent_n == 2 && is(0, K_TRREV, OP_PRESS, 2) && is(1, K_TRREV, OP_RELEASE, 2) &&
-           second_press[1] == 1, "MIX POINT <: one TRREV, stamped as a second press (%d)", sent_n);
+     CHECK(sent_n == 2 && is(1, K_TRFWD, OP_RELEASE, 1), "...released after 100 ms, held 0.8 s: no repeat (%d)", sent_n);
 
      /* crossfader assign switches: 22 A, 24 B, 29 THRU (0x7F); 0x00s ignored */
      reset(); ON(1, 22); OFF(1, 24); OFF(1, 29);

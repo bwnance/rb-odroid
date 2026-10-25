@@ -301,7 +301,7 @@ are the operator's table, agreed control by control on 2026-10-24:
 
 | FLX10 | RX3 |
 |---|---|
-| PLAY, CUE / SHIFT + CUE | PLAY, CUE / back to the start of the track (one TRACK SEARCH <, only when rbp's own rule says the deck is not at its start -- else nothing) |
+| PLAY, CUE / SHIFT + CUE | PLAY, CUE / back to the start: a seek straight to the auto cue point (the main cue when auto cue set it, else the top), play/pause kept, nothing repeats while held |
 | BEAT SYNC / SHIFT | SYNC / MASTER (tempo master); long press nothing |
 | KEY SYNC / held | nothing (rbp has no key sync) / MASTER TEMPO; SHIFT nothing |
 | TEMPO RESET / SHIFT | toggle: tempo held at 0.0%, fader ignored; off = back to the fader (LED lit while on) / TEMPO RANGE |
@@ -310,7 +310,7 @@ are the operator's table, agreed control by control on 2026-10-24:
 | SLIP REVERSE / SHIFT | momentary reverse that always slips / latching reverse that never slips (LED lit while held or reversing) |
 | QUANTIZE; SLIP / SHIFT | QUANTIZE; SLIP / nothing (VINYL disabled: no light on the button) |
 | CUE/LOOP CALL < > and SHIFT | not mapped |
-| MIX POINT SELECT < > | previous / next track (TRACK SEARCH, held with the button; < stamped as rbp's "second press" so one press loads the previous track) |
+| MIX POINT SELECT < > | < = as SHIFT + CUE, or the previous track when already within 1.5 s of the start / > = next track (TRACK SEARCH tapped 100 ms, no repeat while held; < stamped as rbp's "second press") |
 | SHIFT + MIX POINT, LINK, ACTIVE PART, PAGE, DECK SELECT, SAMPLER, BOOTH | nothing |
 | browse knobs (one shared message) / SHIFT | scroll / 8 steps per detent |
 | browse push (per deck) / held 0.5 s / double | on a track row LOAD that deck, on anything else SELECT (opens the folder/playlist/category) -- the row type is rbp's own `UiBrowseComm_IsTrackList` (@0x105e60) / **rbp's own long press of the selector = FAST SCROLL** (selector PRESS + op 1, held until the knob comes up; TAG TRACK is unmapped) / twice; **on the SOURCE screen with a stick in slot 1: open USB 1** (rbp ignores the knob there) |

@@ -858,6 +858,20 @@ static const signed char bfx_type_to_pos[15] = {
  * (+12/+16/+20); LoopQuantize::playBeatJump and the auto beat loop refresh
  * them first with these three (each returns bool, reads only the Player): */
 #define PLAYER_QUANT_LOOP_OFF 0xef0
+/* Seeking a deck ourselves (SHIFT + CUE). The Player's reader is at +0xc8;
+ * its vtable word 16 (+64) returns the cue object for an EnCueType (0 =
+ * LAST_CUE, the main cue; isPossibleToBackCue @0x6576c), whose +36 is the cue's
+ * position in samples, -1 = none. getTotalLength @0x63a30 is the track in
+ * samples. setPlayingPosition(pos, true) @0x64258 + setBeatPosSearch @0x688f0
+ * is how Loop::playBeatJump moves the playhead. PlayEngine::isCueSetByAutoCue
+ * @0x5f590 (pe, ch) says whether the main cue is auto cue's. */
+#define PLAYER_READER_OFF     0xc8
+#define READER_VT_GETCUE      16
+#define CUE_POS_OFF           36
+#define PLAYER_TOTAL_LENGTH   0x00063a30
+#define PLAYER_SET_PLAYPOS    0x00064258
+#define PLAYER_SET_BEATPOS_SEARCH 0x000688f0
+#define PE_ISCUE_BY_AUTOCUE   0x0005f590
 #define LOOP_INIT_TOTALLENGTH 0x000ab0dc
 #define LOOP_INIT_BPM         0x000ab104
 #define LOOP_INIT_BEATPOS     0x000ab138

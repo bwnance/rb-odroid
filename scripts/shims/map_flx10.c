@@ -686,34 +686,31 @@ static void flx10_jump(int deck, int beats)
           flx10_plain_jump(deck, (float)beats);
 }
 
-/* ---- TRACK SEARCH: SHIFT + CUE, MIX POINT SELECT < > --------------------------
+/* ---- SHIFT + CUE, MIX POINT SELECT < > ---------------------------------------
  * (operator, 2026-10-25.)
- *   SHIFT + CUE      back to the start of the track = TRACK SEARCH <
- *   MIX POINT <      previous track                 = TRACK SEARCH <, as a
- *                                                     "second press"
- *   MIX POINT >      next track                     = TRACK SEARCH >
+ *   SHIFT + CUE   back to the start: straight to the auto cue point (the main
+ *                 cue when auto cue set it), else to the top; play/pause kept.
+ *   MIX POINT <   the same, or -- already at the start -- the previous track.
+ *   MIX POINT >   next track.
  *
- * TRACK SEARCH is HELD the way the finger holds the button: press on the
- * note-on, release on the note-off. rbp does not act on the key event --
- * TotalMainIfUi::onKey -> TotalMainIf::InputKey_Track @0xd50d8 only records the
- * key as down/up in stTrackSearchKeyWk_Deck, and TotalCnt_SentinelTASK polls
- * that -- so a press and release sent together are never seen, and a held key
- * repeats only after 500 ms. Bound like this (SHIFT + 4 BEAT JUMP < was TRACK
- * SEARCH < on a plain table row) it was the operator's "worked great" restart;
- * a fixed 100 ms hold from the tick did not behave the same.
+ * The start is a SEEK the map does itself (flx10_seek_start), not rbp's TRACK
+ * SEARCH <: that visibly went to the top and then to the auto cue point, and
+ * held down it repeats through tracks. "At the start" = within START_ZONE_MS
+ * after that point (or rbp's own JdgTrackBack rule says so).
  *
- * TRACK SEARCH < goes to the top of the track unless rbp decides the deck is
- * at its start already -- then it loads the PREVIOUS track
- * (TotalTrackSearch_JdgTrackBack @0xeab60, which flx10_trrev_goes_back() asks
- * the same questions; a second press within 500 ms also counts). SHIFT + CUE
- * sends nothing in that case, nor within TRREV_GAP_MS of its last press.
- * MIX POINT < wants exactly that case, so it stamps the "last press" time
- * JdgTrackBack compares against (rbp_abi.h, TTS_WK_LASTPRESS) just before its
- * press, and one press loads the previous track -- no visit to the top first. */
-#define TRREV_GAP_MS 600
-static int deck_loaded[2], deck_elapsed_ms[2];
-static unsigned long long trrev_at[2];
-static int tr_key[2], tr_note[2];               /* what is held, for which note */
+ * Previous / next track are TRACK SEARCH, held TRACK_HOLD_MS from the tick
+ * whatever the finger does (a held key repeats after 500 ms -- the operator
+ * does not want that). rbp does not act on the key event: TotalMainIfUi::onKey
+ * -> TotalMainIf::InputKey_Track @0xd50d8 only records it as down/up and
+ * TotalCnt_SentinelTASK polls that, so a press must stay down a while to be
+ * seen. For "previous", the time JdgTrackBack @0xeab60 compares against
+ * (rbp_abi.h, TTS_WK_LASTPRESS) is stamped first, so rbp reads the press as a
+ * second press and loads the previous track instead of going to the top. */
+#define START_ZONE_MS 1500
+#define TRACK_HOLD_MS 100
+static int deck_loaded[2], deck_elapsed_ms[2], deck_total_ms[2];
+static int tr_key[2];
+static unsigned long long tr_up_at[2];
 
 __attribute__((weak)) int flx10_trrev_goes_back(int deck)
 {
@@ -736,49 +733,94 @@ __attribute__((weak)) void flx10_trrev_as_second_press(int deck)
      *last = (unsigned long)((int (*)(void))OSTIM_GET_TIME)();
 }
 
-static void track_press(int deck, int note, int key)
+/* Where "the start" is, in samples (0 = the top), and in ms through *ms.
+ * -1 when rbp has no player or track. */
+__attribute__((weak)) long flx10_start_pos(int deck, int *ms)
+{
+     void *pe = *(void **)PLAYENGINE_GLOBAL;
+     void *player = pe_player(deck), *reader, *cue;
+     long pos = 0, len;
+
+     *ms = 0;
+     if (!pe || !player)
+          return -1;
+     reader = *(void **)((char *)player + PLAYER_READER_OFF);
+     if (!reader)
+          return -1;
+     if ((((int (*)(void *, int))PE_ISCUE_BY_AUTOCUE)(pe, deck) & 0xff) != 0) {
+          void **vt = *(void ***)reader;
+          cue = ((void *(*)(void *, int))vt[READER_VT_GETCUE])(reader, 0);
+          if (cue && *(long *)((char *)cue + CUE_POS_OFF) != -1)
+               pos = *(long *)((char *)cue + CUE_POS_OFF);
+     }
+     len = ((long (*)(void *))PLAYER_TOTAL_LENGTH)(player);
+     if (pos > 0 && len > 0 && deck_total_ms[deck] > 0)
+          *ms = (int)((long long)pos * deck_total_ms[deck] / len);
+     return pos;
+}
+
+__attribute__((weak)) void flx10_seek(int deck, long pos)
+{
+     void *player = pe_player(deck);
+
+     if (!player)
+          return;
+     ((void (*)(void *, long, int))PLAYER_SET_PLAYPOS)(player, pos, 1);
+     ((void (*)(void *))PLAYER_SET_BEATPOS_SEARCH)(player);
+}
+
+static void track_tap(int deck, int key)
 {
      if (tr_key[deck])
           send_rx_key(tr_key[deck], OP_RELEASE, deck + 1, 0);
      send_rx_key(key, OP_PRESS, deck + 1, 0);
      tr_key[deck] = key;
-     tr_note[deck] = note;
-     if (key == K_TRREV)
-          trrev_at[deck] = shim_now_ms();
+     tr_up_at[deck] = shim_now_ms() + TRACK_HOLD_MS;
 }
 
-static void track_release(int deck, int note)
+static void flx10_track_tick(unsigned long long t)
 {
-     if (!tr_key[deck] || tr_note[deck] != note)
-          return;
-     send_rx_key(tr_key[deck], OP_RELEASE, deck + 1, 0);
-     tr_key[deck] = 0;
+     for (int d = 0; d < 2; d++)
+          if (tr_key[d] && t >= tr_up_at[d]) {
+               send_rx_key(tr_key[d], OP_RELEASE, d + 1, 0);
+               tr_key[d] = 0;
+          }
 }
 
 static void flx10_track_note(int deck, int note, int on)
 {
-     if (!on) {
-          track_release(deck, note);
+     int ms;
+     long pos;
+
+     if (!on)
+          return;                            /* nothing follows the finger */
+     if (note == N_MIXPOINT_NEXT) {
+          klog("knobshim2: flx10 deck%d MIX POINT > -> next track\n", deck + 1);
+          track_tap(deck, K_TRFWD);
           return;
      }
-     if (note == N_CUE_SHIFT) {
-          int back = flx10_trrev_goes_back(deck);
-          if (!deck_loaded[deck] || shim_now_ms() - trrev_at[deck] < TRREV_GAP_MS || back) {
-               klog("knobshim2: flx10 deck%d SHIFT+CUE: at the start already "
-                    "(%d ms, loaded %d, rbp would go back %d); nothing sent\n",
-                    deck + 1, deck_elapsed_ms[deck], deck_loaded[deck], back);
-               return;
+     if (!deck_loaded[deck]) {
+          if (note == N_MIXPOINT_PREV) {
+               flx10_trrev_as_second_press(deck);
+               track_tap(deck, K_TRREV);
           }
-          klog("knobshim2: flx10 deck%d SHIFT+CUE -> TRACK SEARCH < (to the top)\n", deck + 1);
-          track_press(deck, note, K_TRREV);
-     } else if (note == N_MIXPOINT_PREV) {
-          klog("knobshim2: flx10 deck%d MIX POINT < -> previous track\n", deck + 1);
-          flx10_trrev_as_second_press(deck);
-          track_press(deck, note, K_TRREV);
-     } else if (note == N_MIXPOINT_NEXT) {
-          klog("knobshim2: flx10 deck%d MIX POINT > -> next track\n", deck + 1);
-          track_press(deck, note, K_TRFWD);
+          return;
      }
+     pos = flx10_start_pos(deck, &ms);
+     if (note == N_MIXPOINT_PREV &&
+         (pos < 0 || deck_elapsed_ms[deck] <= ms + START_ZONE_MS ||
+          flx10_trrev_goes_back(deck))) {
+          klog("knobshim2: flx10 deck%d MIX POINT <: at the start (%d ms, start %d ms) "
+               "-> previous track\n", deck + 1, deck_elapsed_ms[deck], ms);
+          flx10_trrev_as_second_press(deck);
+          track_tap(deck, K_TRREV);
+          return;
+     }
+     if (pos < 0)
+          return;
+     klog("knobshim2: flx10 deck%d %s -> start of the track (%ld samples, %d ms)\n",
+          deck + 1, note == N_CUE_SHIFT ? "SHIFT+CUE" : "MIX POINT <", pos, ms);
+     flx10_seek(deck, pos);
 }
 
 /* ---- crossfader assign ------------------------------------------------------
@@ -1843,6 +1885,7 @@ static void flx10_tick(void)
      flx10_jog_tick();
      flx10_rev_tick(t);
      flx10_sb_tick(t);
+     flx10_track_tick(t);
      flx10_push_tick(t);
      flx10_scfx_tick(t);
 }
@@ -2159,6 +2202,7 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
 
      deck_loaded[deck] = di->loaded;
      deck_elapsed_ms[deck] = di->elapsed_ms;
+     deck_total_ms[deck] = di->total_ms;
      if (deck == 0)
           flx10_display_init(now);
      /* the jog screens draw nothing without this (flx10_hid.h); the MIDI
