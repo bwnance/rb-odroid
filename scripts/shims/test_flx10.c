@@ -66,6 +66,8 @@ int flx10_slip_mode(int d) { return slipmode[d]; }
 int flx10_reversing(int d) { return reversing[d]; }
 void flx10_set_slip(int d, int on) { slipmode[d] = on; slip_sets++; }
 void flx10_set_reverse(int d, int on) { reversing[d] = on; rev_sets++; }
+static int bj_n, bj_deck[16], bj_t[16];
+void flx10_beat_jump(int d, int type) { if (bj_n < 16) { bj_deck[bj_n] = d; bj_t[bj_n] = type; } bj_n++; }
 /* the rbp mode each FLX10 pad page belongs to */
 static int pmode(int pg) { static const int m[8] = { 0, 2, 3, 5, 4, 6, 1, 7 }; return pg < 0 ? 0 : m[(pg >> 4) & 7]; }
 void flx10_cursor_debug(int *m, int *c, int *l, int *r) { *m = 3; *c = 0; *l = 0; *r = 2; }
@@ -203,9 +205,17 @@ int main(void)
      slipmode[0] = 0;
 
      /* beat jump / track search, slip / vinyl */
-     reset(); ON(2, 94); ON(2, 98);
-     CHECK(is(0, K_SRREV, OP_PRESS, 2) && is(1, K_TRFWD, OP_PRESS, 2), "BEAT JUMP < / SHIFT > ");
-     OFF(2, 94); OFF(2, 98);
+     /* 4 BEAT JUMP: real 4-beat jumps; SHIFT = 16 bars = 4 x 16 beats, spaced */
+     bj_n = 0; reset(); ON(2, 94); OFF(2, 94); ON(1, 95); OFF(1, 95);
+     CHECK(bj_n == 2 && bj_deck[0] == 1 && bj_t[0] == 7 && bj_deck[1] == 0 && bj_t[1] == 8 &&
+           sent_n == 0, "BEAT JUMP < deck 2 -4, > deck 1 +4, no keys");
+     bj_n = 0; ON(1, 98); OFF(1, 98);
+     CHECK(bj_n == 1 && bj_t[0] == 12, "SHIFT + BEAT JUMP >: the first +16 at once");
+     for (int i = 0; i < 6; i++) { ms(90); map_flx10.tick(); }
+     CHECK(bj_n == 4 && bj_t[3] == 12 && bj_deck[3] == 0, "...and three more: 16 bars (%d)", bj_n);
+     bj_n = 0; ON(2, 97); OFF(2, 97);
+     for (int i = 0; i < 6; i++) { ms(90); map_flx10.tick(); }
+     CHECK(bj_n == 4 && bj_t[0] == 11 && bj_deck[0] == 1, "SHIFT + BEAT JUMP < deck 2: 4 x -16");
      reset(); ON(1, 23);
      CHECK(is(0, K_VINYL, OP_PRESS, 1), "SHIFT+SLIP -> VINYL"); OFF(1, 23);
 

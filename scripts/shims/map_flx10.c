@@ -93,9 +93,9 @@
 #define N_IN_SHIFT      76    /* SHIFT + IN (IN ADJUST) */
 #define N_OUT_SHIFT     77    /* SHIFT + OUT (OUT ADJUST / RELOOP) */
 #define N_4BEAT_SHIFT   80    /* SHIFT + 4 BEAT (ACTIVE): nothing */
-#define N_BJ_PREV       94    /* 4 BEAT JUMP <  -> SEARCH < */
+#define N_BJ_PREV       94    /* 4 BEAT JUMP <: 4 beats back */
 #define N_BJ_NEXT       95
-#define N_BJ_PREV_SHIFT 97    /* SHIFT -> TRACK SEARCH < */
+#define N_BJ_PREV_SHIFT 97    /* SHIFT: 16 bars back */
 #define N_BJ_NEXT_SHIFT 98
 #define N_SLIP_REVERSE  21
 #define N_REVERSE       56    /* SHIFT + SLIP REVERSE */
@@ -589,6 +589,43 @@ static void flx10_rev_tick(unsigned long long t)
           v = (rev_held[d] || flx10_reversing(d)) ? 0x7F : 0x00;
           if (v != rev_led_v[d] && midi_note(d, N_SLIP_REVERSE, v))
                rev_led_v[d] = v;
+     }
+}
+
+/* ---- 4 BEAT JUMP < > ------------------------------------------------------
+ * Real beat jumps (operator, 2026-10-25): 4 beats, and with SHIFT 16 bars.
+ * These used to be rbp's SEARCH keys, which jump only while playing -- on a
+ * paused deck onKey_SearchRev @0x304908 does a one-step msSearch, which is the
+ * "tiny amount" the operator saw. Now they call what a BEAT JUMP pad calls,
+ * DjEngineIF::playBeatJump, which works paused or playing. Its largest step is
+ * 16 beats, so 16 bars is four of them; the engine computes each jump from the
+ * position it last played, so they go out BJ_STEP_MS apart, not in one go. */
+#define BJ_STEP_MS 80
+
+__attribute__((weak)) void flx10_beat_jump(int deck, int type)
+{
+     ((void (*)(void *, int, int))DJE_PLAY_BEATJUMP)(NULL, deck, type);
+}
+
+static int bj_left[2], bj_type[2];
+static unsigned long long bj_next_at[2];
+
+static void flx10_bj(int deck, int type, int count)
+{
+     flx10_beat_jump(deck, type);
+     bj_left[deck] = count - 1;
+     bj_type[deck] = type;
+     bj_next_at[deck] = shim_now_ms() + BJ_STEP_MS;
+}
+
+static void flx10_bj_tick(unsigned long long t)
+{
+     for (int d = 0; d < 2; d++) {
+          if (bj_left[d] > 0 && t >= bj_next_at[d]) {
+               flx10_beat_jump(d, bj_type[d]);
+               bj_left[d]--;
+               bj_next_at[d] = t + BJ_STEP_MS;
+          }
      }
 }
 
@@ -1182,6 +1219,10 @@ static void flx10_note(int ch, int note, int on)
                if (on)
                     flx10_tempo_reset(deck);
                return;
+          case N_BJ_PREV:       if (on) flx10_bj(deck, BEATJUMP_M4, 1);  return;
+          case N_BJ_NEXT:       if (on) flx10_bj(deck, BEATJUMP_P4, 1);  return;
+          case N_BJ_PREV_SHIFT: if (on) flx10_bj(deck, BEATJUMP_M16, 4); return;
+          case N_BJ_NEXT_SHIFT: if (on) flx10_bj(deck, BEATJUMP_P16, 4); return;
           case N_SLIP_REVERSE:
                flx10_slip_reverse(deck, on);
                return;
@@ -1450,10 +1491,6 @@ static void flx10_build(void)
           add_note(rch, N_JOG_TOUCH, K_JOG_TOUCH, sch);
           add_note(rch, N_JOG_TOUCH_SH, K_JOG_TOUCH, sch);   /* SHIFT-held press */
           add_note(rch, N_TEMPO_RANGE, K_TEMPO_RANGE, sch);
-          add_note(rch, N_BJ_PREV, K_SRREV, sch);
-          add_note(rch, N_BJ_NEXT, K_SRFWD, sch);
-          add_note(rch, N_BJ_PREV_SHIFT, K_TRREV, sch);
-          add_note(rch, N_BJ_NEXT_SHIFT, K_TRFWD, sch);
           add_note(rch, N_QUANTIZE, K_QUANTIZE, sch);
           add_note(rch, N_SLIP, K_SLIP, sch);
           add_note(rch, N_VINYL, K_VINYL, sch);
@@ -1533,6 +1570,7 @@ static void flx10_tick(void)
 
      flx10_jog_tick();
      flx10_rev_tick(t);
+     flx10_bj_tick(t);
      flx10_push_tick(t);
      flx10_scfx_tick(t);
 }

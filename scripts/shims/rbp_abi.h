@@ -801,6 +801,16 @@ static const signed char bfx_type_to_pos[15] = {
  * singleton itself, as ADDR_ENGINE_CLEAR_HOTCUE does), called (NULL, ch, ...) */
 #define DJE_SET_SLIPMODE   0x4ae10   /* setSlipMode(EnPlayerChannel, bool) */
 #define DJE_SET_REVERSE    0x46404   /* setReverse(EnPlayerChannel, bool) */
+/* playBeatJump(EnPlayerChannel, EnBeatJumpType) -- what a BEAT JUMP pad calls
+ * (onKey_Pad @0x3062a4). EnBeatJumpType (djengine::c_str @0x50d70): 0 none,
+ * 1/2 -/+1/2, 3/4 -/+1, 5/6 -/+2, 7/8 -/+4, 9/10 -/+8, 11/12 -/+16 beats.
+ * Jumps at once from the current position (LoopQuantize::playBeatJump ->
+ * startPlay), paused or playing; refused past either end of the track. */
+#define DJE_PLAY_BEATJUMP  0x49ae0
+#define BEATJUMP_M4  7
+#define BEATJUMP_P4  8
+#define BEATJUMP_M16 11
+#define BEATJUMP_P16 12
 #define PE_ISLOOPING       0x5eadc
 #define PE_ISCANRELOOP     0x5eab0
 #define PE_ISAUTOBEATLOOP  0x5ef74
