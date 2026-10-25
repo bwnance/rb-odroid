@@ -501,12 +501,28 @@ static void led_send(int sch, int note, signed char *last, int on)
  * pads deliberately differ: there state 3 is measured to mean "this is the
  * engaged beat-loop pad" and is blinked, because there is a specific thing to
  * say and no way to say it with brightness.  See ledstat_state's comment. */
+/* BEAT SYNC's off-beat blink is slowed (operator, 2026-10-25: "a little
+ * slower"): SYNC_BLINK_MS sets its period, by default twice rbp's own. */
+static int led_sync_blink(unsigned int id, unsigned int ch)
+{
+     static int ms = -2;
+     unsigned int p;
+
+     if (ms == -2)
+          ms = env_num("SYNC_BLINK_MS", 0);
+     p = ms > 0 ? (unsigned int)ms : 2u * (ledstat_period(id, ch) ? ledstat_period(id, ch)
+                                                                   : LED_BLINK_FALLBACK_MS);
+     return led_blink_on(shim_now_ms(), p, LED_BLINK_FALLBACK_MS);
+}
+
 static int led_from_table_state(unsigned int id, int deck, int fallback)
 {
      int ch = deck + 1;
      int st = ledstat_state(id, (unsigned int)ch);
      if (st < 0)
           return fallback;
+     if (st == 2 && id == LEDSTAT_SYNC)
+          return led_sync_blink(id, (unsigned int)ch);
      if (st == 2)
           return led_blink_for(id, (unsigned int)ch);   /* rbp's own period */
      return (st != 0);
