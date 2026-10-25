@@ -844,13 +844,42 @@ int main(void)
                CHECK(flx10_hid_merge(&k, 5023, 1, 0, 0, 0, t += 10) == 5030, "next block behind: no step back");
                CHECK(flx10_hid_merge(&k, 5023, 0, 0, 0, 0, t += 10) == 5030, "paused: holds the last shown, no jump back");
                CHECK(flx10_hid_merge(&k, 5023, 0, 0, 0, 0, t += 10) == 5030, "and keeps it while rbp stays put");
-               CHECK(flx10_hid_merge(&k, 4800, 0, 1, 0, 0, t += 10) == 4800, "jogged back: the reading");
-               CHECK(flx10_hid_merge(&k, 4790, 1, 1, 0, 0, t += 10) == 4790, "jog while playing: no running ahead");
-               CHECK(flx10_hid_merge(&k, 4780, 1, 1, 0, 0, t += 10) == 4780, "jog while playing: no backstep guard");
+               CHECK(flx10_hid_merge(&k, 4800, 0, FLX10_JOG_HELD, 0, 0, t += 10) == 4800, "jogged back: the reading");
+               CHECK(flx10_hid_merge(&k, 4820, 0, FLX10_JOG_HELD, 0, 0, t += 10) == 4800 &&
+                     flx10_hid_merge(&k, 4785, 0, FLX10_JOG_HELD, 0, 0, t += 10) == 4800,
+                     "held still: the reading's wobble does not move the arm");
+               CHECK(flx10_hid_merge(&k, 4700, 0, FLX10_JOG_HELD, 0, 0, t += 10) == 4700, "held, moved: follows");
+               flx10_hid_merge(&k, 4690, 1, FLX10_JOG_TURNING, 0, 0, t += 10);
+               {
+                    int v = flx10_hid_merge(&k, 4680, 1, FLX10_JOG_TURNING, 0, 0, t += 10);
+                    CHECK(v < 4680 && v >= 4680 - 30, "turning back: drawn ahead of the reading, the way it moves (%d)", v);
+                    v = flx10_hid_merge(&k, 4680, 1, FLX10_JOG_TURNING, 0, 0, t += 10);
+                    CHECK(v < 4680, "turning: carried on between rbp's blocks (%d)", v);
+               }
                CHECK(flx10_hid_merge(&k, 9000, 0, 0, 0, 0, t += 10) == 9000, "cue/seek while paused: the reading");
                flx10_hid_merge(&k, 9000, 1, 0, 0, 0, t += 10);
                flx10_hid_merge(&k, 9000, 1, 0, 0, 0, t += 10);
                CHECK(flx10_hid_merge(&k, 2000, 0, 0, 0, 0, t += 10) == 2000, "CUE back while playing: the cue point");
+          }
+          /* sync + jog: tempo and key held */
+          {
+               struct flx10_hid_tempo_hold th;
+               struct flx10_hid_deck c;
+               memset(&th, 0, sizeof th); memset(&c, 0, sizeof c);
+               c.loaded = 1; c.sync = 1; c.tempo_x100 = 250; c.bpm_x100 = 12500;
+               flx10_hid_tempo_hold(&th, &c, 0, 1000);
+               CHECK(c.tempo_x100 == 250, "not jogging: rbp's tempo");
+               c.tempo_x100 = 410; c.bpm_x100 = 12700; flx10_hid_tempo_hold(&th, &c, 1, 1010);
+               CHECK(c.tempo_x100 == 250 && c.bpm_x100 == 12500, "jog on a synced deck: tempo/BPM held");
+               c.tempo_x100 = 300; flx10_hid_tempo_hold(&th, &c, 0, 1500);
+               CHECK(c.tempo_x100 == 250, "after the jog, still catching up: held");
+               c.tempo_x100 = 252; flx10_hid_tempo_hold(&th, &c, 0, 1600);
+               CHECK(c.tempo_x100 == 252 && !th.on, "back within 0.05%%: released");
+               c.tempo_x100 = 410; flx10_hid_tempo_hold(&th, &c, 1, 1700);
+               c.tempo_x100 = 300; flx10_hid_tempo_hold(&th, &c, 0, 4800);
+               CHECK(c.tempo_x100 == 300, "given up 3 s after the last turn");
+               c.sync = 0; c.tempo_x100 = 410; flx10_hid_tempo_hold(&th, &c, 1, 5000);
+               CHECK(c.tempo_x100 == 410, "not synced: nothing held");
           }
           flx10_hid_heartbeat_pkt(p, 3);
           CHECK(p[0] == 0 && p[1] == 0x3D && p[2] == 3 && p[4] == 5, "heartbeat 00 3D n 00 05");
@@ -878,6 +907,35 @@ int main(void)
           CHECK(dk_note_v[0][101] == 0 && dk_note_v[1][101] == 0, "KEY SYNC LED sent dark on connect");
      }
 
+     /* BEAT SYNC fits the tempo range first (after the connect test: deck_display
+      * starts the connect timing) */
+     {
+          const struct led_notes *n = map_flx10.leds;
+          struct deck_info d0, d1;
+          int ranges = 0;
+          memset(&d0, 0, sizeof d0); memset(&d1, 0, sizeof d1);
+          d0.loaded = 1; d0.master = 1; d0.bpm_raw = 25000;
+          d1.loaded = 1; d1.bpm_raw = 10500; d1.tempo_raw = 500; d1.tempo_range = 1;
+          n->deck_display(0, &d0); n->deck_display(1, &d1);
+          reset(); ON(2, 88); OFF(2, 88);
+          for (int i = 0; i < sent_n; i++)
+               ranges += sent[i].key == K_TEMPO_RANGE && sent[i].op == OP_PRESS;
+          CHECK(ranges == 2 && is(sent_n - 2, K_SYNC, OP_PRESS, 2),
+                "BEAT SYNC 100 -> 250 BPM: range +-10 -> WIDE (2 steps), then SYNC (%d)", ranges);
+          d1.bpm_raw = 24500; d1.tempo_raw = 0; d1.tempo_range = 3;    /* 2.04%% away */
+          n->deck_display(1, &d1);
+          reset(); ON(2, 88); OFF(2, 88);
+          CHECK(sent_n == 4 && is(0, K_TEMPO_RANGE, OP_PRESS, 2) && is(2, K_SYNC, OP_PRESS, 2),
+                "2%% from WIDE: one step round to +-6, then SYNC");
+          d1.sync = 1; n->deck_display(1, &d1);
+          reset(); ON(2, 88); OFF(2, 88);
+          CHECK(sent_n == 2 && is(0, K_SYNC, OP_PRESS, 2), "turning sync off: no range change");
+          d1.sync = 0; d0.master = 0; n->deck_display(0, &d0); n->deck_display(1, &d1);
+          reset(); ON(2, 88); OFF(2, 88);
+          CHECK(sent_n == 2, "no master: no range change");
+          memset(&d0, 0, sizeof d0); memset(&d1, 0, sizeof d1);
+          n->deck_display(0, &d0); n->deck_display(1, &d1);
+     }
      printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);
      return failures ? 1 : 0;
 }

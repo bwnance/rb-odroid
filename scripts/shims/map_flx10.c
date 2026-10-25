@@ -712,6 +712,41 @@ static void flx10_jump(int deck, int beats)
 #define START_ZONE_MS 1500
 #define TRACK_HOLD_MS 100
 static int deck_loaded[2], deck_elapsed_ms[2], deck_total_ms[2];
+/* for BEAT SYNC's range fit: what deck_display last showed */
+static int deck_bpm[2], deck_tempo[2], deck_range[2], deck_sync[2], deck_master[2];
+
+/* BEAT SYNC turned on: the tempo range set first to the smallest that holds
+ * the tempo the sync needs (operator, 2026-10-25) -- a 100 BPM track synced
+ * to a 250 BPM master goes to WIDE. The need is the master's playing BPM over
+ * this track's own (its playing BPM at its tempo %). Ranges +-6/10/16/WIDE
+ * (100%) are getTempoRange 0..3, stepped by rbp's TEMPO RANGE key, which
+ * goes round them in that order. Nothing when there is no other deck that is
+ * master, or a BPM is unknown. */
+static void flx10_sync_fit_range(int deck)
+{
+     static const int limit[4] = { 600, 1000, 1600, 10000 };
+     int m = 1 - deck, cur = deck_range[deck] & 3, want = 3, n;
+     long long orig, need;
+
+     if (!deck_loaded[deck] || !deck_loaded[m] || !deck_master[m] ||
+         deck_bpm[deck] <= 0 || deck_bpm[m] <= 0 || deck_tempo[deck] <= -10000)
+          return;
+     orig = (long long)deck_bpm[deck] * 10000 / (10000 + deck_tempo[deck]);
+     if (orig <= 0)
+          return;
+     need = (long long)deck_bpm[m] * 10000 / orig - 10000;
+     if (need < 0)
+          need = -need;
+     for (int i = 0; i < 4; i++)
+          if (need <= limit[i]) { want = i; break; }
+     n = (want - cur + 4) % 4;
+     if (!n)
+          return;
+     klog("knobshim2: flx10 deck%d BEAT SYNC: needs %+lld.%02lld%%, range %d -> %d\n",
+          deck + 1, need / 100, need % 100, cur, want);
+     while (n--)
+          pulse(K_TEMPO_RANGE, deck + 1);
+}
 static int tr_key[2];
 static unsigned long long tr_up_at[2];
 
@@ -1525,6 +1560,8 @@ static void flx10_note(int ch, int note, int on)
                     sync_down[deck] = 0;
                     return;
                }
+               if (!deck_sync[deck])
+                    flx10_sync_fit_range(deck);
                pulse(K_SYNC, sch);
                return;
           }
@@ -2264,6 +2301,11 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
      deck_loaded[deck] = di->loaded;
      deck_elapsed_ms[deck] = di->elapsed_ms;
      deck_total_ms[deck] = di->total_ms;
+     deck_bpm[deck] = di->bpm_raw;
+     deck_tempo[deck] = di->tempo_raw;
+     deck_range[deck] = di->tempo_range;
+     deck_sync[deck] = di->sync;
+     deck_master[deck] = di->master;
      if (deck == 0) {
           flx10_display_init(now);
           flx10_hid_set_pos_reader(flx10_pos_now);
