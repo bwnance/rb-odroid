@@ -174,7 +174,6 @@ same `startup_gain()` (default 1.5 s mute + 0.3 s fade). Confirmed on the unit.
 * **HOT CUE mode switch lag.** Switching to HOT CUE from another pad mode shows on
   screen a fraction of a second late.
 * **Booth and master outputs**, by ear, once on the audio system.
-* **Master level meter**: no address found on the FLX10 yet.
 * **Jog wheel displays** on the FLX10 do nothing yet (probe: note 54 lit nothing;
   the displays are probably fed by SysEx, not notes).
 * **"Deck playing" icons on the HDMI screen flash at start-up.** They should start
@@ -372,7 +371,7 @@ RGB goes to the nearest hue, low saturation to white (`led_flx10_palette()` in
 `led_table.c`, pinned by `test_led_table`).
 
 No LED answered for: SHIFT, BACK, VIEW, BEAT < / >, CALL < / >, FX ON / assign,
-Sound Color FX, master CUE, master meter. Left dark on purpose: stems/PART, PAGE,
+Sound Color FX, master CUE, master meter (the FLX10 drives its master meter itself, from its own audio -- confirmed working 2026-10-25). Left dark on purpose: stems/PART, PAGE,
 LINK, TEMPO RESET, SLIP REVERSE, sampler CUE, channels 3/4.
 
 **Still to check on the unit:** how the jog feels
