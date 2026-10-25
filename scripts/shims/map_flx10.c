@@ -39,6 +39,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>         /* access() */
 #include <sound/asequencer.h>
 
 #include "shimutil.h"
@@ -438,12 +439,39 @@ static void flx10_fourbeat_tick(unsigned long long t)
      }
 }
 
+/* ---- which screen rbp is on, and whether slot 1 has a stick --------------
+ * rbp's SOURCE menu is browse mode 12, and on that screen rbp deliberately
+ * ignores the browse encoder and its push: a real RX3 opens a stick there with
+ * its USB1 key (0x0209). map_jp21.c measured both and remaps its push the same
+ * way. The mode is the first word of rbp's uiBrowse singleton (rbp_abi.h), one
+ * read at a fixed address, which pointsrc.c already does from its own thread.
+ *
+ * Both are WEAK so the host test can answer for rbp without dereferencing its
+ * addresses. */
+#define BROWSE_MODE_SOURCE 12
+
+__attribute__((weak)) int flx10_browse_mode(void)
+{
+     return *(volatile int *)(UIBROWSE_GLOBAL + UIBROWSE_OFF_MODE);
+}
+
+__attribute__((weak)) int flx10_usb1_present(void)
+{
+     return access("/media/usb1/sda1/PIONEER/rekordbox/export.pdb", F_OK) == 0;
+}
+
 /* ---- the browse knobs' pushes --------------------------------------------
  * Both knobs TURN with the same message (ch 7 CC 64), so they scroll one list;
  * only the pushes say which deck: 70 = deck 1, 71 = deck 2. A push is LOAD on
  * release, unless it was held browse_hold_ms, which is TAG TRACK -- decided in
  * tick() so the hold fires while the knob is still down. A double push is two
- * LOADs, which the operator chose over an instant-doubles gesture. */
+ * LOADs, which the operator chose over an instant-doubles gesture.
+ *
+ * ON THE SOURCE SCREEN a push opens USB 1 instead (operator, 2026-10-24), when
+ * slot 1 has a rekordbox stick: LOAD means nothing there, and rbp ignores the
+ * knob on that screen, so without this the stick could only be opened from the
+ * glass. A slot-2-only stick is still opened from the glass, as in map_jp21.c:
+ * no USB2 keycode has been measured. */
 static unsigned long long push_at[2];
 static int push_fired[2];
 
@@ -457,8 +485,14 @@ static void flx10_push(int deck, int on)
      if (!push_at[deck])
           return;
      push_at[deck] = 0;
-     if (!push_fired[deck])
-          pulse(K_LOAD, deck + 1);
+     if (push_fired[deck])
+          return;
+     if (flx10_browse_mode() == BROWSE_MODE_SOURCE && flx10_usb1_present()) {
+          pulse(K_USB1, CH_GLOBAL);
+          klog("knobshim2: flx10 browse push on SOURCE -> open USB1 (0x%04x)\n", K_USB1);
+          return;
+     }
+     pulse(K_LOAD, deck + 1);
 }
 
 static void flx10_push_tick(unsigned long long t)

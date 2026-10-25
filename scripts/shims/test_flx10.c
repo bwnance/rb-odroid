@@ -41,6 +41,9 @@ void me_set_cue(int idx, int on) { cue[idx] = on; }
 int me_get_master_cue(void) { return mcue; }
 void me_set_master_cue(int on) { mcue = on; }
 int hotcue_delete(int deck, int pad) { deleted_deck = deck; deleted_pad = pad; return 0; }
+static int browse_mode = 1, usb1 = 1;
+int flx10_browse_mode(void) { return browse_mode; }
+int flx10_usb1_present(void) { return usb1; }
 int cc_to_10bit(int v) { if (v < 0) v = 0; if (v > 127) v = 127; return (v * 1023 + 63) / 127; }
 
 struct sent { int key, op, ch; long param; };
@@ -189,6 +192,15 @@ int main(void)
      CHECK(sent_n == 8 && sent[7].param == -1, "SHIFT+browse = 8 steps");
      reset(); ON(7, 71); map_flx10.tick(); OFF(7, 71);
      CHECK(sent_n == 2 && is(0, K_LOAD, OP_PRESS, 2), "push 71 loads deck 2");
+     /* on SOURCE (browse mode 12) with a stick in slot 1, a push opens USB 1 */
+     browse_mode = 12;
+     reset(); ON(7, 70); OFF(7, 70);
+     CHECK(sent_n == 2 && is(0, K_USB1, OP_PRESS, 1) && is(1, K_USB1, OP_RELEASE, 1),
+           "push on SOURCE -> USB1");
+     usb1 = 0;
+     reset(); ON(7, 71); OFF(7, 71);
+     CHECK(sent_n == 2 && is(0, K_LOAD, OP_PRESS, 2), "push on SOURCE, slot 1 empty -> LOAD as before");
+     usb1 = 1; browse_mode = 1;
      reset(); ON(7, 70); ms(650); map_flx10.tick(); OFF(7, 70);
      CHECK(sent_n == 0, "held push: TAG TRACK unset -> nothing, and no LOAD (%d)", sent_n);
      reset(); ON(7, 122); ON(7, 104); ON(7, 93);

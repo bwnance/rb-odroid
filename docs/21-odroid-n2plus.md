@@ -201,7 +201,7 @@ are the operator's table, agreed control by control on 2026-10-24:
 | CUE/LOOP CALL < > and SHIFT | not mapped |
 | MIX POINT, LINK, ACTIVE PART, PAGE, DECK SELECT, SAMPLER, BOOTH | nothing |
 | browse knobs (one shared message) / SHIFT | scroll / 8 steps per detent |
-| browse push (per deck) / held 0.6 s / double | LOAD that deck / TAG TRACK ⚠ / two LOADs |
+| browse push (per deck) / held 0.6 s / double | LOAD that deck / TAG TRACK ⚠ / two LOADs; **on the SOURCE screen with a stick in slot 1: open USB 1** (rbp ignores the knob there) |
 | BACK / VIEW; SHIFT+BACK / SHIFT+VIEW | BACK / SOURCE; TAG LIST / SHORTCUT |
 | SHIFT + deck 1's browse push | TRACK FILTER (deck 2's SHIFT push not yet recorded) |
 | pad modes HOT CUE / PAD FX1 / BEAT JUMP / SAMPLER | HOT CUE / SLIP LOOP / BEAT JUMP / nothing |
