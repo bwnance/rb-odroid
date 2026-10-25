@@ -155,6 +155,22 @@ On the unit, Armbian `6.18.43-current-meson64`, with a 1024×768 bench monitor
   non-question, but it is worth recording.
 * The board's HDMI audio card name and formats, for the mirror.
 
+## To revisit (operator's list)
+
+* **Headphone zap on restart.** A "ZZZZ" zappy noise in the headphones when rb
+  restarts (2026-10-25). Likely the audio device being opened/closed or clocked
+  while the DAC is unmuted; look at start/stop ordering and muting in the audio shim.
+* **HOT CUE mode switch lag.** Switching to HOT CUE from another pad mode shows on
+  screen a fraction of a second late.
+* **Pad light flicker** going from a secondary pad mode back to its primary.
+  Being debugged now (LED_DUMP run); proposed fix: hold a lit pad through a short
+  off-blip.
+* **RELEASE FX pad colours** vs the RX3 / rekordbox (same LED_DUMP run).
+* **Booth and master outputs**, by ear, once on the audio system.
+* **Master level meter**: no address found on the FLX10 yet.
+* **Jog feel** after the 12960 PPR fix.
+* **Later, maybe:** RX3 effects matching the FLX10's (ENIGMA JET, MOBIUS, ...).
+
 ## DDJ-FLX10
 
 The surface this fork is ultimately for. No map yet; facts measured on the N2+:
