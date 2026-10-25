@@ -1561,7 +1561,10 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
      jd_note(deck, 4, 0x14 + d, 0x7F, force);            /* remaining */
      jd_cc(deck, 5, 0x42 + 2 * d, min, force);
      jd_cc(deck, 6, 0x43 + 2 * d, sec, force);
-     jd_cc14(deck, 7, 0x14 + d, 0x34 + d, bpm10, force);
+     /* The CC BPM (x10) is NOT sent: with it the jog showed tenths only even
+      * beside the SysEx (2026-10-25) -- the SysEx, rekordbox's own, carries the
+      * BPM alone. */
+     (void)bpm10;
      jd_cc14(deck, 8, 0x18 + d, 0x38 + d, speed10, force);
      /* No marker or cue marker: the list documents both (CC 0x10+d / 0x1C+d,
       * 0..359 deg) but this firmware draws neither from MIDI -- sent by hand
