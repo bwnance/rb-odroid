@@ -67,6 +67,8 @@ int flx10_reversing(int d) { return reversing[d]; }
 void flx10_set_slip(int d, int on) { slipmode[d] = on; slip_sets++; }
 void flx10_set_reverse(int d, int on) { reversing[d] = on; rev_sets++; }
 static int bj_n, bj_deck[16], bj_t[16];
+static int standby[2];
+int flx10_cue_standby(int d) { return standby[d]; }
 void flx10_beat_jump(int d, int type) { if (bj_n < 16) { bj_deck[bj_n] = d; bj_t[bj_n] = type; } bj_n++; }
 /* the rbp mode each FLX10 pad page belongs to */
 static int pmode(int pg) { static const int m[8] = { 0, 2, 3, 5, 4, 6, 1, 7 }; return pg < 0 ? 0 : m[(pg >> 4) & 7]; }
@@ -605,6 +607,27 @@ int main(void)
           reset(); ON(10, 16 + 7); OFF(10, 16 + 7);
           CHECK(flx10_led_pad_base(1, pmode(16)) == 16 && flx10_led_pad_base(0, pmode(96)) == 96,
                 "deck 2 pad on 23 -> deck 2 page 16 only");
+     }
+
+     /* SHIFT + CUE: TRACK SEARCH < once, only when the deck is not at its start */
+     {
+          const struct led_notes *n = map_flx10.leds;
+          struct deck_info di;
+          memset(&di, 0, sizeof di);
+          di.loaded = 1; di.elapsed_ms = 60000; di.total_ms = 200000;
+          n->deck_display(1, &di);
+          reset(); ON(2, 72); OFF(2, 72);
+          CHECK(sent_n == 2 && is(0, K_TRREV, OP_PRESS, 2) && is(1, K_TRREV, OP_RELEASE, 2),
+                "SHIFT+CUE mid-track -> TRACK SEARCH < once");
+          di.elapsed_ms = 400; n->deck_display(1, &di);
+          reset(); ON(2, 72); OFF(2, 72);
+          CHECK(sent_n == 0, "SHIFT+CUE in the first second: nothing (would be the previous track)");
+          di.elapsed_ms = 60000; n->deck_display(1, &di); standby[1] = 1;
+          reset(); ON(2, 72); OFF(2, 72);
+          CHECK(sent_n == 0, "SHIFT+CUE in cue standby: nothing");
+          standby[1] = 0; di.loaded = 0; n->deck_display(1, &di);
+          reset(); ON(2, 72); OFF(2, 72);
+          CHECK(sent_n == 0, "SHIFT+CUE, nothing loaded: nothing");
      }
 
      /* the jog screens' HID packets (flx10_hid.c) */

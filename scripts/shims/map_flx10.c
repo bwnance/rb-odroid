@@ -79,6 +79,7 @@
 /* ---- deck notes (ch 1/2), measured ---- */
 #define N_PLAY          11
 #define N_CUE           12
+#define N_CUE_SHIFT     72    /* SHIFT + CUE: back to the track's start */
 #define N_SHIFT         63
 #define N_SYNC          88    /* sent when the finger LEAVES (as on the FLX4) */
 #define N_SYNC_SHIFT    92    /* SHIFT + BEAT SYNC = MASTER */
@@ -627,6 +628,42 @@ static void flx10_bj_tick(unsigned long long t)
                bj_next_at[d] = t + BJ_STEP_MS;
           }
      }
+}
+
+/* ---- SHIFT + CUE: back to the start of the track ----------------------------
+ * (operator, 2026-10-25.) rbp has no "seek to 0" key; its TRACK SEARCH <
+ * (K_TRREV) is the RX3's "back to the top of this track" -- unless the deck is
+ * at its start already, where it loads the PREVIOUS track instead
+ * (TotalTrackSearch_JdgTrackBack @0xeab60: a second press within 500 ms, a
+ * paused deck at time 0, or a deck in cue standby at its auto-cue point all
+ * count as "at the start"). So this sends one TRREV only when the deck is
+ * loaded, more than RESTART_MIN_MS in, and not in cue standby; otherwise the
+ * deck is at its start already and nothing is sent. The deck's time comes from
+ * deck_display (rbp_led.c reads it every tick). */
+#define RESTART_MIN_MS 1500
+static int deck_loaded[2], deck_elapsed_ms[2];
+
+__attribute__((weak)) int flx10_cue_standby(int deck)
+{
+     void *pe = *(void **)PLAYENGINE_GLOBAL;
+     return pe ? ((int (*)(void *, int))PE_ISINCUESTANDBY)(pe, deck) != 0 : 0;
+}
+
+static int deck_at_start(int deck)
+{
+     return !deck_loaded[deck] || deck_elapsed_ms[deck] < RESTART_MIN_MS ||
+            flx10_cue_standby(deck);
+}
+
+static void flx10_restart(int deck)
+{
+     if (deck_at_start(deck)) {
+          klog("knobshim2: flx10 deck%d SHIFT+CUE: at the start already "
+               "(%d ms, loaded %d); nothing sent\n", deck + 1,
+               deck_elapsed_ms[deck], deck_loaded[deck]);
+          return;
+     }
+     pulse(K_TRREV, deck + 1);
 }
 
 /* ---- the loop section ----------------------------------------------------
@@ -1219,6 +1256,7 @@ static void flx10_note(int ch, int note, int on)
                if (on)
                     flx10_tempo_reset(deck);
                return;
+          case N_CUE_SHIFT:     if (on) flx10_restart(deck); return;
           case N_BJ_PREV:       if (on) flx10_bj(deck, BEATJUMP_M4, 1);  return;
           case N_BJ_NEXT:       if (on) flx10_bj(deck, BEATJUMP_P4, 1);  return;
           case N_BJ_PREV_SHIFT: if (on) flx10_bj(deck, BEATJUMP_M16, 4); return;
@@ -1883,6 +1921,8 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
      unsigned long long now = shim_now_ms();
      int force, bpm10, speed10, min, sec, deg, d = deck;
 
+     deck_loaded[deck] = di->loaded;
+     deck_elapsed_ms[deck] = di->elapsed_ms;
      if (deck == 0)
           flx10_display_init(now);
      /* the jog screens draw nothing without this (flx10_hid.h); the MIDI
