@@ -191,6 +191,12 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   65, unbound today, its LED dark) should reset the deck's tempo to 0% the way
   rekordbox does -- find whether rbp has a reset of its own, else hold the tempo at
   centre until the fader is moved.
+* **MASTER TEMPO on KEY SYNC long press** (operator, 2026-10-25): today a short
+  KEY SYNC press toggles master tempo; move that to the long press (the unit sends
+  note 26 for it, unbound today) so the short press can be KEY SYNC.
+* **KEY SYNC** (operator, 2026-10-25): the short press should do key sync -- find
+  whether rbp has a key sync of its own (the RX3 has none on its panel), and what its
+  KEY SYNC LED should follow.
 * **Waveform jittering** (operator, 2026-10-25): details to collect.
 * **Later, maybe:** RX3 effects matching the FLX10's (ENIGMA JET, MOBIUS, ...).
 
