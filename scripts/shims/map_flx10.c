@@ -1382,13 +1382,23 @@ static void flx10_note(int ch, int note, int on)
            * the RX3's BROWSE key, which toggles back to the player. Decided on
            * the press, and the release goes to the same key. */
           /* SHIFT + BACK (operator, 2026-10-25): from the player it is the
-           * RX3's PLAYLIST key; from a browse screen it stays TAG LIST.
-           * Decided on the press; the release goes to the same key. */
+           * RX3's PLAYLIST key, and pressed again from the list that opened it
+           * goes back to the player (BROWSE, as VIEW does); from any other
+           * browse screen it stays TAG LIST. Decided on the press; the release
+           * goes to the same key. */
           if (note == N_BACK_SHIFT) {
-               static int sb_key;
+               static int sb_key, sb_opened;
                if (on) {
-                    sb_key = flx10_browse_mode() == BROWSE_MODE_PLAY ? K_PLAYLIST
-                                                                     : K_TAGLIST;
+                    int bm = flx10_browse_mode();
+                    if (bm == BROWSE_MODE_PLAY) {
+                         sb_key = K_PLAYLIST;
+                         sb_opened = 1;
+                    } else if (sb_opened) {
+                         sb_key = K_BROWSE;      /* back to the player */
+                         sb_opened = 0;
+                    } else {
+                         sb_key = K_TAGLIST;
+                    }
                     send_rx_key(sb_key, OP_PRESS, CH_GLOBAL, 0);
                } else if (sb_key) {
                     send_rx_key(sb_key, OP_RELEASE, CH_GLOBAL, 0);
