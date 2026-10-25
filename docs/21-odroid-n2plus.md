@@ -266,8 +266,11 @@ line.
 
 **Jog (2026-10-24).** The platter is about **13083 counts/rev**: five hand-counted
 turns gave 65416 net counts in 7103 messages, about 18× the FLX4's 720. Turns by
-hand are good to about ±2%, and no design value is published, so the map uses the
-round number in that range, **13000**. It also reports in
+hand are good to about ±2%, and no design value is published. The map uses
+**12960**: 360 × 36 (36 counts per degree) and exactly 18 × the FLX4's 720. It is
+the one value in that range with that structure, 0.95% below the measurement
+(about 5.05 turns counted as 5). A 10-turn count (≈129600 if right) would settle
+it. It also reports in
 bursts, several messages per millisecond. The FLX4's per-message speed therefore
 saw 0 ms gaps and pinned nearly every update at the 8 rev/s clamp, so the jog
 "moved at one speed whatever the hand did". `map_flx10.c` now accumulates counts

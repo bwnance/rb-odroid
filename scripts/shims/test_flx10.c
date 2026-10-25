@@ -294,7 +294,7 @@ int main(void)
 
      /* the jog: a BURST inside one millisecond must not read as the 8 rev/s clamp
       * (the bug the operator felt), a slow turn must read slow, and the idle edge
-      * must still send 0. 13000 counts/rev (measured ~13083). */
+      * must still send 0. 12960 counts/rev (measured ~13083; 18 x 720). */
      {
           ms(200); map_flx10.tick();          /* let any earlier motion go idle */
           reset();
@@ -318,7 +318,7 @@ int main(void)
           long before = -1;
           CC(2, 35, 64 + 1); ms(5); CC(2, 35, 64 + 1);
           before = sent_n ? sent[sent_n - 1].l : -1;
-          for (int n = 0; n < 13000; n += 21) { CC(2, 35, 64 + 21); }
+          for (int n = 0; n < 12960; n += 21) { CC(2, 35, 64 + 21); }
           ms(5); CC(2, 35, 64 + 1); ms(30); map_flx10.tick();
           long after = sent[sent_n - 1].l;
           long moved = (after - before) & 0xFFFF;
