@@ -183,10 +183,10 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   only other key with HOT CUE's 1 s long-press time) reacts instantly. Likely
   the hot cue grid's redraw. `scripts/odroid/modelag.py` times it if revisited.
 * **Booth and master outputs**, by ear, once on the audio system.
-* **Jog wheel displays** on the FLX10 do nothing yet (probe: note 54 lit nothing;
-  the displays are fed by SysEx: the rekordbox capture has `... 04 01 00 0a ...`,
-  `0b`, `0c`, `11`-`14` messages, `tools/captures/flx10-rekordbox-startup.txt`).
-* is similarly odd at start-up.
+* **Jog wheel displays.** Phase 1 done (vendor unlock + MIDI ch 16: BPM, tempo %,
+  time remaining, marker, MT, MASTER, SYNC). Left: key (rbp's source + the 0..0x18
+  code table), the cue marker, then the HID phase (tempo range box, waveform,
+  two-decimal BPM, artwork) -- see "FLX10 jog displays" above.
 * **TEMPO RESET** (operator, 2026-10-25): the FLX10's TEMPO RESET button (deck note
   65, unbound today, its LED dark) should reset the deck's tempo to 0% the way
   rekordbox does -- find whether rbp has a reset of its own, else hold the tempo at
