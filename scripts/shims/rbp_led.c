@@ -727,6 +727,46 @@ static void led_send_run(int sch_first, int count, int note,
                sch_first, sch_first + count - 1, note, on ? "on" : "off");
 }
 
+/* The deck display values (struct deck_info) for a surface with displays of its
+ * own. JOG_DISPLAY_VERBOSE=1 logs the raw readings once a second, which is how
+ * the units of the getters were (to be) checked against the screen. */
+static void led_deck_display(const struct led_notes *n, void *pe)
+{
+     static int verbose = -1;
+     static unsigned long long last_log;
+     unsigned long long now = shim_now_ms();
+
+     if (verbose < 0)
+          verbose = env_on("JOG_DISPLAY_VERBOSE", 0);
+     for (int i = 0; i < 2; i++) {
+          struct deck_info di;
+
+          memset(&di, 0, sizeof di);
+          di.loaded  = ((int (*)(void *, int))PE_ISLOADED)(pe, i) != 0;
+          di.playing = ((int (*)(void *, int))PE_ISPLAYING)(pe, i) != 0;
+          di.mt      = ((int (*)(void *, int))PE_ISMASTERTEMPO)(pe, i) != 0;
+          di.sync    = ((int (*)(void *, int))PE_ISSYNCON)(pe, i) != 0;
+          di.master  = led_from_table_state(LEDSTAT_MASTER, i, 0);
+          if (di.loaded) {
+               di.total_ms    = ((int (*)(void *, int))PE_GETTOTALTIME)(pe, i);
+               di.elapsed_ms  = ((int (*)(void *, int))PE_GETPLAYINGTIME)(pe, i);
+               di.bpm_raw     = ((int (*)(void *, int, int))PE_GETQBPMDISPLAY)(pe, i, 0)
+                                & 0xffff;
+               di.tempo_raw   = ((int (*)(void *, int))PE_GETTEMPOX100)(pe, i);
+               di.tempo_range = ((int (*)(void *, int))PE_GETTEMPORANGE)(pe, i);
+          }
+          if (verbose && now - last_log >= 1000)
+               klog("knobshim2: jogdisp deck%d loaded=%d playing=%d total=%d "
+                    "elapsed=%d bpm_raw=%d tempo_raw=%d range=%d mt=%d sync=%d "
+                    "master=%d\n", i + 1, di.loaded, di.playing, di.total_ms,
+                    di.elapsed_ms, di.bpm_raw, di.tempo_raw, di.tempo_range,
+                    di.mt, di.sync, di.master);
+          n->deck_display(i, &di);
+     }
+     if (verbose && now - last_log >= 1000)
+          last_log = now;
+}
+
 static void led_refresh(void)
 {
      const struct led_notes *n;
@@ -786,6 +826,8 @@ static void led_refresh(void)
      pe = *(void **)PLAYENGINE_GLOBAL;
      if (!pe)
           return;
+     if (n->deck_display)
+          led_deck_display(n, pe);
      for (int i = 0; i < 2; i++) {
           /* A surface with no deck LEDs at all (deck_ch -1) sends nothing for
            * either deck, whatever its note rows say -- the channel guard is what

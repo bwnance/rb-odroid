@@ -61,6 +61,7 @@
 #include "pitch_state.h"
 #include "ctrl_map.h"
 #include "rbp_led.h"        /* led_loop_flash */
+#include "midi_io.h"        /* midi_cc / midi_note, for the jog displays */
 
 /* ---- receive channels, 0-based (MIDI channel minus one) ------------------ */
 #define CH_DECK1   0    /* deck 1: buttons, jog, tempo, mixer strip 1 */
@@ -1366,6 +1367,96 @@ static void flx10_event(const struct snd_seq_event *ev)
      }
 }
 
+/* ---- the jog displays ------------------------------------------------------
+ *
+ * Pioneer's own MIDI list (DDJ-FLX10_MIDI_Message_List_E1, "Illumination
+ * Control") gives a display channel, MIDI ch 16, whose fields the unit renders
+ * itself: no HID, no session. d = deck - 1.
+ *   BPM            CC 0x14+d / 0x34+d   BPM x 10, 14-bit (0.0 .. 999.9)
+ *   playing speed  CC 0x18+d / 0x38+d   (percent + 100) x 10, 14-bit
+ *   time           CC 0x42+2d minutes, 0x43+2d seconds, 0..99 each
+ *   time mode      Note 0x14+d          0x7F = remaining (the unit draws the -)
+ *   marker         CC 0x10+d / 0x30+d   0..359 degrees
+ *   cue marker     CC 0x1C+d / 0x3C+d   0..359; 0x7F/0x7F hides it
+ *   MASTER / SYNC  Note 0x18+d / 0x1C+d
+ *   master tempo   Note 0x20+d
+ *   show info      Note 0x5D+d          0x00 show, 0x7F hide
+ * The tempo range box, the waveform and the artwork are HID (interface 5) and
+ * not driven here. Values go out on change, and all of them once a second. */
+#define JD_CH 15
+struct jd_cache { int v[24]; unsigned long long refresh; };
+static struct jd_cache jd[2];
+
+static void jd_cc(int deck, int slot, int cc, int val, int force)
+{
+     if (!force && jd[deck].v[slot] == val)
+          return;
+     if (midi_cc(JD_CH, cc, val))
+          jd[deck].v[slot] = val;
+}
+
+static void jd_note(int deck, int slot, int note, int val, int force)
+{
+     if (!force && jd[deck].v[slot] == val)
+          return;
+     if (midi_note(JD_CH, note, val))
+          jd[deck].v[slot] = val;
+}
+
+static void jd_cc14(int deck, int slot, int msb, int lsb, int val, int force)
+{
+     if (val < 0) val = 0;
+     if (val > 16383) val = 16383;
+     if (!force && jd[deck].v[slot] == val)
+          return;
+     if (midi_cc(JD_CH, msb, (val >> 7) & 0x7f) &&
+         midi_cc(JD_CH, lsb, val & 0x7f))
+          jd[deck].v[slot] = val;
+}
+
+/* The display values, worked out of rbp's raw readings. Pure, for the test. */
+void flx10_jog_values(const struct deck_info *di, int *bpm10, int *speed10,
+                      int *min, int *sec, int *deg)
+{
+     int rem = di->total_ms - di->elapsed_ms;
+     if (rem < 0)
+          rem = 0;
+     *bpm10 = (di->bpm_raw + 5) / 10;            /* x100 -> x10 */
+     if (*bpm10 > 9999)
+          *bpm10 = 9999;
+     *speed10 = di->tempo_raw / 10 + 1000;       /* % x100 -> (% + 100) x 10 */
+     *min = rem / 60000;
+     if (*min > 99)
+          *min = 99;
+     *sec = (rem / 1000) % 60;
+     /* a record at 33 1/3 rpm: one turn per 1.8 s of play */
+     *deg = di->elapsed_ms > 0 ? (int)((di->elapsed_ms % 1800) * 360 / 1800) : 0;
+}
+
+static void flx10_deck_display(int deck, const struct deck_info *di)
+{
+     unsigned long long now = shim_now_ms();
+     int force = now - jd[deck].refresh >= 1000;
+     int bpm10, speed10, min, sec, deg, d = deck;
+
+     if (force)
+          jd[deck].refresh = now;
+     jd_note(deck, 0, 0x5D + d, di->loaded ? 0x00 : 0x7F, force);
+     jd_note(deck, 1, 0x20 + d, di->mt ? 0x7F : 0x00, force);
+     jd_note(deck, 2, 0x18 + d, di->master ? 0x7F : 0x00, force);
+     jd_note(deck, 3, 0x1C + d, di->sync ? 0x7F : 0x00, force);
+     if (!di->loaded)
+          return;
+     flx10_jog_values(di, &bpm10, &speed10, &min, &sec, &deg);
+     jd_note(deck, 4, 0x14 + d, 0x7F, force);            /* remaining */
+     jd_cc(deck, 5, 0x42 + 2 * d, min, force);
+     jd_cc(deck, 6, 0x43 + 2 * d, sec, force);
+     jd_cc14(deck, 7, 0x14 + d, 0x34 + d, bpm10, force);
+     jd_cc14(deck, 8, 0x18 + d, 0x38 + d, speed10, force);
+     jd_cc14(deck, 9, 0x10 + d, 0x30 + d, deg, force);
+     jd_cc14(deck, 10, 0x1C + d, 0x3C + d, 0x3FFF, force);  /* no cue marker yet */
+}
+
 /* ---- LEDs -----------------------------------------------------------------
  *
  * Measured 2026-10-24 with scripts/odroid/led-probe.py (flx10-leds.json): every
@@ -1419,6 +1510,7 @@ static const struct led_notes flx10_leds = {
      .loop_style = LED_LOOP_REKORDBOX,
      .pad_style = LED_PAD_DIM_BRIGHT,
      .pad_touch = flx10_pad_touch,
+     .deck_display = flx10_deck_display,
 };
 
 const struct ctrl_map map_flx10 = {

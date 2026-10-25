@@ -364,6 +364,36 @@ measured: BEAT JUMP twice put the pads on 96), a SHIFT button goes straight to i
 page, and any pad hit resets the page to the one that pad's note is on. SAMPLER's page (48) is
 BEAT LOOP 2; before any mode button the page is guessed from rbp's mode.
 
+### FLX10 jog displays (phase 1: the MIDI display channel)
+
+Pioneer's MIDI list (`DDJ-FLX10_MIDI_Message_List_E1.pdf`, "Illumination Control")
+documents a display channel, **MIDI ch 16**, whose fields the unit renders itself
+(no HID, no session; also what the community Mixxx mapping uses). d = deck - 1:
+
+| Field | Message | Encoding |
+| --- | --- | --- |
+| BPM | CC 0x14+d / 0x34+d | BPM x 10, 14-bit |
+| playing speed | CC 0x18+d / 0x38+d | (percent + 100) x 10, 14-bit |
+| time | CC 0x42+2d min, 0x43+2d sec | 0..99 |
+| time mode | Note 0x14+d | 0x7F remaining |
+| marker | CC 0x10+d / 0x30+d | 0..359 deg |
+| cue marker | CC 0x1C+d / 0x3C+d | 0..359; 0x7F/0x7F hides |
+| MASTER / SYNC | Note 0x18+d / 0x1C+d | on/off |
+| master tempo | Note 0x20+d | on/off |
+| key | CC 0x49 on the deck channel | 0x00..0x18 (table is a picture in the PDF) |
+| key change | CC 0x4A on the deck channel | 0x0D = 0 |
+| show info | Note 0x5D+d | 0x00 show, 0x7F hide |
+
+`rbp_led.c` reads the deck values each tick (`PE_GETTOTALTIME`, `PE_GETPLAYINGTIME`
+-- ms --, `PE_GETQBPMDISPLAY`, `PE_GETTEMPOX100`, `PE_GETTEMPORANGE`, MT / SYNC /
+MASTER) and hands them to the map's `deck_display` hook; `map_flx10.c` sends them.
+The marker turns like a record at 33 1/3 rpm. `JOG_DISPLAY_VERBOSE=1` logs the raw
+readings once a second (the BPM x100 and tempo x100 units are to be confirmed against
+the screen). Not yet: key (where rbp keeps the loaded track's key, and the code
+table), the cue marker, and the HID-only parts -- tempo range box, waveform, artwork
+(interface 5; the community notes in Veezuhz/Mixxx_FLX10_Controller_Mapping never
+got those rendering on Linux).
+
 Pad brightness (`LED_PAD_DIM_BRIGHT`, the operator against rekordbox): HOT CUE and
 GATE CUE show a set cue bright in its colour and flash white for 0.12 s on a press;
 every other mode shows the dim colour, and the bright one solid while the pad is

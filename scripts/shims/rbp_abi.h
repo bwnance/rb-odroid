@@ -790,6 +790,20 @@ static const signed char bfx_type_to_pos[15] = {
  * or previewing from its cue point) and the sub-state at +0xed8:
  *   isInCueStandby  0 at +0xed8 -- paused ON the cue point
  *   isCueSampling   1 at +0xed8 -- CUE held, previewing from the cue point */
+/* Deck display values (the FLX10's jog displays, docs/21). Each is a const
+ * PlayEngine method taking the player channel; all return an int in r0.
+ *   getTotalTime   @0x5d4c8  track length in ms ((samples - 1) * 1000/44100)
+ *   getPlayingTime @0x5d9cc  play position in ms (same scale)
+ *   getQBpmForDisplay @0x5f794 (ch, bool) -> BpmSync::getQBpmForDisplay, a
+ *                  halfword from the BPM table: the BPM the screen shows,
+ *                  believed x100 (to confirm against the screen)
+ *   getTempoX100   @0x5dcf8  Player::getTempoX100 = [player+0xe94]+0xc
+ *   getTempoRange  @0x5debc  0..3, switch-mapped (the range index) */
+#define PE_GETTOTALTIME    0x5d4c8
+#define PE_GETPLAYINGTIME  0x5d9cc
+#define PE_GETQBPMDISPLAY  0x5f794
+#define PE_GETTEMPOX100    0x5dcf8
+#define PE_GETTEMPORANGE   0x5debc
 #define PE_ISINCUESTANDBY  0x5e910
 #define PE_ISCUESAMPLING   0x5e958
 

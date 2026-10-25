@@ -133,6 +133,17 @@ enum led_loop_style {
      LED_LOOP_REKORDBOX,
 };
 
+/* What a deck shows, read out of rbp by rbp_led.c for deck_display(). Units are
+ * rbp's own: see rbp_abi.h's PE_GET* for each. */
+struct deck_info {
+     int loaded, playing;
+     int total_ms, elapsed_ms;
+     int bpm_raw;           /* getQBpmForDisplay (believed BPM x 100) */
+     int tempo_raw;         /* getTempoX100 */
+     int tempo_range;       /* getTempoRange, 0..3 */
+     int mt, sync, master;
+};
+
 /* Pad rendering.
  *   PLAIN       lit at rbp's colour; rbp's engaged / blink states blink.
  *   DIM_BRIGHT  rekordbox on the FLX10 (operator, 2026-10-24): HOT CUE and
@@ -303,6 +314,10 @@ struct led_notes {
      /* How a lit pad is rendered (enum led_pad_style). Zero = the SC Live 4 /
       * FLX4 way: lit at the colour, blinking while rbp marks it engaged. */
      int pad_style;
+     /* Per-deck display values, every LED tick (struct deck_info below), for
+      * a surface with displays of its own (the FLX10's jogs). NULL = none.
+      * Called on the LED thread; the map formats and sends. */
+     void (*deck_display)(int deck, const struct deck_info *di);
      /* Where the fingers are, for LED_PAD_DIM_BRIGHT: 1 while pad p (0..7) of
       * `deck` is held, and *press_ms = shim_now_ms() of its last press (0 =
       * never). NULL = the bridge knows nothing about held pads. */

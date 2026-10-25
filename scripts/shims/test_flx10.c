@@ -36,6 +36,8 @@ int g_fader_seen[3];
 static int looping[2];
 int aloop_is_looping(int deck) { return looping[deck]; }
 int led_loop_flash[2];
+int midi_cc(int ch, int cc, int v) { (void)ch; (void)cc; (void)v; return 1; }
+int midi_note(int ch, int n, int v) { (void)ch; (void)n; (void)v; return 1; }
 volatile int led_kick;
 static int cue[4], mcue, deleted_deck = -1, deleted_pad = -1;
 int me_get_cue(int idx) { return cue[idx]; }
@@ -415,6 +417,21 @@ int main(void)
           led_loop_flash[0] = 0; looping[0] = 1; reset(); ON(1, 16); OFF(1, 16);
           CHECK(led_loop_flash[0] == 0, "IN in a loop (halve) -> no flash");
           looping[0] = 0;
+          /* jog display values */
+          {
+               extern void flx10_jog_values(const struct deck_info *, int *, int *,
+                                            int *, int *, int *);
+               struct deck_info di = { 0 };
+               int b, s, mi, se, dg;
+               di.loaded = 1; di.total_ms = 300000; di.elapsed_ms = 155000;
+               di.bpm_raw = 8199; di.tempo_raw = -250;
+               flx10_jog_values(&di, &b, &s, &mi, &se, &dg);
+               CHECK(b == 820, "BPM 81.99 -> 820 (x10) (%d)", b);
+               CHECK(s == 975, "tempo -2.50%% -> (pct+100)*10 = 975 (%d)", s);
+               CHECK(mi == 2 && se == 25, "remaining 145 s -> 2:25 (%d:%d)", mi, se);
+               CHECK(dg == 40, "155000 ms -> 200 ms into a 1.8 s turn = 40 deg (%d)", dg);
+               CHECK(n && n->deck_display != NULL, "the FLX10 takes deck display values");
+          }
           /* the pad page follows the unit's own mode buttons */
           reset(); ON(1, 30); OFF(1, 30);
           CHECK(flx10_led_pad_base(0, pmode(16)) == 16, "PAD FX1 -> page 16");
