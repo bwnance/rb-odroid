@@ -42,6 +42,8 @@ int me_get_master_cue(void) { return mcue; }
 void me_set_master_cue(int on) { mcue = on; }
 int hotcue_delete(int deck, int pad) { deleted_deck = deck; deleted_pad = pad; return 0; }
 static int browse_mode = 1, usb1 = 1;
+static int padmode[2];                     /* what rbp's pad-mode byte would read */
+int flx10_pad_mode(int deck) { return padmode[deck]; }
 int flx10_browse_mode(void) { return browse_mode; }
 int flx10_usb1_present(void) { return usb1; }
 int cc_to_10bit(int v) { if (v < 0) v = 0; if (v > 127) v = 127; return (v * 1023 + 63) / 127; }
@@ -149,7 +151,7 @@ int main(void)
      CHECK(sent_n == 2 && is(0, 0x4322, OP_PRESS, 1), "OUT in a loop -> built-in CALL > (0x4322)");
 
      /* with the CALL codes configured: halve/double, release follows the press */
-     build("callprev=0x4118,callnext=0x4119,gatecue=0x4130");
+     build("callprev=0x4118,callnext=0x4119,gatecue=0x4130");   /* gatecue: ignored now */
      looping[0] = 1;
      reset(); ON(1, 16); looping[0] = 0; OFF(1, 16);
      CHECK(sent_n == 2 && is(0, 0x4118, OP_PRESS, 1) && is(1, 0x4118, OP_RELEASE, 1),
@@ -159,19 +161,45 @@ int main(void)
      CHECK(sent_n == 2 && is(0, 0x4119, OP_PRESS, 1), "OUT in a loop -> CALL >");
      looping[0] = 0;
 
-     /* SHIFT pad modes: the configured one sends, its pads are bound; others not */
-     reset(); ON(1, 105);
-     CHECK(sent_n == 2 && is(0, 0x4130, OP_PRESS, 1), "SHIFT+HOT CUE -> gatecue key");
-     reset(); ON(8, 64); OFF(8, 64);
-     CHECK(sent_n == 2 && is(0, K_PAD1, OP_PRESS, 1), "KEYBOARD-base pad bound once gatecue is set");
-     reset(); ON(8, 80); OFF(8, 80); ON(1, 107);
-     CHECK(sent_n == 0, "PAD FX2 base unbound while releasefx is unset (%d)", sent_n);
+     /* pad modes: the button names a mode; the map sends the presses that get
+      * rbp there from what its pad-mode byte reads (0..3 modes, 4..7 banks) */
+     {
+          static const struct { int note, from, presses, key; const char *what; } pm[] = {
+               { 27, 0, 0, K_HOTCUE,   "HOT CUE while in HOT CUE: nothing" },
+               { 27, 4, 1, K_HOTCUE,   "HOT CUE from GATE CUE: one flip back" },
+               { 27, 3, 1, K_HOTCUE,   "HOT CUE from BEAT JUMP: enter" },
+               { 105, 0, 1, K_HOTCUE,  "SHIFT+HOT CUE from HOT CUE: flip to GATE CUE" },
+               { 105, 2, 2, K_HOTCUE,  "SHIFT+HOT CUE from SLIP LOOP: enter + flip" },
+               { 105, 4, 0, K_HOTCUE,  "SHIFT+HOT CUE in GATE CUE: nothing" },
+               { 30, 6, 1, K_SLIPLOOP, "PAD FX1 from RELEASE FX: flip back to SLIP LOOP" },
+               { 107, 1, 2, K_SLIPLOOP, "PAD FX2 from BEAT LOOP: enter SLIP LOOP + flip" },
+               { 32, 7, 1, K_BEATJUMP, "BEAT JUMP from BEAT JUMP 2: flip back" },
+               { 111, 3, 1, K_BEATJUMP, "KEY SHIFT from BEAT JUMP: flip to BEAT JUMP 2" },
+               { 109, 5, 1, K_ALOOP,   "BEAT LOOP from BEAT LOOP 2: flip back" },
+               { 109, 0, 1, K_ALOOP,   "BEAT LOOP from HOT CUE: enter" },
+               { 34, 0, 0, 0,          "SAMPLER: nothing" },
+               { 27, -1, 1, K_HOTCUE,  "HOT CUE with rbp not up (-1): enter" },
+          };
+          for (unsigned i = 0; i < sizeof pm / sizeof pm[0]; i++) {
+               padmode[0] = pm[i].from;
+               reset(); ON(1, pm[i].note); OFF(1, pm[i].note);
+               int ok = sent_n == 2 * pm[i].presses;
+               for (int k = 0; ok && k < pm[i].presses; k++)
+                    ok = is(2 * k, pm[i].key, OP_PRESS, 1) && is(2 * k + 1, pm[i].key, OP_RELEASE, 1);
+               CHECK(ok, "%s (%d sent)", pm[i].what, sent_n);
+          }
+          padmode[1] = 0;
+          reset(); ON(2, 105);
+          CHECK(sent_n == 2 && is(0, K_HOTCUE, OP_PRESS, 2), "deck 2 SHIFT+HOT CUE on player 2");
+          OFF(2, 105);
+          padmode[0] = 0;
+     }
+     /* the SHIFT-mode banks' pads are always bound now */
+     reset(); ON(8, 64); OFF(8, 64); ON(8, 80 + 2); OFF(8, 80 + 2); ON(10, 112 + 7); OFF(10, 112 + 7);
+     CHECK(sent_n == 6 && is(0, K_PAD1, OP_PRESS, 1) && is(2, K_PAD1 + 2, OP_PRESS, 1) &&
+           is(4, K_PAD1 + 7, OP_PRESS, 2), "KEYBOARD / PAD FX2 / KEY SHIFT pads bound");
 
-     /* pad modes and pads */
-     reset(); ON(1, 30); ON(1, 32); ON(1, 109); ON(1, 34);
-     CHECK(sent_n == 3 && is(0, K_SLIPLOOP, OP_PRESS, 1) && is(1, K_BEATJUMP, OP_PRESS, 1) &&
-           is(2, K_ALOOP, OP_PRESS, 1), "PAD FX1/BEAT JUMP/BEAT LOOP; SAMPLER nothing");
-     OFF(1, 30); OFF(1, 32); OFF(1, 109); OFF(1, 34);
+     /* pads */
      reset(); ON(10, 7 + 32); OFF(10, 7 + 32);
      CHECK(is(0, K_PAD1 + 7, OP_PRESS, 2), "deck 2 pad 8 in BEAT JUMP");
      reset(); ON(10, 50);
@@ -205,7 +233,12 @@ int main(void)
            "push on SOURCE, slot 1 empty -> LOAD + SELECT as elsewhere");
      usb1 = 1; browse_mode = 1;
      reset(); ON(7, 70); ms(650); map_flx10.tick(); OFF(7, 70);
-     CHECK(sent_n == 0, "held push: TAG TRACK unset -> nothing, and no LOAD (%d)", sent_n);
+     CHECK(sent_n == 2 && is(0, 0x420e, OP_PRESS, 1) && is(1, 0x420e, OP_RELEASE, 1),
+           "held push -> TAG TRACK 0x420e, and no LOAD (%d)", sent_n);
+     /* SAMPLER VOL -> SCFX PARAMETER 0x50a7 on both mixer channels */
+     reset(); CC(7, 3, 127); CC(7, 35, 9);
+     CHECK(sent_n == 2 && sent[0].key == 0x50a7 && sent[0].ch == 1 && sent[1].ch == 2 &&
+           sent[0].param == 1023, "SAMPLER VOL -> PARAMETER on ch 1 and 2 (%d)", sent_n);
      reset(); ON(7, 122); ON(7, 104); ON(7, 93);
      CHECK(is(0, K_SOURCE, OP_PRESS, 1) && is(1, K_SHORTCUT, OP_PRESS, 1) &&
            is(2, K_TRACKFILTER, OP_PRESS, 1) && is(3, K_TRACKFILTER, OP_REPEAT, 1),

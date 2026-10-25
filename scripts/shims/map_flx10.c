@@ -17,11 +17,12 @@
  * 1 and 2 drive it. DECK SELECT moves a side's controls to ch 3/4, and nothing on
  * ch 3/4 is bound, so decks 3 and 4 and strips 3 and 4 do nothing by design.
  *
- * THE RX3 KEYCODES NOT YET FOUND are not guessed either. They are read from the
- * environment (FLX10_KEYS, see flx10_keys_parse()), so each one is a line in
- * rb.local.conf and a restart -- no rebuild -- while they are being identified:
+ * THE RX3 KEYCODES THIS MAP NEEDED BEYOND rbp_abi.h were found in the player
+ * binary (objdump; derivations below and in docs/21) and are built in. Each can
+ * still be overridden from the environment (FLX10_KEYS, flx10_keys_parse()), so
+ * a correction is a line in rb.local.conf and a restart, not a rebuild:
  *
- *   RB_FLX10_KEYS="gatecue=0x....,param=0x...."
+ *   RB_FLX10_KEYS="param=0x50a7,tagtrack=0x420e"
  *
  *   callprev, callnext  rbp's CUE/LOOP CALL < / >: IN/OUT inside a loop send
  *                       these, which is how the RX3 halves and doubles a loop.
@@ -33,15 +34,21 @@
  *                       DjEngineIF::setLoopCutterDouble when looping. Confirmed
  *                       on the unit 2026-10-24: halve and double both work.
  *                       The names still override them.
- *   gatecue, releasefx, beatjump2
- *                       the RX3's SHIFT pad modes, from SHIFT + HOT CUE /
- *                       PAD FX1 / SAMPLER; their pads are bound only once the
- *                       mode key is, so an unset mode cannot leave the pads
- *                       acting in the previous mode
- *   param               the Sound Color FX PARAMETER knob (from SAMPLER VOL)
- *   tagtrack            TAG TRACK (from holding a browse knob down)
+ *   param               the Sound Color FX PARAMETER knob (from SAMPLER VOL):
+ *                       0x50a7. ui::Mixer::asEventCode @0x2cf898 maps it to
+ *                       event 0x100e, which MixerSkeleton::onKeyEvent sends to
+ *                       MixerChInnards vtable +0x40, onEv_ColorFxParameter
+ *                       (float) -- the slot after +0x3c onEv_ColorFxVolume,
+ *                       which is where COLOR (0x509d, event 0x100b) lands.
+ *                       Per mixer channel, so it is sent to channels 1 and 2.
+ *   tagtrack            TAG TRACK (holding a browse knob down): 0x420e.
+ *                       BrowseUiIfDpl::onKey @0x3315d0 turns it into
+ *                       InputKey(UKEY 16), and InitUiBrowseKey @0x120510 puts
+ *                       UiKey_AddTag (which calls TagTrack) in slot 16 -- the
+ *                       same path takes BACK 0x420d to UKEY 17, UiKey_Back.
  *
- * An unset name logs one line per press ("not yet mapped") and does nothing.
+ * GATE CUE, RELEASE FX and BEAT JUMP 2 NEED NO KEYCODE: on the RX3 they are a
+ * second press of the same pad-mode button (see flx10_set_mode()).
  */
 #define _GNU_SOURCE
 #include <stdint.h>
@@ -175,7 +182,7 @@ static int browse_hold_ms = 600;     /* a browse push held this long = TAG TRACK
 static double mastervol_mid = MIRROR_GAIN_MID_DEFAULT;
 
 static int k_callprev = 0x4323, k_callnext = 0x4322;   /* see the header */
-static int k_gatecue, k_releasefx, k_beatjump2, k_param, k_tagtrack;
+static int k_param = 0x50a7, k_tagtrack = 0x420e;       /* see the header */
 
 /* FLX10_KEYS: "name=0xNNNN,name=0xNNNN". Unknown names are logged and skipped,
  * so a typo is visible rather than silently ignored. */
@@ -201,11 +208,14 @@ static void flx10_keys_parse(void)
           v = strtol(eq + 1, NULL, 0);
           if      (!strcmp(tok, "callprev"))  slot = &k_callprev;
           else if (!strcmp(tok, "callnext"))  slot = &k_callnext;
-          else if (!strcmp(tok, "gatecue"))   slot = &k_gatecue;
-          else if (!strcmp(tok, "releasefx")) slot = &k_releasefx;
-          else if (!strcmp(tok, "beatjump2")) slot = &k_beatjump2;
           else if (!strcmp(tok, "param"))     slot = &k_param;
           else if (!strcmp(tok, "tagtrack"))  slot = &k_tagtrack;
+          if (!slot && (!strcmp(tok, "gatecue") || !strcmp(tok, "releasefx") ||
+                        !strcmp(tok, "beatjump2"))) {
+               klog("knobshim2: FLX10_KEYS: '%s' is no longer a keycode (the SHIFT "
+                    "pad modes are reached through the mode keys); skipped\n", tok);
+               continue;
+          }
           if (!slot) {
                klog("knobshim2: FLX10_KEYS: unknown name '%s'; skipped\n", tok);
                continue;
@@ -646,6 +656,60 @@ static void flx10_fxlevel(int val)
      }
 }
 
+/* ---- pad modes ------------------------------------------------------------
+ * rbp's pad modes are four keys and a second bank behind each. Pressing a mode's
+ * key while rbp is already in that mode flips the bank instead of re-entering:
+ * PlayerInnards::onKey_HotCue @0x3030ec flips +0x79, onKey_AutoBeatLoop +0x7a,
+ * onKey_SlipBeatLoop +0x7b, onKey_BeatJumpLoopMove +0x7c; entering a mode from
+ * another clears its bank. PlayerInnards::getStat publishes the result as the
+ * pad-mode byte rbp_led.c already reads (UiGetPadMode's walk, rbp_abi.h):
+ *
+ *   0 HOT CUE   1 BEAT LOOP   2 SLIP LOOP    3 BEAT JUMP
+ *   4 GATE CUE  5 BEAT LOOP 2 6 RELEASE FX   7 BEAT JUMP 2
+ *
+ * So each FLX10 mode button asks for a MODE, and the map sends however many
+ * presses of that mode's key get rbp there from where it is: none, one (enter,
+ * or flip the bank), or two (enter, then flip). Unlike rbp's own buttons, a
+ * button for the mode already showing does nothing -- the SHIFT buttons are how
+ * the second banks are reached on this surface (operator, 2026-10-24).
+ *
+ * flx10_pad_mode() is WEAK so the host test can answer for rbp; -1 = not up. */
+__attribute__((weak)) int flx10_pad_mode(int deck)
+{
+     void *holder, *sw, *pd;
+
+     holder = *(void **)UI_PADMODE_HOLDER_GLOBAL;
+     if (!holder)
+          return -1;
+     sw = *(void **)((char *)holder + PADMODE_STATWATCHER_OFF);
+     if (!sw)
+          return -1;
+     pd = *(void **)((char *)sw + (deck ? PADMODE_DECK2_OFF : PADMODE_DECK1_OFF));
+     if (!pd)
+          return -1;
+     return (int)*(unsigned char *)((char *)pd + PADMODE_BYTE_OFF);
+}
+
+static const int mode_key[4] = { K_HOTCUE, K_ALOOP, K_SLIPLOOP, K_BEATJUMP };
+
+static void flx10_set_mode(int deck, int want)
+{
+     int cur = flx10_pad_mode(deck);
+     int base = want & 3, key = mode_key[want & 3], sch = deck + 1;
+
+     if (cur == want)
+          return;
+     if (cur >= 0 && cur <= 7 && (cur & 3) == base) {
+          pulse(key, sch);                   /* same mode, other bank: flip */
+     } else {
+          pulse(key, sch);                   /* enter (bank cleared) ... */
+          if (want >= 4)
+               pulse(key, sch);              /* ... then flip to the second bank */
+     }
+     if (verbose)
+          klog("knobshim2: flx10 deck%d pad mode %d -> %d\n", sch, cur, want);
+}
+
 /* ---- notes ---------------------------------------------------------------- */
 
 static void flx10_note(int ch, int note, int on)
@@ -688,24 +752,16 @@ static void flx10_note(int ch, int note, int on)
           case N_IN_SHIFT: case N_OUT_SHIFT:
                flx10_loop(deck, note, on);
                return;
-          case N_MODE_KEYBOARD:
-               if (on) {
-                    if (k_gatecue) pulse(k_gatecue, sch);
-                    else not_yet("GATE CUE mode", sch);
-               }
-               return;
-          case N_MODE_PADFX2:
-               if (on) {
-                    if (k_releasefx) pulse(k_releasefx, sch);
-                    else not_yet("RELEASE FX mode", sch);
-               }
-               return;
-          case N_MODE_KEYSHIFT:
-               if (on) {
-                    if (k_beatjump2) pulse(k_beatjump2, sch);
-                    else not_yet("BEAT JUMP 2 mode", sch);
-               }
-               return;
+          /* Pad modes (operator's table, docs/21): the button names the mode,
+           * flx10_set_mode() works out the presses. SAMPLER is a table row
+           * with no key. */
+          case N_MODE_HOT:      if (on) flx10_set_mode(deck, 0); return;
+          case N_MODE_BEATLOOP: if (on) flx10_set_mode(deck, 1); return;
+          case N_MODE_PADFX1:   if (on) flx10_set_mode(deck, 2); return;
+          case N_MODE_BEATJUMP: if (on) flx10_set_mode(deck, 3); return;
+          case N_MODE_KEYBOARD: if (on) flx10_set_mode(deck, 4); return;
+          case N_MODE_PADFX2:   if (on) flx10_set_mode(deck, 6); return;
+          case N_MODE_KEYSHIFT: if (on) flx10_set_mode(deck, 7); return;
           default:
                break;
           }
@@ -865,8 +921,11 @@ static void flx10_cc(int ch, int cc, int val)
                return;                       /* the unit's own booth gain */
           if (cc == CC_SAMPLER_VOL) {
                if (k_param) {
+                    /* per mixer channel, like COLOR: both channels follow the
+                     * one knob, as the RX3's single PARAMETER knob does */
                     int v = cc_to_10bit(val);
-                    send_rx_key_f(k_param, OP_VALUE, CH_GLOBAL, v, (float)v / 1023.0f);
+                    send_rx_key_f(k_param, OP_VALUE, 1, v, (float)v / 1023.0f);
+                    send_rx_key_f(k_param, OP_VALUE, 2, v, (float)v / 1023.0f);
                } else if (verbose) {
                     not_yet("SCFX PARAMETER (SAMPLER VOL)", 0);
                }
@@ -917,15 +976,9 @@ static void flx10_build(void)
           add_note(rch, N_QUANTIZE, K_QUANTIZE, sch);
           add_note(rch, N_SLIP, K_SLIP, sch);
           add_note(rch, N_VINYL, K_VINYL, sch);
-          /* Pad modes, as close to the FLX10's labels as the RX3's modes come
-           * (operator, docs/21). The SHIFT modes (KEYBOARD -> GATE CUE, PAD FX2
-           * -> RELEASE FX, KEY SHIFT -> BEAT JUMP 2) are named cases in
-           * flx10_note() because their keycodes come from FLX10_KEYS. */
-          add_note(rch, N_MODE_HOT, K_HOTCUE, sch);
-          add_note(rch, N_MODE_PADFX1, K_SLIPLOOP, sch);
-          add_note(rch, N_MODE_BEATJUMP, K_BEATJUMP, sch);
-          add_note(rch, N_MODE_BEATLOOP, K_ALOOP, sch);
-          /* Known and deliberately unbound (key 0): logged, nothing sent. */
+          /* The pad-mode buttons are named cases in flx10_note()
+           * (flx10_set_mode()). Known and deliberately unbound (key 0): logged,
+           * nothing sent. */
           add_note(rch, N_MODE_SAMPLER, 0, sch);
           add_note(rch, N_TEMPO_RESET, 0, sch);
           add_note(rch, N_KEYSYNC_LONG, 0, sch);
@@ -943,8 +996,8 @@ static void flx10_build(void)
       * pad mode: 0 HOT CUE, 16 PAD FX1, 32 BEAT JUMP, 48 SAMPLER, 64 KEYBOARD,
       * 80 PAD FX2, 96 BEAT LOOP, 112 KEY SHIFT (0/16/32/48/64/96 measured; 80 and
       * 112 follow the stride). rbp's K_PAD1..8 act in rbp's current mode, so a
-      * base is bound only where the map puts rbp in a mode for it -- SAMPLER
-      * never, and the three SHIFT modes only once their key is configured. */
+      * base is bound only where the map puts rbp in a mode for it -- every base
+      * but SAMPLER's. */
      for (int d = 0; d < 2; d++) {
           int rch = d ? CH_PADS2 : CH_PADS1;
           int sch = 1 + d;
@@ -953,12 +1006,9 @@ static void flx10_build(void)
                add_note(rch, 16 + p, K_PAD1 + p, sch);  /* PAD FX1   -> SLIP LOOP */
                add_note(rch, 32 + p, K_PAD1 + p, sch);  /* BEAT JUMP -> BEAT JUMP */
                add_note(rch, 96 + p, K_PAD1 + p, sch);  /* BEAT LOOP -> BEAT LOOP */
-               if (k_gatecue)
-                    add_note(rch, 64 + p, K_PAD1 + p, sch);   /* -> GATE CUE    */
-               if (k_releasefx)
-                    add_note(rch, 80 + p, K_PAD1 + p, sch);   /* -> RELEASE FX  */
-               if (k_beatjump2)
-                    add_note(rch, 112 + p, K_PAD1 + p, sch);  /* -> BEAT JUMP 2 */
+               add_note(rch, 64 + p, K_PAD1 + p, sch);   /* KEYBOARD  -> GATE CUE    */
+               add_note(rch, 80 + p, K_PAD1 + p, sch);   /* PAD FX2   -> RELEASE FX  */
+               add_note(rch, 112 + p, K_PAD1 + p, sch);  /* KEY SHIFT -> BEAT JUMP 2 */
           }
      }
 

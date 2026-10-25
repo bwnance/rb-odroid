@@ -201,16 +201,16 @@ are the operator's table, agreed control by control on 2026-10-24:
 | CUE/LOOP CALL < > and SHIFT | not mapped |
 | MIX POINT, LINK, ACTIVE PART, PAGE, DECK SELECT, SAMPLER, BOOTH | nothing |
 | browse knobs (one shared message) / SHIFT | scroll / 8 steps per detent |
-| browse push (per deck) / held 0.6 s / double | LOAD that deck **then SELECT** (loads a track, opens a playlist/folder; at the top menu it also opens the category's first row) / TAG TRACK ⚠ / twice; **on the SOURCE screen with a stick in slot 1: open USB 1** (rbp ignores the knob there) |
+| browse push (per deck) / held 0.6 s / double | LOAD that deck **then SELECT** (loads a track, opens a playlist/folder; at the top menu it also opens the category's first row) / TAG TRACK (0x420e) / twice; **on the SOURCE screen with a stick in slot 1: open USB 1** (rbp ignores the knob there) |
 | BACK / VIEW; SHIFT+BACK / SHIFT+VIEW | BACK / SOURCE; TAG LIST / SHORTCUT |
 | SHIFT + deck 1's browse push | TRACK FILTER (deck 2's SHIFT push not yet recorded) |
 | pad modes HOT CUE / PAD FX1 / BEAT JUMP / SAMPLER | HOT CUE / SLIP LOOP / BEAT JUMP / nothing |
-| SHIFT + those: KEYBOARD / PAD FX2 / BEAT LOOP / KEY SHIFT | GATE CUE ⚠ / RELEASE FX ⚠ / BEAT LOOP / BEAT JUMP 2 ⚠ |
+| SHIFT + those: KEYBOARD / PAD FX2 / BEAT LOOP / KEY SHIFT | GATE CUE / RELEASE FX / BEAT LOOP / BEAT JUMP 2 (each button goes to its mode; one already showing does nothing) |
 | pads; SHIFT + pad in HOT CUE | pads in rbp's mode; delete that cue |
 | ch 1/2 TRIM, EQ, COLOR, FADER, CUE; master CUE, crossfader, HP mix/level | the same |
 | MASTER LEVEL | the unit's own volume; feeds only the HDMI mirror (as on the FLX4) |
 | SCFX SPACE, D.ECHO, CRUSH, NOISE, FILTER / PITCH | the same names / SWEEP |
-| SAMPLER VOL | SCFX PARAMETER ⚠ |
+| SAMPLER VOL | SCFX PARAMETER (0x50a7, channels 1 and 2) |
 | BEAT < > / SHIFT; LEVEL/DEPTH / SHIFT; ON/OFF | BEAT < > / TAP; DEPTH / TIME; Beat FX ON/OFF |
 | effect selector | by name: ECHO, MT DELAY→DELAY, SPIRAL, REVERB, TRANS, FLANGER, PHASER, SLIP ROLL, ROLL; others nothing. Note 32 is fully counter-clockwise (confirmed). rbp's positions are its own order, not the RX3 knob's printing (docs/13 S5.9) |
 | channel selector | logged only, until its labels are read off the panel |
@@ -238,11 +238,31 @@ confirmed on the unit (2026-10-24):
   rbp's key manager only produces that edge after about a second of holding, so
   the map sends press + repeat + release together.
 
-**⚠ = an RX3 keycode not yet identified.** These come from `RB_FLX10_KEYS` in
-rb.local.conf (`gatecue`, `releasefx`, `beatjump2`, `param`, `tagtrack`; also
-`callprev`/`callnext`, which now default to the found codes), so finding one is a config line and a restart. Until then
-each logs `RX3 keycode not yet mapped`. The SHIFT pad modes' pads are bound only
-once their mode key is set.
+The rest of the FLX10's keycodes, found the same way (2026-10-24; still to be
+confirmed on the unit):
+
+- **SHIFT pad modes need no keycode.** A mode key pressed while rbp is already
+  in that mode flips the mode's second bank. `onKey_HotCue` flips +0x79,
+  `onKey_AutoBeatLoop` +0x7a, `onKey_SlipBeatLoop` +0x7b and
+  `onKey_BeatJumpLoopMove` +0x7c, and entering a mode from another clears it.
+  `PlayerInnards::getStat` publishes the pad-mode byte that `rbp_led.c` reads as
+  **0 HOT CUE, 1 BEAT LOOP, 2 SLIP LOOP, 3 BEAT JUMP, 4 GATE CUE, 5 BEAT LOOP 2,
+  6 RELEASE FX, 7 BEAT JUMP 2**. That is the "4" the FLX4 notes recorded. The map
+  reads it and sends 0, 1 or 2 presses of the mode's key to reach the mode the
+  button names.
+- **SCFX PARAMETER = 0x50a7.** `ui::Mixer::asEventCode` → event 0x100e →
+  `MixerChInnards` vtable +0x40 `onEv_ColorFxParameter(float)`, the slot after
+  COLOR's (0x509d → 0x100b → +0x3c `onEv_ColorFxVolume`). It is per channel, so it
+  is sent to 1 and 2.
+- **TAG TRACK = 0x420e.** `BrowseUiIfDpl::onKey` → `InputKey(UKEY 16)`, and
+  `InitUiBrowseKey` installs `UiKey_AddTag` (→ `TagTrack`) in slot 16. The same
+  path takes BACK 0x420d to UKEY 17 `UiKey_Back`.
+- (Booth: `MasterInnards::onEv_BoothLevel` exists; its key, likely 0x4404, is not
+  traced. The FLX10's own booth output and knob are expected to cover it.)
+
+`RB_FLX10_KEYS` still overrides `callprev`, `callnext`, `param` and `tagtrack`.
+`gatecue`/`releasefx`/`beatjump2` are no longer keys and are ignored with a log
+line.
 
 **Still to check on the unit:** the channel selector's labels; the jog's counts per
 revolution (`JOG_PPR`, the FLX4's 720 for now); LEDs (none driven yet). Also,
