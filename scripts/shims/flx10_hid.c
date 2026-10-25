@@ -36,9 +36,9 @@ static const unsigned char rb_loaded[64] = {
 /* The loaded packet is rekordbox's captured one with these fields filled
  * (decoded 2026-10-25, scripts/odroid/hid-decode.py rounds 1-2):
  *   [2]      00 playing, 02 paused
- *   [4]      flags: 0x04 master tempo; 0x30 the tempo range box, 0x20 = +-10,
- *            0x30 = +-16, 0x00 = none (0x10 = +-6 assumed, WIDE not found:
- *            no box); 0x08 kept as captured
+ *   [4]      flags: 0x04 master tempo; 0x70 the tempo range box, 0x10 = +-6,
+ *            0x20 = +-10, 0x30 = +-16, 0x40 = WIDE (0x00 / 0x60 = none);
+ *            0x08 kept as captured (0x80 moved the blue tone arm)
  *   [5]      0x81 active
  *   [9]      0xb4 as captured; 00 reads as Not Loaded
  *   [11..12] elapsed seconds, big-endian; [13] the fraction, /256 (the arm
@@ -50,7 +50,7 @@ static const unsigned char rb_loaded[64] = {
 void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
                          const struct flx10_hid_deck *s)
 {
-     static const unsigned char range_bits[4] = { 0x10, 0x20, 0x30, 0x00 };
+     static const unsigned char range_bits[4] = { 0x10, 0x20, 0x30, 0x40 };
      unsigned char db = (unsigned char)(0x10 * (deck + 1));
      int sec, bpm, tempo;
 
@@ -62,7 +62,7 @@ void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
      memcpy(p, rb_loaded, sizeof rb_loaded);
      p[0] = db;
      p[2] = s->playing ? 0x00 : 0x02;
-     p[4] = (unsigned char)((p[4] & ~0x34) | (s->mt ? 0x04 : 0) |
+     p[4] = (unsigned char)((p[4] & ~0x74) | (s->mt ? 0x04 : 0) |
                             range_bits[s->range & 3]);
      p[5] = 0x81;
      sec = s->elapsed_ms > 0 ? s->elapsed_ms / 1000 : 0;

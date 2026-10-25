@@ -253,13 +253,20 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   values rbp_led.c reads; `FLX10_HID=0` turns it off. The MIDI display values
   still go out alongside it.
 * **xx 21 fields** (decoded with `scripts/odroid/hid-decode.py`, rounds 1-2):
-  [2] 00 playing / 02 paused; [4] 0x04 MT, 0x30 range box (0x20 +-10, 0x30 +-16,
-  0x00 none; 0x10 +-6 assumed; WIDE not found); [9] b4, 00 = Not Loaded;
+  [2] 00 playing / 02 paused; [4] 0x04 MT, 0x70 range box (0x10 +-6, 0x20 +-10,
+  0x30 +-16, 0x40 WIDE, 0x00/0x60 none; 0x80 moved the blue tone arm);
+  [9] b4, 00 = Not Loaded;
   [11..12] elapsed s BE, [13] fraction /256 (moves the arm); [16] key (only 00 =
   blank found -- sent blank); [21..22] BPM whole number LE; [23..24] tempo % x100
-  signed LE; [3] 0a shows remaining time (from what total, not found). Not found:
-  BPM decimals, the key encoding, WIDE. Round 3 checks which MIDI display
-  messages are still drawn under HID, key-after-reload, WIDE and the decimals.
+  signed LE; [3] 0a shows remaining time (-02:38 with elapsed 0 -- from what
+  total, not found; 08 hid the white edge arcs). Round 3: under HID the unit
+  draws NONE of the MIDI ch-16 display messages (key, key format, BPM, speed,
+  time, time mode, marker, MASTER, SYNC, MT, show info -- each sent every
+  100 ms, no change), so everything on the screen has to come over HID. Byte 16
+  is not the key code: after a reload any value leaves the key blank, so the
+  key likely comes in another packet sent at load. Not found yet: key, BPM
+  decimals, MASTER/SYNC, arm position, track length -- a rekordbox HID capture
+  with a track loaded is the way to get them.
 * **Replug** (2026-10-25): a FLX10 that is power cycled or replugged gets the vendor
   unlock from udev (`99-flx10-unlock.rules`, installed by install.sh), the display
   connect sequence from the map, and every deck that was playing is paused when the

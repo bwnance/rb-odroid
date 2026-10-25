@@ -131,6 +131,10 @@ ROUND3 = [
     ({3: 0x0A, 18: 0x00}, "remaining time changed?"),
     ({3: 0x08}, "remaining time? (0x08 alone)"),
 ]
+# Round 3 (2026-10-25): no MIDI display message is drawn under HID; byte 4
+# 0x10 = +-6, 0x40 = WIDE, 0x60 none, 0x80 moved the blue tone arm; key stays
+# blank after a reload whatever byte 16 is; 10/14/28/29/30 not the decimals;
+# 3=0a shows remaining (-02:38 at elapsed 0).
 ROUNDS = {1: ROUND1, 2: ROUND2, 3: ROUND3}
 
 

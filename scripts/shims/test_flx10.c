@@ -565,7 +565,7 @@ int main(void)
           CHECK(p[4] == 0x38, "MT off, range +-16 -> 38 (%02x)", p[4]);
           hs.range = 3;
           flx10_hid_state_pkt(p, 0, &hs);
-          CHECK(p[4] == 0x08, "WIDE: no box until decoded (%02x)", p[4]);
+          CHECK(p[4] == 0x48, "WIDE -> 0x40 (%02x)", p[4]);
           flx10_hid_heartbeat_pkt(p, 3);
           CHECK(p[0] == 0 && p[1] == 0x3D && p[2] == 3 && p[4] == 5, "heartbeat 00 3D n 00 05");
      }
