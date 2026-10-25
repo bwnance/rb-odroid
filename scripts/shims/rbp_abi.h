@@ -853,6 +853,14 @@ static const signed char bfx_type_to_pos[15] = {
 #define PE_PLAYERS_END_OFF    16
 #define PLAYER_PLAIN_LOOP_OFF 0xeec
 #define LOOP_PLAY_BEATJUMP    0x000ad2f4
+/* The quantizing loop object (LoopQuantize) is at Player+0xef0. Each loop
+ * object caches the track's length (+48), BPM (+60/+64) and beat grid
+ * (+12/+16/+20); LoopQuantize::playBeatJump and the auto beat loop refresh
+ * them first with these three (each returns bool, reads only the Player): */
+#define PLAYER_QUANT_LOOP_OFF 0xef0
+#define LOOP_INIT_TOTALLENGTH 0x000ab0dc
+#define LOOP_INIT_BPM         0x000ab104
+#define LOOP_INIT_BEATPOS     0x000ab138
 #define BEATJUMP_M4  7
 #define BEATJUMP_P4  8
 #define BEATJUMP_M16 11

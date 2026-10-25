@@ -69,6 +69,8 @@ void flx10_set_reverse(int d, int on) { reversing[d] = on; rev_sets++; }
 static int bj_n, bj_deck[16], bj_t[16];
 static int goes_back[2];
 int flx10_trrev_goes_back(int d) { return goes_back[d]; }
+static int loop_primes[2];
+void flx10_loop_prime(int d) { loop_primes[d]++; }
 static int xf_assign[2] = { -1, -1 };
 void flx10_set_xf_assign(int d, int a) { xf_assign[d] = a; }
 static int second_press[2];
@@ -237,8 +239,10 @@ int main(void)
      reset(); ON(1, 23); OFF(1, 23);
      CHECK(sent_n == 0, "SHIFT+SLIP (VINYL) disabled: nothing sent (%d)", sent_n);
 
-     /* the loop section, not looping */
+     /* the loop section, not looping; each press first primes the loop cache */
      looping[0] = 0;
+     loop_primes[0] = 0; ON(1, 16); OFF(1, 16); ON(1, 17); OFF(1, 17);
+     CHECK(loop_primes[0] == 2 && loop_primes[1] == 0, "IN / OUT presses prime deck 1's loops (%d)", loop_primes[0]);
      reset(); ON(1, 16); OFF(1, 16);
      CHECK(sent_n == 2 && is(0, K_LOOPIN, OP_PRESS, 1) && is(1, K_LOOPIN, OP_RELEASE, 1), "IN, no loop");
      reset(); ON(1, 17); OFF(1, 17);

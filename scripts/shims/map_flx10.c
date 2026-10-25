@@ -647,18 +647,25 @@ __attribute__((weak)) void flx10_beat_jump(int deck, int type)
      ((void (*)(void *, int, int))DJE_PLAY_BEATJUMP)(NULL, deck, type);
 }
 
-__attribute__((weak)) int flx10_plain_jump(int deck, float beats)
+/* playengine::Player for a deck, NULL if rbp has none (yet) */
+static void *pe_player(int deck)
 {
      void *pe = *(void **)PLAYENGINE_GLOBAL;
-     void **b, **e, *player, *loop;
+     void **b, **e;
 
      if (!pe)
-          return 0;
+          return NULL;
      b = *(void ***)((char *)pe + PE_PLAYERS_BEGIN_OFF);
      e = *(void ***)((char *)pe + PE_PLAYERS_END_OFF);
      if (!b || deck < 0 || deck >= (int)(e - b))
-          return 0;
-     player = b[deck];
+          return NULL;
+     return b[deck];
+}
+
+__attribute__((weak)) int flx10_plain_jump(int deck, float beats)
+{
+     void *player = pe_player(deck), *loop;
+
      if (!player)
           return 0;
      loop = *(void **)((char *)player + PLAYER_PLAIN_LOOP_OFF);
@@ -807,6 +814,32 @@ __attribute__((weak)) void flx10_bfx_bpm_auto(void)
           ((int (*)(void *, int))BPMMGR_SET_DETECTMODE)(mgr, BFX_BPM_AUTO);
 }
 
+/* ---- loop objects primed before a loop key ----------------------------------
+ * On a freshly loaded track a loop made with IN / OUT showed no length, and
+ * doubling it stopped short; after an auto beat loop (4 BEAT) and an exit it
+ * behaved (operator, 2026-10-25). The loop objects cache the track's length,
+ * BPM and beat grid, and only some paths refresh that cache (the auto beat
+ * loop, LoopQuantize's beat jump); IN / OUT / CALL then work from the previous
+ * track's numbers. So before each loop key the map runs the same three
+ * refreshes on both of the deck's loop objects (rbp_abi.h,
+ * LOOP_INIT_TOTALLENGTH). They only read the Player and fill the cache. */
+__attribute__((weak)) void flx10_loop_prime(int deck)
+{
+     static const unsigned offs[2] = { PLAYER_PLAIN_LOOP_OFF, PLAYER_QUANT_LOOP_OFF };
+     void *player = pe_player(deck);
+
+     if (!player)
+          return;
+     for (int i = 0; i < 2; i++) {
+          void *loop = *(void **)((char *)player + offs[i]);
+          if (!loop)
+               continue;
+          ((int (*)(void *))LOOP_INIT_TOTALLENGTH)(loop);
+          ((int (*)(void *))LOOP_INIT_BPM)(loop);
+          ((int (*)(void *))LOOP_INIT_BEATPOS)(loop);
+     }
+}
+
 /* ---- the loop section ----------------------------------------------------
  * The operator's table (docs/21):
  *
@@ -852,10 +885,12 @@ static void flx10_loop(int deck, int note, int on)
      int sch = deck + 1;
      int looping;
 
-     if (on)
+     if (on) {
           looping = aloop_is_looping(deck) != 0;
-     else
+          flx10_loop_prime(deck);
+     } else {
           looping = 0;                       /* unused on a release */
+     }
 
      switch (note) {
      case N_IN:
