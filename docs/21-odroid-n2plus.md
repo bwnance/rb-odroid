@@ -188,42 +188,21 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   The HID phase has started (per-deck state, flx10_hid.c). Left: tempo range
   box, waveform, cue marker, two-decimal BPM, artwork -- see "FLX10 jog
   displays" above.
-* **TEMPO RESET** (operator, 2026-10-25), as rekordbox does it: a TOGGLE on the
-  FLX10's TEMPO RESET button (deck note 65, unbound today). On: the deck's tempo is
-  locked at 0.0% and moving the tempo fader does nothing. Off: the tempo snaps to
-  wherever the fader is now. Its LED (note 65, measured) lit while on. Map-side:
-  while on, send rbp the centre position instead of the fader's, and re-send the
-  fader's real position when it goes off.
-* **MASTER TEMPO on KEY SYNC long press** (operator, 2026-10-25): today a short
-  KEY SYNC press toggles master tempo; move that to the long press (the unit sends
-  note 26 for it, unbound today) so the short press can be KEY SYNC.
-* **KEY SYNC** (operator, 2026-10-25): the short press should do key sync -- find
-  whether rbp has a key sync of its own (the RX3 has none on its panel), and what its
-  KEY SYNC LED should follow.
-* **SLIP REVERSE / REVERSE** (operator, 2026-10-25): today both the button (note 21)
-  and SHIFT + it (note 56) send rbp's REV key, which toggles. Wanted, as labelled:
-  - SLIP REVERSE (no SHIFT): momentary, and always a SLIP reverse -- reverse while
-    held, and on release the playhead returns to where it would have been, whether
-    or not slip mode is on.
-  - REVERSE (SHIFT): a latching plain reverse, on until pressed again, and NEVER
-    slipping -- even with slip mode on, the playhead does not jump back.
-  - LED (note 21, measured): lit while the button is held and while reverse is on.
-* **SHIFT + BEAT JUMP < = back to the track's start** (operator, 2026-10-25), as in
-  rekordbox. Today it is rbp's TRACK SEARCH < (K_TRREV), which on the RX3 is the
-  previous-track / track-start key; check what rbp does with it mid-track and, if
-  it is not "restart this track", find rbp's own jump-to-start.
+* **Controls, done 2026-10-25 (to test on the unit):** TEMPO RESET toggle with
+  its LED; MASTER TEMPO on the KEY SYNC hold (KEY SYNC itself does nothing: rbp
+  has no key sync or key shift); SLIP REVERSE momentary + always slipping and
+  SHIFT = latching REVERSE that never slips, LED on note 21; 4 BEAT JUMP < > =
+  real -4/+4 beat jumps and SHIFT = -16/+16 bars (the old SEARCH keys only
+  stepped a frame on a paused deck); SHIFT + CUE = back to the track's start;
+  MIX POINT < > = previous / next track; SHIFT + BEAT < = Beat FX BPM AUTO;
+  SHIFT + BACK on the player = PLAYLIST; VINYL disabled (no light -- showing
+  the mode on the jog screen is for later). See the table above.
 * **Track-end warning on the jog ring** (operator, 2026-10-25): flash the jog
   wheel's colour ring when the track is about to end, faster as it gets closer --
   what the RX3 and its HDMI screen do. rbp's own warning state (the RX3 flashes
   its jog ring from it) is the thing to read rather than recomputing from
   total/elapsed; then find the FLX10's ring-colour/flash message (the HID phase
   may carry it).
-* **Beat jump while paused moves only a tiny amount** (operator, 2026-10-25): it
-  jumps the right distance while the deck is playing, but on a paused deck each
-  press barely moves the playhead. Check what the pad sends (keycode, op, param)
-  against what the RX3's own BEAT JUMP does when paused, e.g. whether rbp reads
-  the jump as a needle/search nudge without play, or wants the beat length from
-  the grid in a param we send as 0.
 * **Waveform smoothness** (parked, good enough 2026-10-25). Fixed the main cause: rbp
   paced on FBIO_WAITFORVSYNC, which meson's drm_fbdev answers ENOTTY, so its own
   limiter ran it at 57.7 fps against 60 Hz (~2 repeated refreshes a second). fb_shim
@@ -269,7 +248,8 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   changed nothing when filled), MASTER/SYNC, arm position, track length -- a rekordbox HID capture
   with a track loaded is the way to get them.
 * **HID jog screens, to do** (operator, 2026-10-25) -- the capture
-  (`tools/flx10-pcap-decode.py`) should show most of these:
+  (`tools/flx10-pcap-decode.py`) should show most of these. (Empty decks now
+  carry the range box and tempo % too -- byte 4 and 23..24 of the empty packet.)
   - SYNC icon lit when the deck is synced; the BEAT SYNC icon too (when
     rekordbox lights it is to be found).
   - BPM decimals (stuck at .03).
@@ -321,19 +301,20 @@ are the operator's table, agreed control by control on 2026-10-24:
 
 | FLX10 | RX3 |
 |---|---|
-| PLAY, CUE | PLAY, CUE |
+| PLAY, CUE / SHIFT + CUE | PLAY, CUE / back to the start of the track (one TRACK SEARCH <, only when rbp's own rule says the deck is not at its start -- else nothing) |
 | BEAT SYNC / SHIFT | SYNC / MASTER (tempo master); long press nothing |
-| KEY SYNC | toggles MASTER TEMPO; hold and SHIFT nothing for now |
-| TEMPO RESET / SHIFT | nothing / TEMPO RANGE |
+| KEY SYNC / held | nothing (rbp has no key sync) / MASTER TEMPO; SHIFT nothing |
+| TEMPO RESET / SHIFT | toggle: tempo held at 0.0%, fader ignored; off = back to the fader (LED lit while on) / TEMPO RANGE |
 | TEMPO fader, jog (top press = touch, top spin, side ring) | the same |
-| 4 BEAT JUMP < > / SHIFT | SEARCH < > / TRACK SEARCH < > |
-| SLIP REVERSE (and SHIFT) | REV |
-| QUANTIZE; SLIP / SHIFT | QUANTIZE; SLIP / VINYL |
+| 4 BEAT JUMP < > / SHIFT | beat jump -4 / +4 beats / -16 / +16 bars (`DjEngineIF::playBeatJump`, paused or playing) |
+| SLIP REVERSE / SHIFT | momentary reverse that always slips / latching reverse that never slips (LED lit while held or reversing) |
+| QUANTIZE; SLIP / SHIFT | QUANTIZE; SLIP / nothing (VINYL disabled: no light on the button) |
 | CUE/LOOP CALL < > and SHIFT | not mapped |
-| MIX POINT, LINK, ACTIVE PART, PAGE, DECK SELECT, SAMPLER, BOOTH | nothing |
+| MIX POINT SELECT < > | previous / next track (TRACK SEARCH; < sent twice when the deck is past its start) |
+| SHIFT + MIX POINT, LINK, ACTIVE PART, PAGE, DECK SELECT, SAMPLER, BOOTH | nothing |
 | browse knobs (one shared message) / SHIFT | scroll / 8 steps per detent |
 | browse push (per deck) / held 0.5 s / double | on a track row LOAD that deck, on anything else SELECT (opens the folder/playlist/category) -- the row type is rbp's own `UiBrowseComm_IsTrackList` (@0x105e60) / **rbp's own long press of the selector = FAST SCROLL** (selector PRESS + op 1, held until the knob comes up; TAG TRACK is unmapped) / twice; **on the SOURCE screen with a stick in slot 1: open USB 1** (rbp ignores the knob there) |
-| BACK / VIEW; SHIFT+BACK / SHIFT+VIEW | BACK / SOURCE from the player, SOURCE again on the SOURCE menu (closes it), BROWSE (back to the player) from a browse list; TAG LIST / SHORTCUT |
+| BACK / VIEW; SHIFT+BACK / SHIFT+VIEW | BACK / SOURCE from the player, SOURCE again on the SOURCE menu (closes it), BROWSE (back to the player) from a browse list; PLAYLIST from the player, TAG LIST elsewhere / SHORTCUT |
 | SHIFT + deck 1's browse push | TRACK FILTER (deck 2's SHIFT push not yet recorded) |
 | pad modes HOT CUE / PAD FX1 / BEAT JUMP / SAMPLER | HOT CUE / SLIP LOOP / BEAT JUMP / BEAT LOOP 2 |
 | SHIFT + those: KEYBOARD / PAD FX2 / BEAT LOOP / KEY SHIFT | GATE CUE / RELEASE FX / BEAT LOOP / BEAT JUMP 2 (a SHIFT button goes straight to its mode; pressing a main button again does what SHIFT + it does, and a third press comes back -- the FLX10's double-press behaviour) |
@@ -342,7 +323,7 @@ are the operator's table, agreed control by control on 2026-10-24:
 | MASTER LEVEL | the unit's own volume; feeds only the HDMI mirror (as on the FLX4) |
 | SCFX SPACE, D.ECHO, CRUSH, NOISE, FILTER / PITCH | the same names / SWEEP. SPACE is 0x50a1 and CRUSH 0x50a5: rbp_abi.h had them swapped, corrected from the unit (2026-10-24) |
 | SAMPLER VOL | SCFX PARAMETER (0x50a7, channels 1 and 2) |
-| BEAT < > / SHIFT; LEVEL/DEPTH / SHIFT; ON/OFF | BEAT < > / TAP; DEPTH / TIME; Beat FX ON/OFF |
+| BEAT < > / SHIFT; LEVEL/DEPTH / SHIFT; ON/OFF | BEAT < > / AUTO (BPM back to auto) and TAP; DEPTH / TIME; Beat FX ON/OFF |
 | effect selector | by name: ECHO, MT DELAY→DELAY, SPIRAL, REVERB, TRANS, FLANGER, PHASER, SLIP ROLL, ROLL; others nothing. Note 32 is fully counter-clockwise (confirmed). rbp's positions are its own order, not the RX3 knob's printing (docs/13 S5.9) |
 | channel selector (SP MIC 3 1 2 4 MST = notes 22 21 18 16 17 19 20) | 1 → player 1, 2 → player 2, MIC → MIC, MST → MASTER; 3, 4, SP → nothing (rbp's target unchanged; crossfader A/B on 3/4 would contradict the deck lights). Sent only when the knob moves |
 
@@ -427,6 +408,8 @@ Every LED answers on its own button's input note and channel, ON = 0x7F, OFF = 0
 | --- | --- | --- |
 | PLAY / CUE / SYNC | 11 / 12 / 88 (deck) | the same transport decision the drawers show (CDJ / rekordbox CUE and PLAY, below) |
 | KEY SYNC | 101 (deck) | MASTER TEMPO |
+| TEMPO RESET | 65 (deck) | the map's tempo lock |
+| SLIP REVERSE | 21 (deck) | held, or the deck reversing (`PlayEngine::getReverse`) |
 | SLIP | 64 (deck) | slip mode |
 | QUANTIZE | 53 (deck) | rbp's QUANTIZE (per-deck struct +0x2e bit 6, `StatWatcher::getPlayQuantizeOn`) |
 | IN / OUT / 4 BEAT | 16 / 17 / 20 (deck) | rekordbox style: IN solid, 4 flashes when a loop-in point is set; OUT solid; 4 BEAT/EXIT lit while any loop runs |
