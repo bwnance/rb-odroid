@@ -205,7 +205,11 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   - REVERSE (SHIFT): a latching plain reverse, on until pressed again, and NEVER
     slipping -- even with slip mode on, the playhead does not jump back.
   - LED (note 21, measured): lit while the button is held and while reverse is on.
-* **Waveform jittering** (operator, 2026-10-25): details to collect.
+* **Waveform jittering** (operator, 2026-10-25): on the HDMI screen, during playback;
+  slight but visible. Suspects: rbp drawing into a single-buffered fb0 with no vsync
+  (tearing), uneven frame pacing (rbp runs without its SCHED_FIFO request,
+  RB_SCHED_RT=1), the fbshim depth conversion. To characterise first: stutter in the
+  scroll (uneven steps) vs. tearing (a horizontal split) vs. shimmer.
 * **Later, maybe:** RX3 effects matching the FLX10's (ENIGMA JET, MOBIUS, ...).
 
 ## DDJ-FLX10
