@@ -166,8 +166,8 @@ int main(void)
       * rbp there from what its pad-mode byte reads (0..3 modes, 4..7 banks) */
      {
           static const struct { int note, from, presses, key; const char *what; } pm[] = {
-               { 27, 0, 0, K_HOTCUE,   "HOT CUE while in HOT CUE: nothing" },
-               { 27, 4, 1, K_HOTCUE,   "HOT CUE from GATE CUE: one flip back" },
+               { 27, 0, 1, K_HOTCUE,   "HOT CUE while in HOT CUE: one press (clicks to GATE CUE)" },
+               { 27, 4, 1, K_HOTCUE,   "HOT CUE from GATE CUE: one press (back)" },
                { 27, 3, 1, K_HOTCUE,   "HOT CUE from BEAT JUMP: enter" },
                { 105, 0, 1, K_HOTCUE,  "SHIFT+HOT CUE from HOT CUE: flip to GATE CUE" },
                { 105, 2, 2, K_HOTCUE,  "SHIFT+HOT CUE from SLIP LOOP: enter + flip" },
@@ -176,7 +176,8 @@ int main(void)
                { 107, 1, 2, K_SLIPLOOP, "PAD FX2 from BEAT LOOP: enter SLIP LOOP + flip" },
                { 32, 7, 1, K_BEATJUMP, "BEAT JUMP from BEAT JUMP 2: flip back" },
                { 111, 3, 1, K_BEATJUMP, "KEY SHIFT from BEAT JUMP: flip to BEAT JUMP 2" },
-               { 109, 5, 1, K_ALOOP,   "BEAT LOOP from BEAT LOOP 2: flip back" },
+               { 109, 5, 1, K_ALOOP,   "BEAT LOOP from BEAT LOOP 2: one press" },
+               { 109, 1, 1, K_ALOOP,   "BEAT LOOP while in BEAT LOOP: one press (to BEAT LOOP 2)" },
                { 109, 0, 1, K_ALOOP,   "BEAT LOOP from HOT CUE: enter" },
                { 34, 0, 0, 0,          "SAMPLER: nothing" },
                { 27, -1, 1, K_HOTCUE,  "HOT CUE with rbp not up (-1): enter" },

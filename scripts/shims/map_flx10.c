@@ -722,11 +722,12 @@ static void flx10_fxlevel(int val)
  *   0 HOT CUE   1 BEAT LOOP   2 SLIP LOOP    3 BEAT JUMP
  *   4 GATE CUE  5 BEAT LOOP 2 6 RELEASE FX   7 BEAT JUMP 2
  *
- * So each FLX10 mode button asks for a MODE, and the map sends however many
- * presses of that mode's key get rbp there from where it is: none, one (enter,
- * or flip the bank), or two (enter, then flip). Unlike rbp's own buttons, a
- * button for the mode already showing does nothing -- the SHIFT buttons are how
- * the second banks are reached on this surface (operator, 2026-10-24).
+ * The four main buttons behave as the RX3's own do: one press of the mode's key,
+ * so pressing the button of the mode already showing clicks through to its
+ * second bank and back (operator's preference, 2026-10-24 -- an earlier version
+ * made it do nothing). The SHIFT buttons ask for a second bank directly, and
+ * the map sends however many presses get rbp there from where it is: none, one
+ * (flip), or two (enter, then flip).
  *
  * flx10_pad_mode() is WEAK so the host test can answer for rbp; -1 = not up. */
 __attribute__((weak)) int flx10_pad_mode(int deck)
@@ -807,13 +808,14 @@ static void flx10_note(int ch, int note, int on)
           case N_IN_SHIFT: case N_OUT_SHIFT:
                flx10_loop(deck, note, on);
                return;
-          /* Pad modes (operator's table, docs/21): the button names the mode,
-           * flx10_set_mode() works out the presses. SAMPLER is a table row
-           * with no key. */
-          case N_MODE_HOT:      if (on) flx10_set_mode(deck, 0); return;
-          case N_MODE_BEATLOOP: if (on) flx10_set_mode(deck, 1); return;
-          case N_MODE_PADFX1:   if (on) flx10_set_mode(deck, 2); return;
-          case N_MODE_BEATJUMP: if (on) flx10_set_mode(deck, 3); return;
+          /* Pad modes (operator's table, docs/21): a main button is one press
+           * of its mode's key (a repeat press clicks through the banks, as on
+           * the RX3); a SHIFT button goes to its bank via flx10_set_mode().
+           * SAMPLER is a table row with no key. */
+          case N_MODE_HOT:      if (on) pulse(K_HOTCUE, sch);   return;
+          case N_MODE_BEATLOOP: if (on) pulse(K_ALOOP, sch);    return;
+          case N_MODE_PADFX1:   if (on) pulse(K_SLIPLOOP, sch); return;
+          case N_MODE_BEATJUMP: if (on) pulse(K_BEATJUMP, sch); return;
           case N_MODE_KEYBOARD: if (on) flx10_set_mode(deck, 4); return;
           case N_MODE_PADFX2:   if (on) flx10_set_mode(deck, 6); return;
           case N_MODE_KEYSHIFT: if (on) flx10_set_mode(deck, 7); return;

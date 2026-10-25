@@ -205,7 +205,7 @@ are the operator's table, agreed control by control on 2026-10-24:
 | BACK / VIEW; SHIFT+BACK / SHIFT+VIEW | BACK / SOURCE; TAG LIST / SHORTCUT |
 | SHIFT + deck 1's browse push | TRACK FILTER (deck 2's SHIFT push not yet recorded) |
 | pad modes HOT CUE / PAD FX1 / BEAT JUMP / SAMPLER | HOT CUE / SLIP LOOP / BEAT JUMP / nothing |
-| SHIFT + those: KEYBOARD / PAD FX2 / BEAT LOOP / KEY SHIFT | GATE CUE / RELEASE FX / BEAT LOOP / BEAT JUMP 2 (each button goes to its mode; one already showing does nothing) |
+| SHIFT + those: KEYBOARD / PAD FX2 / BEAT LOOP / KEY SHIFT | GATE CUE / RELEASE FX / BEAT LOOP / BEAT JUMP 2 (a SHIFT button goes straight to its bank; a main button is one press, so pressing it again clicks through to the second bank and back, as on the RX3) |
 | pads; SHIFT + pad in HOT CUE | pads in rbp's mode; delete that cue |
 | ch 1/2 TRIM, EQ, COLOR, FADER, CUE; master CUE, crossfader, HP mix/level | the same |
 | MASTER LEVEL | the unit's own volume; feeds only the HDMI mirror (as on the FLX4) |
