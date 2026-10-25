@@ -220,8 +220,8 @@ int main(void)
      bj_n = 0; ON(2, 97); OFF(2, 97);
      for (int i = 0; i < 6; i++) { ms(90); map_flx10.tick(); }
      CHECK(bj_n == 4 && bj_t[0] == 11 && bj_deck[0] == 1, "SHIFT + BEAT JUMP < deck 2: 4 x -16");
-     reset(); ON(1, 23);
-     CHECK(is(0, K_VINYL, OP_PRESS, 1), "SHIFT+SLIP -> VINYL"); OFF(1, 23);
+     reset(); ON(1, 23); OFF(1, 23);
+     CHECK(sent_n == 0, "SHIFT+SLIP (VINYL) disabled: nothing sent (%d)", sent_n);
 
      /* the loop section, not looping */
      looping[0] = 0;

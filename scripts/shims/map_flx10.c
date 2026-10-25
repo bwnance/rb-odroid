@@ -104,7 +104,7 @@
 #define N_REVERSE       56    /* SHIFT + SLIP REVERSE */
 #define N_QUANTIZE      53
 #define N_SLIP          64
-#define N_VINYL         23    /* SHIFT + SLIP */
+#define N_VINYL         23    /* SHIFT + SLIP: VINYL, disabled */
 #define N_JOG_TOUCH     54    /* platter pressed down (mechanical) */
 #define N_JOG_TOUCH_SH 103    /* the same, with SHIFT held */
 #define N_CH_CUE        84
@@ -1604,7 +1604,10 @@ static void flx10_build(void)
           add_note(rch, N_TEMPO_RANGE, K_TEMPO_RANGE, sch);
           add_note(rch, N_QUANTIZE, K_QUANTIZE, sch);
           add_note(rch, N_SLIP, K_SLIP, sch);
-          add_note(rch, N_VINYL, K_VINYL, sch);
+          /* SHIFT + SLIP (VINYL) is off (operator, 2026-10-25): the button has
+           * no light, so there is no telling whether a deck is in vinyl or CDJ
+           * mode. Logged, nothing sent; rbp keeps whatever mode it has. */
+          add_note(rch, N_VINYL, 0, sch);
           /* The pad-mode buttons are named cases in flx10_note()
            * (flx10_set_mode()). Known and deliberately unbound (key 0): logged,
            * nothing sent. */
