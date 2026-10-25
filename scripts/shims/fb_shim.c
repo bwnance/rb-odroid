@@ -279,6 +279,53 @@ static int fb_vblank_wait(void)
     return 0;
 }
 
+/* ---- where a frame's time goes (FB_VSYNC_RATE) -----------------------------
+ * Per FBIO_WAITFORVSYNC: t0 entry, t1 after our own per-frame work (the menu
+ * and the video mask), t2 after the wait. rbp's draw is t0 minus the previous
+ * t2; ours is t1 - t0; the wait is t2 - t1; the whole frame is t2 - prev t2.
+ * Printed once a second beside the vsync rate, same gate (a diagnostic). */
+static unsigned long long fb_now_us(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (unsigned long long)ts.tv_sec * 1000000ULL + (unsigned long long)ts.tv_nsec / 1000ULL;
+}
+
+static void fb_frame_stats(unsigned long long t0, unsigned long long t1, unsigned long long t2)
+{
+    static int enabled = -1;
+    static unsigned long long prev2, win;
+    static unsigned long long sd, md, so, mo, sw, mw, mf;
+    static unsigned int n, over;
+
+    if (enabled < 0)
+        enabled = env_flag("FB_VSYNC_RATE", 0);
+    if (!enabled)
+        return;
+    if (prev2) {
+        unsigned long long d = t0 > prev2 ? t0 - prev2 : 0, o = t1 - t0, w = t2 - t1,
+                           f = t2 - prev2;
+        sd += d; so += o; sw += w; n++;
+        if (d > md) md = d;
+        if (o > mo) mo = o;
+        if (w > mw) mw = w;
+        if (f > mf) mf = f;
+        if (f > 17500) over++;
+    }
+    prev2 = t2;
+    if (!win)
+        win = t2;
+    if (t2 - win >= 1000000ULL && n) {
+        pointsrc_log("frame: n=%u draw avg %.1f max %.1f | ours avg %.2f max %.2f | "
+                     "wait avg %.1f max %.1f | frame max %.1f ms, %u over 17.5 ms",
+                     n, sd / 1000.0 / n, md / 1000.0, so / 1000.0 / n, mo / 1000.0,
+                     sw / 1000.0 / n, mw / 1000.0, mf / 1000.0, over);
+        sd = md = so = mo = sw = mw = mf = 0;
+        n = over = 0;
+        win = t2;
+    }
+}
+
 int open(const char *pathname, int flags, ...)
 {
     mode_t mode = 0;
@@ -443,6 +490,8 @@ int ioctl(int fd, unsigned long request, ...)
          * with FB_VSYNC_RATE set this prints one "vsync: N frames in M ms" line
          * per second -- on rbp's own render thread, so the number is the rate
          * frames arrive at, not a rate inferred from CPU. */
+        {
+        unsigned long long t0 = fb_now_us(), t1;
         vsync_rate_tick();
         menu_frame_tick();
         /* THE VIDEO MASK, AND IT BELONGS HERE RATHER THAN IN menu_frame_tick(), which is the
@@ -455,10 +504,18 @@ int ioctl(int fd, unsigned long request, ...)
          *
          * It is inert unless RB_VIDEO was set: one load and a compare when nobody asked. */
         vidmask_tick();
+        t1 = fb_now_us();
         fb_render_tid = (long)syscall(SYS_gettid);
-        if (fb_vblank_wait() == 0)
+        if (fb_vblank_wait() == 0) {
+            fb_frame_stats(t0, t1, fb_now_us());
             return 0;
-        return real_ioctl(fd, request, arg);
+        }
+        {
+            int res = real_ioctl(fd, request, arg);
+            fb_frame_stats(t0, t1, fb_now_us());
+            return res;
+        }
+        }
     case FBIOPAN_DISPLAY: {
         long pace_ns = pan_pacer_ns();
         if (pace_ns > 0) {
