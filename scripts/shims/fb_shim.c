@@ -56,6 +56,7 @@
 #include "syscalls.h"
 #include "envutil.h"
 #include "pointsrc.h"          /* pointsrc_log, for the vsync counter below */
+#include "drm_card.h"          /* which DRM card scans out, for the vblank wait */
 
 #include <stdarg.h>
 #include <errno.h>
@@ -175,6 +176,67 @@ static void vsync_rate_tick(void)
         frames = 0;
         window_start_ms = ms;
     }
+}
+
+/* ---- the real vblank wait (2026-10-25, ODROID-N2+) ------------------------
+ *
+ * rbp paces its render loop on FBIO_WAITFORVSYNC, once per frame. meson's
+ * drm_fbdev returns from it without waiting for vblank, so rbp free-ran on its
+ * own timer at 57.7/s against a 60 Hz panel (FB_VSYNC_RATE), and fbpace.py saw
+ * frames every ~17.0 ms that drifted past the 16.67 ms refresh: ~2 refreshes a
+ * second repeated a frame, which is the "uneven scrolling" the operator filmed.
+ *
+ * So the wait is done for real, on the DRM device: DRM_IOCTL_WAIT_VBLANK,
+ * relative, one vblank, on CRTC 0 (the one HDMI drives here). Defined here
+ * rather than taken from libdrm, which this shim does not link. 32-bit ARM:
+ * request {u32 type, u32 sequence, ulong signal} / reply {u32, u32, long, long}
+ * = a 16-byte union, so _IOWR('d', 0x3a, 16) = 0xC010643A.
+ *
+ * RB_FB_VBLANK=0 (as FB_VBLANK in the shim's environment) restores the old
+ * pass-through. Any failure -- no card, an ioctl error -- turns the wait off for
+ * the rest of the run and falls back to the pass-through, logged once. */
+union fb_drm_wait_vblank {
+    struct { unsigned int type, sequence; unsigned long signal; } request;
+    struct { unsigned int type, sequence; long tval_sec, tval_usec; } reply;
+};
+#define FB_DRM_IOCTL_WAIT_VBLANK 0xC010643AUL
+#define FB_DRM_VBLANK_RELATIVE   0x1
+
+static int fb_vblank_wait(void)
+{
+    static int state = -1;          /* -1 unknown, 0 off/failed, 1 on */
+    static int drm_fd = -1;
+    union fb_drm_wait_vblank vb;
+
+    if (state < 0) {
+        char path[64];
+        state = 0;
+        if (env_flag("FB_VBLANK", 1)) {
+            drm_card_path(path, sizeof path);
+            drm_fd = real_open(path, O_RDWR | O_CLOEXEC, 0);
+            if (drm_fd >= 0) {
+                state = 1;
+                pointsrc_log("fb: real vblank wait on %s (FBIO_WAITFORVSYNC paced to the panel)",
+                             path);
+            } else {
+                pointsrc_log("fb: no vblank wait -- cannot open %s (errno %d); pass-through",
+                             path, errno);
+            }
+        }
+    }
+    if (state != 1)
+        return -1;
+    memset(&vb, 0, sizeof vb);
+    vb.request.type = FB_DRM_VBLANK_RELATIVE;
+    vb.request.sequence = 1;
+    if (real_ioctl(drm_fd, FB_DRM_IOCTL_WAIT_VBLANK, &vb) != 0) {
+        if (errno == EINTR)
+            return 0;
+        pointsrc_log("fb: DRM vblank wait failed (errno %d); back to pass-through", errno);
+        state = 0;
+        return -1;
+    }
+    return 0;
 }
 
 int open(const char *pathname, int flags, ...)
@@ -353,6 +415,8 @@ int ioctl(int fd, unsigned long request, ...)
          *
          * It is inert unless RB_VIDEO was set: one load and a compare when nobody asked. */
         vidmask_tick();
+        if (fb_vblank_wait() == 0)
+            return 0;
         return real_ioctl(fd, request, arg);
     case FBIOPAN_DISPLAY: {
         long pace_ns = pan_pacer_ns();
