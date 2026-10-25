@@ -827,6 +827,16 @@ static const signed char bfx_type_to_pos[15] = {
  * 500 ms of the time stored at stTotalTrackSearchWk_Deck + deck*32 + 28 as a
  * double press (= previous track). CmnFunc_OsTim_GetTime @0x187290 is the
  * clock it compares against. */
+/* Crossfader assign per mixer input: DjEngineIF::setCrossFaderAssign(input,
+ * assign) @0x4cc0c, which ignores `this` (MixerEngine singleton). The RX3 sets it
+ * only from its crossfader CURVE switch (XFaderInnards::onEv_FaderCurveSwitched
+ * @0x2d6120: position 0 = both inputs THRU, the curve positions = input 0 on A,
+ * input 1 on B); with no RX3 panel nothing ever moves it off THRU, so the
+ * crossfader did nothing. EnCrossFaderAssign: 0 THRU, 1 A, 2 B. */
+#define DJE_SET_XF_ASSIGN  0x0004cc0c
+#define XF_ASSIGN_THRU 0
+#define XF_ASSIGN_A    1
+#define XF_ASSIGN_B    2
 #define TTS_WK_GLOBAL      0x03251eecUL
 #define TTS_WK_STRIDE      32
 #define TTS_WK_LASTPRESS   28

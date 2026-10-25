@@ -320,6 +320,7 @@ are the operator's table, agreed control by control on 2026-10-24:
 | SHIFT + those: KEYBOARD / PAD FX2 / BEAT LOOP / KEY SHIFT | GATE CUE / RELEASE FX / BEAT LOOP / BEAT JUMP 2 (a SHIFT button goes straight to its mode; pressing a main button again does what SHIFT + it does, and a third press comes back -- the FLX10's double-press behaviour) |
 | pads; SHIFT + pad in HOT CUE | pads in rbp's mode; delete that cue |
 | ch 1/2 TRIM, EQ, COLOR, FADER, CUE; master CUE, crossfader, HP mix/level | the same |
+| crossfader assign A / THRU / B (deck notes 22 / 29 / 24) | rbp's crossfader assign for that channel (`DjEngineIF::setCrossFaderAssign`; the RX3 only sets it from its curve switch, so it sat at THRU) |
 | MASTER LEVEL | the unit's own volume; feeds only the HDMI mirror (as on the FLX4) |
 | SCFX SPACE, D.ECHO, CRUSH, NOISE, FILTER / PITCH | the same names / SWEEP. SPACE is 0x50a1 and CRUSH 0x50a5: rbp_abi.h had them swapped, corrected from the unit (2026-10-24) |
 | SAMPLER VOL | SCFX PARAMETER (0x50a7, channels 1 and 2) |

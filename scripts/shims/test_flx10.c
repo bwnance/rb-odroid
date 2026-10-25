@@ -69,6 +69,8 @@ void flx10_set_reverse(int d, int on) { reversing[d] = on; rev_sets++; }
 static int bj_n, bj_deck[16], bj_t[16];
 static int goes_back[2];
 int flx10_trrev_goes_back(int d) { return goes_back[d]; }
+static int xf_assign[2] = { -1, -1 };
+void flx10_set_xf_assign(int d, int a) { xf_assign[d] = a; }
 static int second_press[2];
 void flx10_trrev_as_second_press(int d) { second_press[d]++; }
 static int bpm_auto_n;
@@ -682,6 +684,14 @@ int main(void)
      for (int i = 0; i < 4; i++) { ms(100); map_flx10.tick(); }
      CHECK(sent_n == 2 && is(0, K_TRREV, OP_PRESS, 2) && is(1, K_TRREV, OP_RELEASE, 2) &&
            second_press[1] == 1, "MIX POINT <: one TRREV, stamped as a second press (%d)", sent_n);
+
+     /* crossfader assign switches: 22 A, 24 B, 29 THRU (0x7F); 0x00s ignored */
+     reset(); ON(1, 22); OFF(1, 24); OFF(1, 29);
+     CHECK(xf_assign[0] == 1 && sent_n == 0, "channel 1 assign A");
+     OFF(2, 22); ON(2, 24); OFF(2, 29);
+     CHECK(xf_assign[1] == 2, "channel 2 assign B");
+     OFF(1, 22); OFF(1, 24); ON(1, 29);
+     CHECK(xf_assign[0] == 0 && xf_assign[1] == 2, "channel 1 THRU, channel 2 untouched");
 
      /* the jog screens' HID packets (flx10_hid.c) */
      {

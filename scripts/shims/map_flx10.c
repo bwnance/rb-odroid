@@ -82,6 +82,9 @@
 #define N_CUE_SHIFT     72    /* SHIFT + CUE: back to the track's start */
 #define N_MIXPOINT_PREV 89    /* MIX POINT SELECT <: previous track */
 #define N_MIXPOINT_NEXT 90    /* MIX POINT SELECT >: next track */
+#define N_XF_A          22    /* crossfader assign switch at A (0x7F) */
+#define N_XF_B          24    /*   ... at B */
+#define N_XF_THRU       29    /*   ... at THRU (Pioneer's MIDI list, M11) */
 #define N_SHIFT         63
 #define N_SYNC          88    /* sent when the finger LEAVES (as on the FLX4) */
 #define N_SYNC_SHIFT    92    /* SHIFT + BEAT SYNC = MASTER */
@@ -771,6 +774,27 @@ static void flx10_track_note(int deck, int note, int on)
      }
 }
 
+/* ---- crossfader assign ------------------------------------------------------
+ * Each channel's A / THRU / B switch (operator, 2026-10-25: the crossfader
+ * faded nothing). Per Pioneer's MIDI list (M11) the unit sends, on the deck
+ * channel, note 22 = A, 24 = B, 29 = THRU, 0x7F for the position the switch
+ * moved to (the others go 0x00 alongside). rbp's assign was never set at all
+ * (rbp_abi.h, DJE_SET_XF_ASSIGN), so it stayed THRU. The unit also reports the
+ * switch in its answer to the position query sent at connect. WEAK so the host
+ * test can answer for rbp. */
+__attribute__((weak)) void flx10_set_xf_assign(int deck, int assign)
+{
+     ((void (*)(void *, int, int))DJE_SET_XF_ASSIGN)(NULL, deck, assign);
+}
+
+static void flx10_xf_assign(int deck, int note)
+{
+     int a = note == N_XF_A ? XF_ASSIGN_A : note == N_XF_B ? XF_ASSIGN_B : XF_ASSIGN_THRU;
+     flx10_set_xf_assign(deck, a);
+     klog("knobshim2: flx10 channel %d crossfader assign -> %s\n", deck + 1,
+          a == XF_ASSIGN_A ? "A" : a == XF_ASSIGN_B ? "B" : "THRU");
+}
+
 /* ---- Beat FX AUTO (SHIFT + BEAT <) -------------------------------------------
  * Puts the Beat FX BPM back to AUTO after TAP (operator, 2026-10-25), what the
  * RX3 does for TAP with SHIFT held (rbp_abi.h, BPMMGR_SET_DETECTMODE). Called
@@ -1377,6 +1401,10 @@ static void flx10_note(int ch, int note, int on)
           case N_TEMPO_RESET:
                if (on)
                     flx10_tempo_reset(deck);
+               return;
+          case N_XF_A: case N_XF_B: case N_XF_THRU:
+               if (on)
+                    flx10_xf_assign(deck, note);
                return;
           case N_CUE_SHIFT: case N_MIXPOINT_PREV: case N_MIXPOINT_NEXT:
                flx10_track_note(deck, note, on);
