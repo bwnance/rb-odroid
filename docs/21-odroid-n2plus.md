@@ -442,11 +442,25 @@ and sends at most one update per 4 ms, with speed = counts / real elapsed time o
 microsecond clock. rbp's position is fed at the FLX4's 720 per revolution.
 `RB_JOG_PPR` overrides the count.
 
-**Jog gain = 12960 / 5484 ≈ 2.363** (2026-10-25). At the true count one turn moved
-the track about 2 beats; rekordbox on the same FLX10 moves 4. The operator tuned it
-by ear against the grid (16 turns within a beat of 64 beats) with `RB_JOG_PPR`, and
-the result is built in as a separate gain on speed and position alike, so the count
-keeps meaning counts. `RB_JOG_GAIN` overrides it.
+**Jog scaling = rekordbox's, from a capture** (2026-10-25). The 12960/5484 gain
+(tuned by ear, "one turn = 4 beats") moved the track ~2.35 s a platter turn: the
+jog screen's arm, which turns once per 1.8 s of track, ran 3.92 turns for 3.
+`tools/flx10-pcap-decode.py --jog` on a rekordbox capture (paused deck, three
+turns each way) gives rekordbox's track ms per jog count from the platter's own
+MIDI beside the jog screen's position, with no turns counted by hand:
+
+| control | ms per count | counts per turn (1.8 s) |
+|---|---|---|
+| platter top (CC 34/35/31) | 0.1390 | ~12950 |
+| side ring (CC 33/38) | 0.1650 | ~10900 |
+
+(Single stray jog CCs on the other deck channels, value 0x58, show up in the
+capture and are ignored.) The map now moves rbp by exactly those: a count is
+`ms_per_count x 720 / RBP_TURN_MS` of rbp's 1/720-turn units, speed and position
+alike, where RBP_TURN_MS is the track one turn of rbp's jog moves -- ~994 ms
+estimated from the arm, to be set from `RB_JOG_CAL=1`'s `jogcal ... rbp_turn_ms=`
+lines (`RB_JOG_RBP_TURN_MS`). `RB_JOG_GAIN` multiplies both controls (default 1);
+`RB_JOG_PPR` no longer applies to the FLX10.
 
 ### FLX10 LEDs
 

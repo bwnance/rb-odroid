@@ -183,18 +183,28 @@ static int jog_scale = 1;
  * 12960: 360 x 36 (36 counts per degree) and exactly 18 x the FLX4's measured
  * 720, the one value in that range with that structure (0.95% below the
  * measurement, i.e. about 5.05 turns counted as 5). An inference, not a finding
- * (operator's choice, 2026-10-24) -- JOG_PPR overrides it, and a 10-turn count
- * (~129600 if this is right) would settle it. */
+ * (operator's choice, 2026-10-24). Since 2026-10-25 the count no longer
+ * enters the scaling (rekordbox's ms per count does, below); kept as the
+ * record, the capture agreeing: 1.8 s a turn at ~12950 counts. */
 #define FLX10_JOG_PPR 12960
 #define JOG_WINDOW_US 4000           /* one jog update per window at most */
 #define JOG_POS_PPR   720            /* the resolution rbp's position is fed at */
-static int jog_ppr = FLX10_JOG_PPR;
-/* How far one platter turn moves the track, as a multiple of the turn rbp
- * would see at the true count -- applied to speed and position alike, so the
- * scratch sound and the movement stay in step. 12960 / 5484: the operator's
- * measurement against rekordbox on the same FLX10 (2026-10-25), one turn = 4
- * beats, 16 turns within a beat. JOG_GAIN overrides it. */
-#define FLX10_JOG_GAIN (12960.0 / 5484.0)
+/* How far a jog count moves the track: rekordbox's own, measured from a USB
+ * capture on the same FLX10 (2026-10-25, tools/flx10-pcap-decode.py --jog,
+ * paused deck, three turns each way): the platter top 0.1390 ms of track per
+ * count (1.8 s a turn -- the jog screen's arm, a record at 33 1/3 -- at
+ * ~12950 counts), the side ring 0.1650 (1.8 s a turn at ~10900 counts).
+ * rbp takes a position in 1/720 turns of ITS jog, and one of its turns moves
+ * the track RBP_TURN_MS: about 994 ms, from the arm running 3.92 turns for
+ * three of the platter at the old gain -- to be replaced by a JOG_CAL
+ * measurement. So a count is ms_per_count * 720 / RBP_TURN_MS rbp units,
+ * applied to the position and the speed alike. JOG_RBP_TURN_MS sets rbp's
+ * turn, JOG_GAIN multiplies both controls (default 1). */
+#define FLX10_MS_PER_COUNT_TOP  0.1390
+#define FLX10_MS_PER_COUNT_SIDE 0.1650
+#define FLX10_RBP_TURN_MS       994.0
+#define FLX10_JOG_GAIN          1.0
+static double jog_rbp_turn_ms = FLX10_RBP_TURN_MS;
 static double jog_gain = FLX10_JOG_GAIN;
 static int jog_rev = 0;
 static int jog_idle_ms = 120;
@@ -287,7 +297,7 @@ static int any_shift(void) { return shift_down[0] || shift_down[1]; }
  * ends after the last message, and the idle edge (JOG_IDLE_MS) still sends 0. */
 struct jog_ctrl {
      int sch, moving;
-     long pending;                   /* counts since the last update */
+     double pending;                 /* rbp units (1/720 turn) since the last update */
      unsigned long long last_ms;     /* last MESSAGE, for the idle edge */
      unsigned long long win_us;      /* start of the current window */
      double fpos;                    /* rbp position, JOG_POS_PPR per rev */
@@ -316,15 +326,14 @@ static void jog_flush(struct jog_ctrl *s, unsigned long long t_us)
      double dt = (double)(t_us - s->win_us) / 1e6;
      float speed;
 
-     if (!s->pending)
+     if (s->pending == 0.0)
           return;
      if (dt < JOG_WINDOW_US / 1e6)
           dt = JOG_WINDOW_US / 1e6;
-     speed = (float)((double)s->pending * jog_gain / (double)jog_ppr / dt);
+     speed = (float)(s->pending / JOG_POS_PPR / dt);
      if (speed > 8.0f) speed = 8.0f;
      if (speed < -8.0f) speed = -8.0f;
-     s->fpos += (double)s->pending * jog_scale * jog_gain * JOG_POS_PPR /
-                (double)jog_ppr;
+     s->fpos += s->pending * jog_scale;
      s->pending = 0;
      s->win_us = t_us;
      send_rx_key_fl(K_JOG_ROT, OP_ROTATE, s->sch, 0, speed,
@@ -339,11 +348,11 @@ static void jog_flush(struct jog_ctrl *s, unsigned long long t_us)
  * --jog). Meaningful on a paused deck; a playing deck adds its play time. */
 #define JOG_CAL_GAP_MS 400
 static int jog_cal;
-struct jog_cal { int active, counts, msgs, pos0; unsigned long long t0, last; };
+struct jog_cal { int active, counts, msgs, pos0; double units; unsigned long long t0, last; };
 static struct jog_cal jcal[2];
 int flx10_pos_now(int deck, int *pos_ms, int *moving);
 
-static void jog_cal_count(int deck, int d)
+static void jog_cal_count(int deck, int d, double units)
 {
      struct jog_cal *c = &jcal[deck];
      int mov;
@@ -353,9 +362,11 @@ static void jog_cal_count(int deck, int d)
                return;
           c->active = 1;
           c->counts = c->msgs = 0;
+          c->units = 0.0;
           c->t0 = shim_now_ms();
      }
      c->counts += d;
+     c->units += units;
      c->msgs++;
      c->last = shim_now_ms();
 }
@@ -373,19 +384,24 @@ static void jog_cal_tick(void)
           if (!flx10_pos_now(i, &pos, &mov) || !c->counts)
                continue;
           dms = pos - c->pos0;
+          /* rbp_turn_ms: what one rbp jog turn (720 units) moved the track --
+           * the number JOG_RBP_TURN_MS wants */
           klog("knobshim2: jogcal deck%d counts=%d msgs=%d secs=%.2f track_ms=%d "
-               "ms_per_count=%.4f counts_per_1.8s=%.0f (ppr=%d gain=%.4f)%s\n",
+               "ms_per_count=%.4f rbp_units=%.0f rbp_turn_ms=%.1f (set %.1f, gain %.3f)%s\n",
                i + 1, c->counts, c->msgs, (double)(c->last - c->t0) / 1000.0, dms,
-               (double)dms / c->counts, dms ? 1800.0 * c->counts / dms : 0.0,
-               jog_ppr, jog_gain, mov ? " PLAYING: includes play time" : "");
+               (double)dms / c->counts, c->units,
+               c->units != 0.0 ? dms * JOG_POS_PPR / c->units : 0.0,
+               jog_rbp_turn_ms, jog_gain, mov ? " PLAYING: includes play time" : "");
      }
 }
 
-static void flx10_jog(int deck, int val)
+static void flx10_jog(int deck, int cc, int val)
 {
      struct jog_ctrl *s = &jog_state[deck];
      int d = val - 0x40;
      unsigned long long t = now_us();
+     int side = cc == CC_JOG_SIDE || cc == CC_JOG_SIDE_SH;
+     double units;
 
      if (d == 0)
           return;
@@ -393,13 +409,15 @@ static void flx10_jog(int deck, int val)
           d = -d;
      if (!s->moving) {               /* first count after a rest: open a window */
           s->moving = 1;
-          s->pending = 0;
+          s->pending = 0.0;
           s->win_us = t;
      }
-     s->pending += d;
+     units = d * (side ? FLX10_MS_PER_COUNT_SIDE : FLX10_MS_PER_COUNT_TOP) *
+             jog_gain * JOG_POS_PPR / jog_rbp_turn_ms;
+     s->pending += units;
      s->last_ms = t / 1000ULL;
      if (jog_cal)
-          jog_cal_count(deck, d);
+          jog_cal_count(deck, d, units);
      flx10_hid_jog_activity(deck);
      if (t - s->win_us >= JOG_WINDOW_US)
           jog_flush(s, t);
@@ -415,7 +433,7 @@ static void flx10_jog_tick(void)
           struct jog_ctrl *s = &jog_state[i];
           if (!s->moving)
                continue;
-          if (s->pending && t - s->win_us >= JOG_WINDOW_US)
+          if (s->pending != 0.0 && t - s->win_us >= JOG_WINDOW_US)
                jog_flush(s, t);
           if (t / 1000ULL - s->last_ms >= (unsigned long long)jog_idle_ms) {
                jog_flush(s, t);
@@ -1875,7 +1893,7 @@ static void flx10_cc(int ch, int cc, int val)
           }
           if (cc == CC_JOG_SIDE || cc == CC_JOG_VINYL || cc == CC_JOG_NOVINYL ||
               cc == CC_JOG_SHIFT || cc == CC_JOG_SIDE_SH) {
-               flx10_jog(ch, val);
+               flx10_jog(ch, cc, val);
                return;
           }
      } else if (ch == CH_MIX) {
@@ -1921,13 +1939,14 @@ static void flx10_build(void)
      if (knob_scale < 1) knob_scale = 1;
      jog_scale = env_num("JOG_SCALE", 1);
      if (jog_scale < 1) jog_scale = 1;
-     jog_ppr = env_num("JOG_PPR", FLX10_JOG_PPR);
      {
           const char *g = env_text("JOG_GAIN", NULL);
           double v = (g && *g) ? strtod(g, NULL) : 0.0;
           jog_gain = (v > 0.0) ? v : FLX10_JOG_GAIN;
+          g = env_text("JOG_RBP_TURN_MS", NULL);
+          v = (g && *g) ? strtod(g, NULL) : 0.0;
+          jog_rbp_turn_ms = (v > 0.0) ? v : FLX10_RBP_TURN_MS;
      }
-     if (jog_ppr < 1) jog_ppr = 1;
      jog_rev = env_on("JOG_REV", 0);
      jog_idle_ms = env_num("JOG_IDLE_MS", 120);
      if (jog_idle_ms < 10) jog_idle_ms = 10;
