@@ -18,6 +18,7 @@ Two kinds of tool live here:
 | [`pcmprobe.c`](pcmprobe.c) | **inside the chroot on the Pi**, or a workstation under `qemu-arm` | C | name ALSA's `snd_pcm_format_t` values, list a card's accepted formats by name, and run the whole open→configure→write sequence against a named device, access and channel count |
 | [`aseqdump2dump.py`](aseqdump2dump.py) | the Pi or a workstation | Python | turn an `aseqdump` capture into a replayable MIDI dump, and print the inventory and arithmetic a controller map is written from |
 | [`flx10-pcap-decode.py`](flx10-pcap-decode.py) | a workstation | Python | read a USB capture (Wireshark/tcpdump: macOS XHC, USBPcap, usbmon) of rekordbox driving a DDJ-FLX10: endpoints, HID packets by type/deck, every change in the per-deck state packet with its time, and the MIDI out (`--midi`) |
+| [`flx10-hid-transfers.py`](flx10-hid-transfers.py) | a workstation | Python | the same captures' multi-packet HID transfers (artwork, waveforms, beat grid) reassembled into one file each, for comparing with the export's own files (`tools/captures/flx10-rekordbox-hid-notes.txt`) |
 | [`pi-bringup/`](pi-bringup/) | **the Pi** | Python / shell | drive the input path on the unit: a virtual keyboard with a chosen hold time, a raw evdev reader, a state probe, a key-and-capture harness |
 
 Firmware acquisition, decryption and key handling are out of scope for rbpi4b;

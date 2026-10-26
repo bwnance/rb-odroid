@@ -61,3 +61,31 @@
 #        (512 beats stayed 0x15 although the loop was cut at the track's end)
 #   [9]  0xbc once a loop has been set, and stays
 #   [3]  0x18 while the jog is touched (0x08 otherwise)
+
+# ---- the load-time transfers (capture 2), decoded 2026-10-26 ----
+# Reassembled with tools/flx10-hid-transfers.py capture_2.pcapng OUTDIR.
+# Every type but 0x21 / 0x3d is a transfer of 128-byte packets: [0] deck,
+# [1] type, [2..3] packet index from 1 (LE16), [4..5] packet count (LE16),
+# [6..127] 122 bytes of payload, the last packet zero-padded. Checked byte
+# for byte, both decks, against the same two tracks on the operator's export
+# stick (deck 1: "Can't Get You Out Of My Head (feat. Kylie Mi...", id 1390,
+# PIONEER/USBANLZ/P030/0002FB38; deck 2: "tracey brakes - carbonhead", id 692,
+# P023/00003925). Sent at a load, in this order:
+#   0x30  1 pkt   track length: min, sec, ms LE16 (03 06 e9 01 = 3:06.489);
+#                 an all-zero one goes first, at the very start
+#   0x2d  1 pkt   length + 0a 00 + ten 5-byte entries "9e 2f 27 01 00" (both
+#                 test tracks have no cues: an empty cue list?) -- not sent
+#   0x39  3 pkts  00 "HOT CUE" -- not sent
+#   0x3b  5 pkts  values 0..4 (deck 1 all zero) -- not sent
+#   0x3e  1 pkt   a bitmap that fills as the track plays (played part of the
+#                 overview?), re-sent every few seconds -- not sent
+#   0x3c  46 pkts deck 2 only: LE16 5557 + values 0..4, in none of the track's
+#                 files (rekordbox computes it) -- not sent
+#   0x2b  80x80 artwork: LE16 length + PIONEER/Artwork/NNNNN/aID.jpg as is
+#   0x33  240x240 artwork: LE24 length + aID_m.jpg as is
+#   0x37  overview: 0x80 + the .2EX's PWV6 body (1200 x 3 bytes) as is
+#   0x2f  beat grid: LE16 count + per beat its number and LE24 ms (the .DAT's
+#         PQTZ: 396 beats = 01 6b 01 00, 02 42 03 00, ...)
+#   0x38  detail: LE32 entry count (= PWV7's) + the .2EX's PWV7 body as is
+#         (150 entries a second: 27974 = 3:06.5)
+# rekordbox sends them in bursts about 1 ms apart (952 packets in 3.7 s).

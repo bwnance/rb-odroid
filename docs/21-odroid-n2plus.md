@@ -163,17 +163,25 @@ session; details further down):
 1. **HDMI audio mirror**: run `scripts/odroid/hdmi-audio-probe.sh`, read
    `~/hdmi-audio.txt`, then set the mixer route in start-rb.sh and
    `RB_AUDIO_MIRROR_DEV=hw:CARD=ODROIDN2,DEV=0` with a format that works.
-2. **Waveforms on the jog screens**: the unit caches waveform data it is sent
-   (rekordbox's showed up after a capture session until a power cycle). Decode
-   rekordbox's waveform HID packets from the captures in ~/Downloads on the
-   Mac (capture, capture_2, capture_jog; tools/flx10-pcap-decode.py --dump
-   <type>), then feed rbp's own waveform per loaded track.
-3. **Album art on the jog screens**: same route, image data (rbp has
-   sendJogArtworkData / UiSetJogArtwork for the RX3's own jog screens).
-4. **Splash until rbp is ready**, input held until then (item below). Needs
+2. **Waveforms and album art on the jog screens -- built, to look at on the
+   unit** (2026-10-26). rekordbox sends them as HID transfers that are the
+   export's own files behind a length: the 80x80 and 240x240 artwork JPEGs,
+   the .2EX's PWV6 (overview) and PWV7 (detail), and the .DAT's beat grid --
+   all checked byte for byte against capture_2 (both decks), layouts in
+   flx10_media.h and tools/captures/flx10-rekordbox-hid-notes.txt.
+   flx10_media.c finds the loaded file's track in the stick's export.pdb
+   (read only) and flx10_hid.c sends them after each load. Sent and
+   completed on the unit (usbmon: every packet rekordbox's, state packets
+   still 100 Hz), with track 1390 on deck 1 and 692 on deck 2 left loaded --
+   not yet SEEN. To check: artwork in the jog centre, overview and detail
+   waveforms, beat markers; a track with no artwork (id 705) clears the
+   previous one's; a power cycle brings them back (sent again 6 s after the
+   unit is found). Not sent, meaning unknown: 0x2d (cue list?), 0x39,
+   0x3b, 0x3c, 0x3e (played part?). `RB_FLX10_MEDIA=0` turns it off.
+3. **Splash until rbp is ready**, input held until then (item below). Needs
    the operator's description of the start-up glitches first.
-5. **Booth and master outputs**, by ear.
-6. Parked: HOT CUE mode switch lag; RX3 effects matching the FLX10's.
+4. **Booth and master outputs**, by ear.
+5. Parked: HOT CUE mode switch lag; RX3 effects matching the FLX10's.
 
 Done and confirmed 2026-10-25 (slip and pads):
 - SLIP REVERSE with quantize ON ends on release and puts slip off after. The
