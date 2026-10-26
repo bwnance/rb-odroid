@@ -300,7 +300,19 @@ session; details further down):
    glass: a fault there shows the first time BROWSE is used, not at start.
    Suggested order: Key Match first (no touch needed), then Browse Columns'
    third column without the sort.
-10. Parked: HOT CUE mode switch lag.
+12. **Four-deck mode -- wished for, not started** (operator, 2026-10-26). The
+   FLX10 is a four-deck controller (DECK 1/3 and 2/4 select); the RX3 and its
+   rbp are two-deck: PlayEngine's player vector holds two (SyncMaster counts 2
+   on the unit), MixerEngine two channels, the UI two lanes and two deck
+   panels. The first question decides the size of it: whether that two is a
+   count rbp reads at start (so the shim could raise it) or built in. If the
+   engine can host four, the rest is routing and display: the FLX10's own jog
+   screens already show each deck's waveform and artwork (flx10_hid.c), and
+   rbp's two lanes could follow the selected decks as rekordbox's 2-lane view
+   follows DECK 1/3 and 2/4 -- or the shim draws lanes for 3/4 itself, as it
+   overlays other panels. If it cannot, four decks is a second engine beside
+   rbp's, a much larger thing.
+13. Parked: HOT CUE mode switch lag.
 
 Done 2026-10-26 (start-up splash, rbp's TRANS picture):
 - For RB_SPLASH_MS (8000) after rbp's first frame the screen shows a picture on
