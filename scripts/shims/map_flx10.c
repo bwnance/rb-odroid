@@ -395,13 +395,18 @@ static void flx10_link_tick(unsigned long long t)
      }
 }
 
-/* ---- the SETTINGS panel ---------------------------------------------------
- * The shim's own panel (MIXER ROUTE, USB STOP, ...; settings_remote.h), which is
- * otherwise raised by the gear in the swipe-down menu -- out of reach on a unit
- * with no touchscreen or mouse (operator, 2026-10-26):
- *   SHIFT + VIEW, held PANEL_HOLD_MS   raise it / put it away. A shorter press is
- *                                      rbp's SHORTCUT, as before, sent on the
- *                                      release now that the length decides.
+/* ---- SHIFT + VIEW held: rbp's UTILITY ------------------------------------
+ * rbp's own UTILITY screen, which now carries the shim's HDMI AUDIO row
+ * (utility_rows.c), and replaces the shim's drawn SETTINGS panel on this unit
+ * (operator, 2026-10-26: "get to UTILITY via shift and long press of view"):
+ *   SHIFT + VIEW, held PANEL_HOLD_MS   MENU held UTILITY_MENU_MS -- rbp's own
+ *                                      long press of MENU, which opens UTILITY
+ *                                      (docs/08: 400 ms and up). A shorter press
+ *                                      is rbp's SHORTCUT, sent on the release.
+ * In UTILITY the browse knobs, their push and BACK are rbp's own.
+ *
+ * The shim's panel (settings_remote.h) is still worked from here while it is up
+ * -- the touch gear on a unit that has one raises it:
  *   while it is up:
  *     either browse knob              select a row
  *     either browse knob's push       press the row's value -- held, for the USB
@@ -410,6 +415,8 @@ static void flx10_link_tick(unsigned long long t)
  * A push or a BACK that went to the panel takes its release there too. The
  * panel lives in fbshim.so; these are WEAK so a build without it has none. */
 #define PANEL_HOLD_MS 1000
+#define UTILITY_MENU_MS 500                /* the touch band's MZ_HOLD_KEY_MS */
+static unsigned long long menu_up_at;      /* the held MENU's release, 0 = none */
 __attribute__((weak, visibility("default"))) void shim_settings_remote(int cmd);
 __attribute__((weak, visibility("default"))) int shim_settings_remote_open(void);
 static int view_held, view_long;
@@ -470,9 +477,16 @@ static void flx10_panel_tick(unsigned long long t)
 {
      if (view_held && !view_long && t - view_at >= PANEL_HOLD_MS) {
           view_long = 1;
-          panel_cmd(SR_TOGGLE);
-          if (verbose)
-               klog("knobshim2: flx10 SHIFT + VIEW held: settings panel\n");
+          if (panel_open())
+               panel_cmd(SR_CLOSE);      /* one screen at a time */
+          send_rx_key(K_MENU, OP_PRESS, CH_GLOBAL, 0);
+          menu_up_at = t + UTILITY_MENU_MS;
+          klog("knobshim2: flx10 SHIFT + VIEW held: MENU held %d ms -> UTILITY\n",
+               UTILITY_MENU_MS);
+     }
+     if (menu_up_at && t >= menu_up_at) {
+          menu_up_at = 0;
+          send_rx_key(K_MENU, OP_RELEASE, CH_GLOBAL, 0);
      }
 }
 
@@ -1800,9 +1814,11 @@ static void flx10_fxch(int note)
  * flx10_bfx_bpm_auto() already makes from this thread. */
 #define FXS_POLL_MS 100
 
+/* The names the FX screen shows. TRANS reads TRANNY, the operator's own flavour
+ * (2026-10-26); rbp's own screen keeps its name. */
 static const char *const rbp_fx_name[14] = {
      "DELAY", "ECHO", "PING PONG", "SPIRAL", "HELIX", "REVERB", "FLANGER",
-     "PHASER", "FILTER", "TRANS", "ROLL", "SLIP ROLL", "PITCH", "VINYL BRAKE",
+     "PHASER", "FILTER", "TRANNY", "ROLL", "SLIP ROLL", "PITCH", "VINYL BRAKE",
 };
 /* each effect's class's vtable (nm: "vtable for mixerengine::BeatEffect..."),
  * by rbp switch position; an object's first word is this + 8 */

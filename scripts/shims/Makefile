@@ -379,7 +379,7 @@ FBSHIM_OBJS := fb_shim.o tscfake.o pointsrc.o point_xform.o touch_zone.o \
                deckbadge_zone.o deckbadge_paint.o deckbadge_plane.o bpmbox_zone.o \
                settings_zone.o settings_paint.o \
                controllers.o usb_devices.o \
-               vidmask.o g2d_sw.o
+               vidmask.o g2d_sw.o utility_rows.o
 # controllers.o and usb_devices.o are here for ONE question the settings panel asks:
 # whether a recognised digital mixer is on the USB bus, which is what makes the MIXER
 # ROUTE row operable ("refuse the tap", settings_zone.h). It is the same pair audioshim.so
@@ -399,7 +399,7 @@ FBSHIM_HDRS := tscfake.h pointsrc.h point_xform.h touch_zone.h syscalls.h \
                fx_zone.h fx_paint.h hc_zone.h usb_label.h \
                fxpad_zone.h fxpad_paint.h pitch_state.h \
                settings_zone.h settings_paint.h controllers.h usb_devices.h \
-               g2d_sw.h settings_remote.h
+               g2d_sw.h settings_remote.h utility_rows.h
 
 fbshim.so: $(FBSHIM_OBJS) rbp_key.o fader_state.o rbp_transport.o pitch_state.o \
            keylog.o keylog_state.o $(FBSHIM_HDRS) rbp_transport.h pitch_state.h \
@@ -653,13 +653,19 @@ TESTS := test_point test_g2d test_audio test_midi test_flx4 test_flx10 test_kbd 
          test_menu_dev test_util test_wave test_fx test_hc test_fxpad \
          test_led_table test_plinn_scan test_controllers test_usblabel test_netalias \
          test_pitch test_keylog test_padmode test_deckbadge test_bpmbox \
-         test_settings
+         test_settings test_utility
 
 # test_g2d links the PRODUCTION g2d_sw.c: the rescale rbp's artwork goes
 # through, and the calls as DecodeScalingJpeg makes them (g2d_sw.h).
 test_g2d: test_g2d.c g2d_sw.c g2d_sw.h
 	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
 	    -Wall -Wextra -static -o $@ test_g2d.c g2d_sw.c
+
+# test_utility links the PRODUCTION utility_rows.c: the table it builds for rbp's
+# UTILITY menu and the HDMI AUDIO row's two handlers, against a scratch file.
+test_utility: test_utility.c utility_rows.c utility_rows.h
+	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
+	    -Wall -Wextra -static -o $@ test_utility.c utility_rows.c
 
 test_point: test_point.c tscfake.c point_xform.c touch_zone.c $(FBSHIM_HDRS)
 	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \

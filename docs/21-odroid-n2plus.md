@@ -231,34 +231,43 @@ session; details further down):
    itself); HEADPHONES LEVEL / MIX go to rbp as K_HPLEVEL / K_HPMIX.
 9. **Key sync** (operator, 2026-10-26): bring in the key sync functionality
    from https://github.com/Tratosca/rx3-toolkit.
-10. **Settings in rbp's own UTILITY menu** instead of the drawn-over panel
-    (operator, 2026-10-26: "adding a row would be nicer"), and SHIFT + long
-    VIEW opening UTILITY once the shim's panel is not needed. Investigated
-    2026-10-26, not built:
-    - The rows are `stUtilityObjects` @0x5140bc in .data, 33 entries of 56
-      bytes, with their count `ulUtilityItemNum` @0x5140b8 just before them
-      (DECK 0-13, blank, MIXER 15-23, blank, GENERAL 25-32; labels are UTF-16
-      with six leading spaces under a category). An entry: +0 label, +4 value
-      strings, +8 value count, +12 current value, +16 value being edited (-1
-      none), +20 editable, then eight handlers: +24 InitItem, +28 SetLine(entry,
-      lines[2]) -- fills each line's +32 length and +34 UTF-16 text, reading the
-      live setting into +12 when nothing is being edited -- +32 StartEdit, +36
-      SelMenu, +40 IsModified, +44 EnterMenu (applies +16 through the row's
-      setter, answers 1 if it changed), +48 IsGrey, +52 Reset.
-      Util_SetLine_SlipFlashing / Util_EnterMenu_SlipFlashing are the model.
-    - The table is exactly full (33 x 56 = the gap to the next symbol), so a row
-      means moving it: rbp reaches it ONLY through seven literal-pool words --
-      0x5140b8 at 0x13c9a8, 0x13cbcc, 0x13cd1c, 0x13cf30, 0x13cfc4, 0x13d9ec and
-      0x5140bc at 0x13d9e4 -- no movw/movt pair and no anchored base reaches
-      0x5140a0..0x5147f4. Everything is driven by the count (InitUtilityItem's
-      loop, the list's item count in SetDispUtilityList, StartEdit's bound);
-      the only row-number reader (CursorUtilitySet) is the value cursor. So: a
-      bigger copy in the shim (count + rows, ours inserted where wanted, e.g.
-      after MIXER MODE), the seven words rewritten at load under mprotect (the
-      meter hook in rbp_bridge.c already patches rbp's text this way), and the
-      new rows' handlers in the shim -- ON/OFF strings can be SLIP FLASHING's.
-    - UTILITY opens on K_MENU held ~500 ms (rbp's own timer, docs/08).
-11. Parked: HOT CUE mode switch lag.
+10. Parked: HOT CUE mode switch lag.
+
+Done and confirmed 2026-10-26 (rbp's UTILITY menu):
+- HDMI AUDIO is a row of rbp's own UTILITY menu, after MIXER MODE
+  (utility_rows.c, RB_UTILITY_ROWS=1): the shim copies rbp's row table with
+  the row added and points rbp's seven literal words at the copy, after
+  checking each holds what was measured. The row borrows SLIP FLASHING's
+  OFF/ON and rbp's generic handlers; its SetLine and EnterMenu read and write
+  /run/rblive4/mirror.mode.
+- SHIFT + VIEW held 1 s holds MENU 500 ms, rbp's own way into UTILITY; a
+  short press is still SHORTCUT. The drawn settings panel is no longer raised
+  from the controller.
+- The FX screen calls TRANS "TRANNY" (the operator's own flavour).
+How the rows work, for the next row:
+- The rows are `stUtilityObjects` @0x5140bc in .data, 33 entries of 56
+  bytes, with their count `ulUtilityItemNum` @0x5140b8 just before them
+  (DECK 0-13, blank, MIXER 15-23, blank, GENERAL 25-32; labels are UTF-16
+  with six leading spaces under a category). An entry: +0 label, +4 value
+  strings, +8 value count, +12 current value, +16 value being edited (-1
+  none), +20 editable, then eight handlers: +24 InitItem, +28 SetLine(entry,
+  lines[2]) -- fills each line's +32 length and +34 UTF-16 text, reading the
+  live setting into +12 when nothing is being edited -- +32 StartEdit, +36
+  SelMenu, +40 IsModified, +44 EnterMenu (applies +16 through the row's
+  setter, answers 1 if it changed), +48 IsGrey, +52 Reset.
+  Util_SetLine_SlipFlashing / Util_EnterMenu_SlipFlashing are the model.
+- The table is exactly full (33 x 56 = the gap to the next symbol), so a row
+  means moving it: rbp reaches it ONLY through seven literal-pool words --
+  0x5140b8 at 0x13c9a8, 0x13cbcc, 0x13cd1c, 0x13cf30, 0x13cfc4, 0x13d9ec and
+  0x5140bc at 0x13d9e4 -- no movw/movt pair and no anchored base reaches
+  0x5140a0..0x5147f4. Everything is driven by the count (InitUtilityItem's
+  loop, the list's item count in SetDispUtilityList, StartEdit's bound);
+  the only row-number reader (CursorUtilitySet) is the value cursor. So: a
+  bigger copy in the shim (count + rows, ours inserted where wanted, e.g.
+  after MIXER MODE), the seven words rewritten at load under mprotect (the
+  meter hook in rbp_bridge.c already patches rbp's text this way), and the
+  new rows' handlers in the shim -- ON/OFF strings can be SLIP FLASHING's.
+- UTILITY opens on K_MENU held ~500 ms (rbp's own timer, docs/08).
 
 Done 2026-10-26 (FLX10 FX screen):
 - In rekordbox's host mode the unit draws its FX screen only from three SysEx
@@ -541,7 +550,7 @@ are the operator's table, agreed control by control on 2026-10-24:
 | SHIFT + MIX POINT, ACTIVE PART, PAGE, DECK SELECT, SAMPLER, BOOTH | nothing |
 | browse knobs (one shared message) / SHIFT | scroll / 8 steps per detent |
 | browse push (per deck) / held 0.5 s / double | on a track row LOAD that deck, on anything else SELECT (opens the folder/playlist/category) -- the row type is rbp's own `UiBrowseComm_IsTrackList` (@0x105e60) / **rbp's own long press of the selector = FAST SCROLL** (selector PRESS + op 1, held until the knob comes up; TAG TRACK is unmapped) / twice; **on the SOURCE screen with a stick in slot 1: open USB 1** (rbp ignores the knob there) |
-| BACK / VIEW; SHIFT+BACK / SHIFT+VIEW | BACK / SOURCE from the player, SOURCE again on the SOURCE menu (closes it), BROWSE (back to the player) from a browse list; PLAYLIST from the player, back to the player when pressed again from that list, TAG LIST elsewhere / SHORTCUT (on the release); held 1 s, the shim's SETTINGS panel -- while it is up the browse knobs select a row, the push presses it (held 3 s on a USB STOP row), BACK closes it |
+| BACK / VIEW; SHIFT+BACK / SHIFT+VIEW | BACK / SOURCE from the player, SOURCE again on the SOURCE menu (closes it), BROWSE (back to the player) from a browse list; PLAYLIST from the player, back to the player when pressed again from that list, TAG LIST elsewhere / SHORTCUT (on the release); held 1 s, rbp's UTILITY (MENU held 500 ms), where the browse knob, its push and BACK are rbp's own |
 | SHIFT + deck 1's browse push | TRACK FILTER (deck 2's SHIFT push not yet recorded) |
 | pad modes HOT CUE / PAD FX1 / BEAT JUMP / SAMPLER | HOT CUE / SLIP LOOP / BEAT JUMP / BEAT LOOP 2 |
 | SHIFT + those: KEYBOARD / PAD FX2 / BEAT LOOP / KEY SHIFT | GATE CUE / RELEASE FX / BEAT LOOP / BEAT JUMP 2 (a SHIFT button goes straight to its mode; pressing a main button again does what SHIFT + it does, and a third press comes back -- the FLX10's double-press behaviour) |

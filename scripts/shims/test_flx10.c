@@ -755,17 +755,25 @@ int main(void)
            is(2, K_TRACKFILTER, OP_REPEAT, 1), "VIEW -> SOURCE, SHIFT+push -> TRACK FILTER");
      OFF(7, 122); OFF(7, 93);
 
-     /* SHIFT + VIEW: SHORTCUT on a short press (on the release), the shim's
-      * SETTINGS panel on a long one; while the panel is up the browse knob, its
-      * push and BACK work it */
+     /* SHIFT + VIEW: SHORTCUT on a short press (on the release), rbp's UTILITY
+      * (MENU held 500 ms) on a long one; while the shim's panel is up the browse
+      * knob, its push and BACK work it */
      reset(); panel_cmds_n = 0; ON(7, 104);
      CHECK(sent_n == 0, "SHIFT+VIEW press: nothing yet (the length decides)");
      ms(300); map_flx10.tick(); OFF(7, 104);
      CHECK(sent_n == 2 && is(0, K_SHORTCUT, OP_PRESS, 1) && is(1, K_SHORTCUT, OP_RELEASE, 1) &&
            panel_cmds_n == 0, "short SHIFT+VIEW -> SHORTCUT");
      reset(); ON(7, 104); ms(1100); map_flx10.tick(); OFF(7, 104);
-     CHECK(sent_n == 0 && panel_cmds_n == 1 && panel_cmds[0] == SR_TOGGLE,
-           "SHIFT+VIEW held 1 s -> the settings panel, no SHORTCUT");
+     CHECK(sent_n == 1 && is(0, K_MENU, OP_PRESS, 1) && panel_cmds_n == 0,
+           "SHIFT+VIEW held 1 s -> MENU down, no SHORTCUT, no panel");
+     ms(400); map_flx10.tick();
+     CHECK(sent_n == 1, "...MENU still held at 400 ms");
+     ms(150); map_flx10.tick();
+     CHECK(sent_n == 2 && is(1, K_MENU, OP_RELEASE, 1), "...and let go after 500 ms: UTILITY");
+     panel_up = 1; reset(); panel_cmds_n = 0; ON(7, 104); ms(1100); map_flx10.tick();
+     OFF(7, 104); ms(600); map_flx10.tick();
+     CHECK(panel_cmds_n == 1 && panel_cmds[0] == SR_CLOSE && sent_n == 2,
+           "with the shim's panel up, the long press closes it and opens UTILITY");
      panel_up = 1; reset(); panel_cmds_n = 0;
      CC(7, 64, 1); CC(7, 64, 127); ON(7, 70); OFF(7, 70); ON(7, 101); OFF(7, 101);
      CHECK(sent_n == 0 && panel_cmds_n == 5 && panel_cmds[0] == SR_NEXT &&
