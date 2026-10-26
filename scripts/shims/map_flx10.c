@@ -333,6 +333,54 @@ static void jog_flush(struct jog_ctrl *s, unsigned long long t_us)
           klog("knobshim2: flx10 jog deck%d speed=%.3f rev/s\n", s->sch, (double)speed);
 }
 
+/* JOG_CAL=1: one log line per jog gesture (ended by a JOG_CAL_GAP_MS pause):
+ * the platter's net counts and how far rbp's playhead moved, so the gain can
+ * be set from rbp's ms per count against rekordbox's (tools/flx10-pcap-decode.py
+ * --jog). Meaningful on a paused deck; a playing deck adds its play time. */
+#define JOG_CAL_GAP_MS 400
+static int jog_cal;
+struct jog_cal { int active, counts, msgs, pos0; unsigned long long t0, last; };
+static struct jog_cal jcal[2];
+int flx10_pos_now(int deck, int *pos_ms, int *moving);
+
+static void jog_cal_count(int deck, int d)
+{
+     struct jog_cal *c = &jcal[deck];
+     int mov;
+
+     if (!c->active) {
+          if (!flx10_pos_now(deck, &c->pos0, &mov))
+               return;
+          c->active = 1;
+          c->counts = c->msgs = 0;
+          c->t0 = shim_now_ms();
+     }
+     c->counts += d;
+     c->msgs++;
+     c->last = shim_now_ms();
+}
+
+static void jog_cal_tick(void)
+{
+     unsigned long long now = shim_now_ms();
+
+     for (int i = 0; i < 2; i++) {
+          struct jog_cal *c = &jcal[i];
+          int pos, mov, dms;
+          if (!c->active || now - c->last < JOG_CAL_GAP_MS)
+               continue;
+          c->active = 0;
+          if (!flx10_pos_now(i, &pos, &mov) || !c->counts)
+               continue;
+          dms = pos - c->pos0;
+          klog("knobshim2: jogcal deck%d counts=%d msgs=%d secs=%.2f track_ms=%d "
+               "ms_per_count=%.4f counts_per_1.8s=%.0f (ppr=%d gain=%.4f)%s\n",
+               i + 1, c->counts, c->msgs, (double)(c->last - c->t0) / 1000.0, dms,
+               (double)dms / c->counts, dms ? 1800.0 * c->counts / dms : 0.0,
+               jog_ppr, jog_gain, mov ? " PLAYING: includes play time" : "");
+     }
+}
+
 static void flx10_jog(int deck, int val)
 {
      struct jog_ctrl *s = &jog_state[deck];
@@ -350,6 +398,8 @@ static void flx10_jog(int deck, int val)
      }
      s->pending += d;
      s->last_ms = t / 1000ULL;
+     if (jog_cal)
+          jog_cal_count(deck, d);
      flx10_hid_jog_activity(deck);
      if (t - s->win_us >= JOG_WINDOW_US)
           jog_flush(s, t);
@@ -357,6 +407,8 @@ static void flx10_jog(int deck, int val)
 
 static void flx10_jog_tick(void)
 {
+     if (jog_cal)
+          jog_cal_tick();
      unsigned long long t = now_us();
 
      for (int i = 0; i < 2; i++) {
@@ -1880,6 +1932,7 @@ static void flx10_build(void)
      jog_idle_ms = env_num("JOG_IDLE_MS", 120);
      if (jog_idle_ms < 10) jog_idle_ms = 10;
      jog_verbose = env_on("JOG_VERBOSE", 0);
+     jog_cal = env_on("JOG_CAL", 0);
      tempo_verbose = env_on("TEMPO_VERBOSE", 0);
      tempo_rev = env_on("TEMPO_REV", 0);
      mastervol_mid = env_dnum("MIRROR_GAIN_MID", MIRROR_GAIN_MID_DEFAULT);
