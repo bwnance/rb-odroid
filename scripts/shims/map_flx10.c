@@ -277,6 +277,68 @@ static void pulse(int key, int sch)
      send_rx_key(key, OP_RELEASE, sch, 0);
 }
 
+/* ---- INST.DOUBLES ----------------------------------------------------------
+ * The other deck's track on `deck`, from the same point (the RX3 manual p. 74:
+ * BEAT SYNC/INST.DOUBLES held, or LOAD pressed twice). Done as rbp's own BEAT
+ * SYNC held past its long press (1000 ms, ui::KeyInput::getLongPressTime): down
+ * now, up from flx10_sync_tick. Watched on the unit 2026-10-26: SYNC held 1.6 s
+ * put deck 1 on deck 2's track at its position. Two LOAD keys in a row did
+ * nothing there, so both FLX10 gestures come here. */
+#define SYNC_LONG_HOLD_MS 1100
+/* rbp starts the copy playing whatever the other deck is doing; a copy of a
+ * paused deck is paused again, once, if it starts within this of the hold's
+ * end (operator, 2026-10-26: the copy should not play when the original is
+ * paused) */
+#define DOUBLES_PAUSE_MS  3000
+static unsigned long long sync_up_at[2], doubles_pause_until[2];
+static int doubles_src_paused[2], doubles_place[2];
+/* the FLX10 still sends its BEAT SYNC tap (88) when a held one (120) is let
+ * go -- 0.4 s after the hold, in the key log on the unit 2026-10-26 -- which
+ * toggled SYNC right after every copy: that one is dropped */
+#define SYNC_LONG_TAP_MS  10000
+static unsigned long long sync_long_at[2];
+static int deck_playing[2], deck_loaded[2];   /* (deck_display's, below) */
+int flx10_doubles_place(int deck);        /* (below, with the other seeks) */
+
+static void flx10_inst_doubles(int deck, const char *why)
+{
+     if (sync_up_at[deck])
+          return;                         /* one already held */
+     send_rx_key(K_SYNC, OP_PRESS, deck + 1, 0);
+     sync_up_at[deck] = shim_now_ms() + SYNC_LONG_HOLD_MS;
+     doubles_src_paused[deck] = deck_loaded[1 - deck] && !deck_playing[1 - deck];
+     klog("knobshim2: flx10 deck%d %s: INST.DOUBLES (deck%d %s)\n", deck + 1, why,
+          2 - deck, doubles_src_paused[deck] ? "paused" : "playing");
+}
+
+static void flx10_sync_tick(unsigned long long t)
+{
+     for (int d = 0; d < 2; d++) {
+          if (sync_up_at[d] && t >= sync_up_at[d]) {
+               sync_up_at[d] = 0;
+               send_rx_key(K_SYNC, OP_RELEASE, d + 1, 0);
+               doubles_pause_until[d] = doubles_src_paused[d] ? t + DOUBLES_PAUSE_MS : 0;
+          }
+          if (doubles_pause_until[d]) {
+               if (t >= doubles_pause_until[d]) {
+                    doubles_pause_until[d] = 0;
+                    doubles_place[d] = 0;
+               } else if (!doubles_place[d] && deck_playing[d]) {
+                    pulse(K_PLAY, d + 1);
+                    doubles_place[d] = 1;
+                    klog("knobshim2: flx10 deck%d: a copy of a paused deck, paused\n", d + 1);
+               } else if (doubles_place[d] && !deck_playing[d]) {
+                    /* rbp loads a paused deck's copy from the very start, not
+                     * its position (operator, 2026-10-26: "the play position is
+                     * not copied", nor auto cue): put where the original is */
+                    doubles_pause_until[d] = 0;
+                    doubles_place[d] = 0;
+                    flx10_doubles_place(d);
+               }
+          }
+     }
+}
+
 /* ---- LINK: the USB stick's eject ------------------------------------------
  * Each deck's LINK button (note 74, otherwise unused here) stands for that
  * slot's stick, deck 1 for USB1 and deck 2 for USB2 (operator, 2026-10-26):
@@ -1189,6 +1251,29 @@ __attribute__((weak)) void flx10_seek(int deck, long pos)
      ((void (*)(void *))PLAYER_SET_BEATPOS_SEARCH)(player);
 }
 
+/* INST.DOUBLES of a paused deck: `deck`'s copy to where the original stands.
+ * The original's position in ms (PE_GETPLAYINGTIME), over the track's length
+ * in ms and in samples -- it is the same track on both. Answers 1 if it moved
+ * the copy. WEAK so the host test can answer for rbp. */
+__attribute__((weak)) int flx10_doubles_place(int deck)
+{
+     void *pe = *(void **)PLAYENGINE_GLOBAL, *player = pe_player(deck);
+     long len, pos;
+     int ms, total = deck_total_ms[1 - deck];
+
+     if (!pe || !player || total <= 0 ||
+         !((int (*)(void *, int))PE_ISLOADED)(pe, 1 - deck))
+          return 0;
+     ms = ((int (*)(void *, int))PE_GETPLAYINGTIME)(pe, 1 - deck);
+     len = ((long (*)(void *))PLAYER_TOTAL_LENGTH)(player);
+     if (ms < 0 || len <= 0)
+          return 0;
+     pos = (long)((long long)ms * len / total);
+     flx10_seek(deck, pos);
+     klog("knobshim2: flx10 deck%d: the copy put at deck%d's %d ms\n", deck + 1, 2 - deck, ms);
+     return 1;
+}
+
 /* The jog screens' playhead, read by the HID sender 100 times a second
  * (flx10_hid.h): rbp_led's reading is 20 Hz, which made the arm lag a jog
  * and step back on a pause. The same PlayEngine getters rbp_led calls from
@@ -1555,8 +1640,9 @@ __attribute__((weak)) int flx10_cursor_is_track(void)
 /* ---- the browse knobs' pushes --------------------------------------------
  * Both knobs TURN with the same message (ch 7 CC 64), so they scroll one list;
  * only the pushes say which deck: 70 = deck 1, 71 = deck 2. A push is LOAD on
- * release. A double push is two LOADs, which the operator chose over an
- * instant-doubles gesture.
+ * release. A second push within LOAD_DOUBLE_MS of a LOAD is INST.DOUBLES,
+ * as printed on the FLX10 (operator, 2026-10-26; it used to be a second LOAD):
+ * the first push's LOAD has gone, and the other deck's track replaces it.
  *
  * HELD browse_hold_ms, it is the RX3's own long press of the rotary selector,
  * which is rbp's FAST SCROLL (the fast-forward icon). rbp's long press for
@@ -1579,6 +1665,8 @@ static int push_fired[2];            /* the long press went out; selector held *
  * release sent in the same instant (operator, 2026-10-25). */
 #define LOAD_HOLD_MS 50
 static unsigned long long load_up_at[2];
+#define LOAD_DOUBLE_MS 400                 /* a second LOAD push within this: INST.DOUBLES */
+static unsigned long long load_at[2];       /* the last LOAD push, 0 = none to pair */
 
 static void flx10_push(int deck, int on)
 {
@@ -1593,6 +1681,13 @@ static void flx10_push(int deck, int on)
      if (push_fired[deck]) {
           push_fired[deck] = 0;
           send_rx_key(K_SELECTOR, OP_RELEASE, CH_GLOBAL, 0);   /* fast scroll off */
+          return;
+     }
+     /* the second push of a pair, whatever the screen: the first's LOAD has
+      * taken rbp back to the player, so the cursor is on no track now */
+     if (load_at[deck] && shim_now_ms() - load_at[deck] < LOAD_DOUBLE_MS) {
+          load_at[deck] = 0;
+          flx10_inst_doubles(deck, "LOAD twice");
           return;
      }
      if (flx10_browse_mode() == BROWSE_MODE_SOURCE && flx10_usb1_present()) {
@@ -1611,6 +1706,7 @@ static void flx10_push(int deck, int on)
                "0x%02x rowflags 0x%02x -> %s\n", deck + 1, mode, cur, lf, rf & 0xff,
                track ? "LOAD (held)" : "SELECT");
           if (track) {
+               load_at[deck] = shim_now_ms();
                if (load_up_at[deck])
                     send_rx_key(K_LOAD, OP_RELEASE, deck + 1, 0);
                send_rx_key(K_LOAD, OP_PRESS, deck + 1, 0);
@@ -2245,11 +2341,26 @@ static void flx10_note(int ch, int note, int on)
                     sync_down[deck] = 0;
                     return;
                }
+               /* the hold's own release -- a lone 88 00 after a 120, in the
+                * key log on the unit 2026-10-26 */
+               if (sync_long_at[deck] &&
+                   shim_now_ms() - sync_long_at[deck] < SYNC_LONG_TAP_MS) {
+                    sync_long_at[deck] = 0;
+                    return;
+               }
                if (!deck_sync[deck])
                     flx10_sync_fit_range(deck);
                pulse(K_SYNC, sch);
                return;
           }
+          case N_SYNC_LONG:
+               /* BEAT SYNC held: the FLX10 holds the button itself and says so
+                * with note 120, no 88 while held */
+               if (on) {
+                    sync_long_at[deck] = shim_now_ms();
+                    flx10_inst_doubles(deck, "SYNC held");
+               }
+               return;
           case N_SYNC_SHIFT:
                if (on)
                     pulse(K_MASTER, sch);
@@ -2626,8 +2737,7 @@ static void flx10_build(void)
           /* The pad-mode buttons are named cases in flx10_note()
            * (flx10_set_mode()). Known and deliberately unbound (key 0): logged,
            * nothing sent. */
-          add_note(rch, N_SYNC_LONG, 0, sch);
-          add_note(rch, N_4BEAT_SHIFT, 0, sch);
+               add_note(rch, N_4BEAT_SHIFT, 0, sch);
 
           add_abs(rch, CC_TRIM, K_TRIM, sch);
           add_abs(rch, CC_EQH, K_EQH, sch);
@@ -2688,6 +2798,11 @@ static void flx10_startup(void)
      *(volatile uint32_t *)ADDR_MIXER_ROUTE_PLAYER0 = MIXER_ROUTE_INPUT0;
      *(volatile uint32_t *)ADDR_MIXER_ROUTE_PLAYER1 = MIXER_ROUTE_INPUT1;
      send_rx_key_f(K_MASTERLVL, OP_VALUE, CH_GLOBAL, 1023, 1.0f);
+     /* The HDMI mirror's level (flx10_mastervol) starts as the MASTER knob all
+      * the way down, not shmstate.c's full: the unit does not report the knob
+      * until it moves, and a mirror at full while the knob sits at zero was the
+      * loud start (operator, 2026-10-26). */
+     g_mirror_gain = 0.0f;
      klog("knobshim2: DDJ-FLX10: routed Ch1->Deck1, Ch2->Deck2; master level unity\n");
 }
 
@@ -2709,24 +2824,61 @@ static void flx10_keysync_tick(void);
  * [SyncMaster+0x38][deck*8+4] carries 0x10, and neither deck's does on this
  * unit (read live 2026-10-26: 0x1 and 0x0, rbp's mixer otherwise seeing the
  * faders right) -- watched, rbp moved deck 1's master to deck 2 at once and
- * never deck 2's to deck 1. So the other way round is done here, as rbp does
- * its own: the moment the master deck goes off air -- its channel fader or the
+ * never deck 2's to deck 1. So the other way round is done here, the same way:
+ * the moment the master deck goes off air -- its channel fader or the
  * crossfader, as rbp's ON AIR shows it -- while the other deck plays on air,
- * MASTER is pressed on the other deck (operator, 2026-10-26: a 1 s wait was
- * too slow, and 1 > 2 is instant). Once, then MASTER_RESEND_MS for rbp to
- * take it. */
-#define MASTER_RESEND_MS 300
+ * MASTER is pressed on the other deck. And either move, rbp's or this one, is
+ * undone when the deck it left is back on air within MASTER_CUT_MS: a quick
+ * fader cut leaves the master where it was (operator, 2026-10-26: a wait before
+ * moving lagged, none switched on every cut). */
+#define MASTER_CUT_MS    500
+#define MASTER_RESEND_MS 300     /* one press, then this for rbp to take it */
 static void flx10_master_tick(unsigned long long t)
 {
-     static unsigned long long sent_at;
+     static int last_m = -1, cut_from = -1, ours = -1;
+     static unsigned long long cut_at, sent_at;
      int m = deck_master[0] ? 0 : deck_master[1] ? 1 : -1, o = 1 - m;
 
+     if (ours >= 0 && t - sent_at > 1000)
+          ours = -1;                     /* rbp never took it */
+     /* rbp moved it -- not to where this pressed -- from a deck off air:
+      * maybe only a cut */
+     if (m >= 0 && last_m >= 0 && m != last_m) {
+          if (m == ours)
+               ours = -1;
+          else if (!deck_on_air[last_m]) {
+               cut_from = last_m;
+               cut_at = t;
+          }
+     }
+     last_m = m;
+     if (sent_at && t - sent_at < MASTER_RESEND_MS)
+          return;
+     if (cut_from >= 0) {
+          if (m < 0 || t - cut_at >= MASTER_CUT_MS ||
+              (m == cut_from && deck_on_air[cut_from])) {
+               cut_from = -1;
+          } else if (deck_on_air[cut_from]) {
+               if (m != cut_from) {
+                    sent_at = t ? t : 1;
+                    ours = cut_from;
+                    pulse(K_MASTER, cut_from + 1);
+                    klog("knobshim2: flx10 deck%d back on air: a cut, MASTER back to it\n",
+                         cut_from + 1);
+               }
+               cut_from = -1;
+               return;
+          } else {
+               return;
+          }
+     }
      if (m < 0 || deck_on_air[m] || !deck_loaded[o] || !deck_playing[o] ||
          !deck_on_air[o] || deck_master[o])
           return;
-     if (sent_at && t - sent_at < MASTER_RESEND_MS)
-          return;
      sent_at = t ? t : 1;
+     ours = o;
+     cut_from = m;
+     cut_at = sent_at;
      pulse(K_MASTER, o + 1);
      klog("knobshim2: flx10 deck%d off air: MASTER to deck%d\n", m + 1, o + 1);
 }
@@ -2747,6 +2899,7 @@ static void flx10_tick(void)
      flx10_splash_tick();
      flx10_keysync_tick();
      flx10_master_tick(t);
+     flx10_sync_tick(t);
 }
 
 static void flx10_unit_setting(int ch, int is_cc, int num, int val);

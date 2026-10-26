@@ -603,7 +603,7 @@ are the operator's table, agreed control by control on 2026-10-24:
 | FLX10 | RX3 |
 |---|---|
 | PLAY, CUE / SHIFT + CUE | PLAY, CUE / back to the start: a seek straight to the auto cue point (the main cue when auto cue set it, else the top), play/pause kept, nothing repeats while held |
-| BEAT SYNC / SHIFT | SYNC / MASTER (tempo master); long press nothing |
+| BEAT SYNC / SHIFT / held | SYNC / MASTER (tempo master) / **INST.DOUBLES** (the RX3 manual p. 74): the FLX10 sends note 120 for a hold, and rbp gets its own BEAT SYNC held 1.1 s; the FLX10's lone SYNC release after the hold is dropped. A copy of a paused deck is paused and put at the original's position (rbp starts it, from the top) |
 | KEY SYNC / held | nothing (rbp has no key sync) / MASTER TEMPO; SHIFT nothing |
 | TEMPO RESET / SHIFT | toggle: tempo held at 0.0%, fader ignored; off = back to the fader (LED lit while on) / TEMPO RANGE |
 | TEMPO fader, jog (top press = touch, top spin, side ring) | the same |
@@ -616,18 +616,19 @@ are the operator's table, agreed control by control on 2026-10-24:
 | LINK (deck 1 / deck 2) | that slot's USB stick (USB1 / USB2): lit while rbp has it mounted and ready; held, a slow blink for 1 s then twice as fast for 1 s, and at 2 s rbp's USB STOP for the slot, still blinking until the stick has left rbp's mount table, then dark. Let go before 2 s: no eject |
 | SHIFT + MIX POINT, ACTIVE PART, PAGE, DECK SELECT, SAMPLER, BOOTH | nothing |
 | browse knobs (one shared message) / SHIFT | scroll / 8 steps per detent |
-| browse push (per deck) / held 0.5 s / double | on a track row LOAD that deck, on anything else SELECT (opens the folder/playlist/category) -- the row type is rbp's own `UiBrowseComm_IsTrackList` (@0x105e60) / **rbp's own long press of the selector = FAST SCROLL** (selector PRESS + op 1, held until the knob comes up; TAG TRACK is unmapped) / twice; **on the SOURCE screen with a stick in slot 1: open USB 1** (rbp ignores the knob there) |
+| browse push (per deck) / held 0.5 s / twice | on a track row LOAD that deck, on anything else SELECT (opens the folder/playlist/category) -- the row type is rbp's own `UiBrowseComm_IsTrackList` (@0x105e60) / **rbp's own long press of the selector = FAST SCROLL** (selector PRESS + op 1, held until the knob comes up; TAG TRACK is unmapped) / a second push within 400 ms of a LOAD, wherever the cursor is: **INST.DOUBLES**, as BEAT SYNC held; **on the SOURCE screen with a stick in slot 1: open USB 1** (rbp ignores the knob there) |
 | BACK / VIEW; SHIFT+BACK / SHIFT+VIEW | BACK / SOURCE from the player, SOURCE again on the SOURCE menu (closes it), BROWSE (back to the player) from a browse list; PLAYLIST from the player, back to the player when pressed again from that list, TAG LIST elsewhere / SHORTCUT (on the release); held 1 s, rbp's UTILITY (MENU held 500 ms), where the browse knob, its push and BACK are rbp's own |
 | SHIFT + deck 1's browse push | TRACK FILTER (deck 2's SHIFT push not yet recorded) |
 | pad modes HOT CUE / PAD FX1 / BEAT JUMP / SAMPLER | HOT CUE / SLIP LOOP / BEAT JUMP / BEAT LOOP 2 |
 | SHIFT + those: KEYBOARD / PAD FX2 / BEAT LOOP / KEY SHIFT | GATE CUE / RELEASE FX / BEAT LOOP / BEAT JUMP 2 (a SHIFT button goes straight to its mode; pressing a main button again does what SHIFT + it does, and a third press comes back -- the FLX10's double-press behaviour) |
 | pads; SHIFT + pad in HOT CUE | pads in rbp's mode; delete that cue |
 | ch 1/2 TRIM, EQ, COLOR, FADER, CUE; master CUE, crossfader, HP mix/level | the same |
+| (no control) MASTER follows the faders | rbp moves the sync master from deck 1 to deck 2 the moment deck 1 goes off air, never back; the shim does deck 2 to deck 1 the same way (ON AIR from fader or crossfader, the other deck playing on air), and undoes either move when the deck left is back on air within 500 ms -- a fader cut moves nothing |
 | crossfader assign A / THRU / B (deck notes 22 / 29 / 24) | rbp's crossfader assign for that channel (`DjEngineIF::setCrossFaderAssign`; the RX3 only sets it from its curve switch, so it sat at THRU) |
-| MASTER LEVEL | the unit's own volume; feeds only the HDMI mirror (as on the FLX4) |
+| MASTER LEVEL | the unit's own volume; feeds only the HDMI mirror (as on the FLX4), which starts silent -- the knob is not reported until it moves |
 | SCFX SPACE, D.ECHO, CRUSH, NOISE, FILTER / PITCH | the same names / SWEEP. SPACE is 0x50a1 and CRUSH 0x50a5: rbp_abi.h had them swapped, corrected from the unit (2026-10-24) |
 | SAMPLER VOL | SCFX PARAMETER (0x50a7, channels 1 and 2) |
-| BEAT < > / SHIFT; LEVEL/DEPTH / SHIFT; ON/OFF | BEAT < > / AUTO (BPM back to auto) and TAP; DEPTH / TIME; Beat FX ON/OFF |
+| BEAT < > / SHIFT; LEVEL/DEPTH / SHIFT; ON/OFF | BEAT < > / AUTO (BPM back to auto) and TAP; DEPTH / TIME; Beat FX ON/OFF -- the FLX10 latches the button itself (7f flashing, 00 not, one message a push), so the velocity is the state: rbp's BFX key is tapped only when rbp differs, and the startup controls query sets rbp from the button |
 | effect selector | by name: ECHO, MT DELAY→DELAY, SPIRAL, REVERB, TRANS, FLANGER, PHASER, SLIP ROLL, ROLL; others nothing. Note 32 is fully counter-clockwise (confirmed). rbp's positions are its own order, not the RX3 knob's printing (docs/13 S5.9) |
 | channel selector (SP MIC 3 1 2 4 MST = notes 22 21 18 16 17 19 20) | 1 → player 1, 2 → player 2, MIC → MIC, MST → MASTER; 3, 4, SP → nothing (rbp's target unchanged; crossfader A/B on 3/4 would contradict the deck lights). Sent only when the knob moves |
 

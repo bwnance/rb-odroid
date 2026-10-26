@@ -110,6 +110,8 @@ static long start_pos[2] = { 22050, 22050 }; static int start_ms[2] = { 500, 500
 static int seek_n, seek_deck; static long seek_pos;
 long flx10_start_pos(int d, int *ms) { *ms = start_ms[d]; return start_pos[d]; }
 void flx10_seek(int d, long pos) { seek_n++; seek_deck = d; seek_pos = pos; }
+static int place_n, place_deck = -1;
+int flx10_doubles_place(int d) { place_n++; place_deck = d; return 1; }
 void flx10_trrev_as_second_press(int d) { second_press[d]++; }
 static int bpm_auto_n;
 void flx10_bfx_bpm_auto(void) { bpm_auto_n++; }
@@ -733,7 +735,7 @@ int main(void)
      CHECK(sent_n == 2 && is(0, K_USB1, OP_PRESS, 1) && is(1, K_USB1, OP_RELEASE, 1),
            "push on SOURCE -> USB1");
      usb1 = 0;
-     reset(); ON(7, 71); OFF(7, 71);
+     ms(500); reset(); ON(7, 71); OFF(7, 71);
      CHECK(sent_n == 1 && is(0, K_LOAD, OP_PRESS, 2),
            "push on SOURCE, slot 1 empty -> as elsewhere (%d)", sent_n);
      ms(60); map_flx10.tick();
@@ -749,6 +751,21 @@ int main(void)
      OFF(7, 70);
      CHECK(sent_n == 4 && is(3, K_SELECTOR, OP_RELEASE, 1),
            "release: selector up, no LOAD (%d)", sent_n);
+     /* LOAD pushed twice on a track: INST.DOUBLES (rbp's SYNC held past 1 s) */
+     ms(500); reset(); ON(7, 71); OFF(7, 71); ms(60); map_flx10.tick();
+     CHECK(sent_n == 2 && is(0, K_LOAD, OP_PRESS, 2), "a push: LOAD");
+     cursor_track = 0;                      /* the LOAD took rbp back to the player */
+     ms(200); ON(7, 71); OFF(7, 71);
+     cursor_track = 1;
+     CHECK(sent_n == 3 && is(2, K_SYNC, OP_PRESS, 2),
+           "a second push within 400 ms: INST.DOUBLES, SYNC down on deck 2 (%d)", sent_n);
+     ms(600); map_flx10.tick();
+     CHECK(sent_n == 3, "...held");
+     ms(600); map_flx10.tick();
+     CHECK(sent_n == 4 && is(3, K_SYNC, OP_RELEASE, 2), "...up after 1.1 s (%d)", sent_n);
+     ms(200); ON(7, 71); OFF(7, 71);
+     CHECK(sent_n == 5 && is(4, K_LOAD, OP_PRESS, 2), "the next push: a LOAD again (%d)", sent_n);
+     ms(60); map_flx10.tick(); ms(500);
      /* SAMPLER VOL -> SCFX PARAMETER 0x50a7 on both mixer channels */
      reset(); CC(7, 3, 127); CC(7, 35, 9);
      CHECK(sent_n == 2 && sent[0].key == 0x50a7 && sent[0].ch == 1 && sent[1].ch == 2 &&
@@ -1621,6 +1638,19 @@ int main(void)
           d1.sync = 0; d0.master = 0; n->deck_display(0, &d0); n->deck_display(1, &d1);
           reset(); ON(2, 88); OFF(2, 88);
           CHECK(sent_n == 2, "no master: no range change");
+          d0.playing = 1; n->deck_display(0, &d0);     /* a copy of a playing deck */
+          reset(); ON(2, 120);
+          CHECK(sent_n == 1 && is(0, K_SYNC, OP_PRESS, 2),
+                "SYNC held (the FLX10's note 120): rbp's SYNC down");
+          ms(500); map_flx10.tick(); OFF(2, 120); ON(2, 120);
+          CHECK(sent_n == 1, "...held, whatever else 120 says meanwhile");
+          ms(700); map_flx10.tick();
+          CHECK(sent_n == 2 && is(1, K_SYNC, OP_RELEASE, 2),
+                "...and up after 1.1 s, past rbp's 1000 ms long press: INST.DOUBLES");
+          ms(400); OFF(2, 88);
+          CHECK(sent_n == 2, "the FLX10's lone SYNC release on letting go of the hold: dropped (%d)", sent_n);
+          ms(500); ON(2, 88); OFF(2, 88);
+          CHECK(sent_n == 4 && is(2, K_SYNC, OP_PRESS, 2), "the next tap: SYNC (%d)", sent_n);
           memset(&d0, 0, sizeof d0); memset(&d1, 0, sizeof d1);
           n->deck_display(0, &d0); n->deck_display(1, &d1);
      }
@@ -1712,23 +1742,70 @@ int main(void)
           void (*dd)(int, const struct deck_info *) = map_flx10.leds->deck_display;
 
           memset(&a, 0, sizeof a);
-          a.loaded = a.playing = a.master = a.on_air = 1; a.total_ms = 200000;
-          b = a; b.master = 0; b.total_ms = 180000;
+          a.loaded = a.playing = a.on_air = 1; a.total_ms = 200000;
+          b = a; b.master = 1; b.total_ms = 180000;
           dd(0, &a); dd(1, &b); reset();
           map_flx10.tick(); ms(1500); map_flx10.tick();
           CHECK(sent_n == 0, "both on air: the master stays");
-          a.on_air = 0; b.playing = 0; dd(0, &a); dd(1, &b); ms(1500); map_flx10.tick();
+          a.playing = 0; b.on_air = 0; dd(0, &a); dd(1, &b);
+          map_flx10.tick(); ms(1500); map_flx10.tick();
           CHECK(sent_n == 0, "the other deck not playing: the master stays");
-          b.playing = 1; dd(1, &b); map_flx10.tick();
-          CHECK(sent_n == 2 && is(0, K_MASTER, OP_PRESS, 2) && is(1, K_MASTER, OP_RELEASE, 2),
-                "the master off air, deck 2 playing on air: MASTER on deck 2 at once (%d)", sent_n);
+          b.on_air = 1; dd(1, &b); map_flx10.tick(); ms(1000);
+          a.playing = 1; b.on_air = 0; dd(0, &a); dd(1, &b); map_flx10.tick();
+          CHECK(sent_n == 2 && is(0, K_MASTER, OP_PRESS, 1) && is(1, K_MASTER, OP_RELEASE, 1),
+                "deck 2 off air, deck 1 playing on air: MASTER on deck 1 at once (%d)", sent_n);
           ms(100); map_flx10.tick();
           CHECK(sent_n == 2, "...once, while rbp takes it");
-          a.master = 0; b.master = 1; dd(0, &a); dd(1, &b); ms(2000); map_flx10.tick();
-          CHECK(sent_n == 2, "deck 2 is master: nothing more");
-          a.on_air = 1; b.on_air = 0; dd(0, &a); dd(1, &b);
-          map_flx10.tick();
-          CHECK(sent_n == 4 && is(2, K_MASTER, OP_PRESS, 1), "and back to deck 1 the same way");
+          a.master = 1; b.master = 0; dd(0, &a); dd(1, &b); map_flx10.tick();
+          ms(250); b.on_air = 1; dd(1, &b); map_flx10.tick();
+          CHECK(sent_n == 4 && is(2, K_MASTER, OP_PRESS, 2),
+                "deck 2 back on air 350 ms later: a cut, MASTER back on deck 2 (%d)", sent_n);
+          a.master = 0; b.master = 1; dd(0, &a); dd(1, &b); ms(1000); map_flx10.tick();
+          CHECK(sent_n == 4, "deck 2 master again: nothing more");
+          b.on_air = 0; dd(1, &b); map_flx10.tick();
+          CHECK(sent_n == 6 && is(4, K_MASTER, OP_PRESS, 1), "off air again: MASTER on deck 1");
+          a.master = 1; b.master = 0; dd(0, &a); dd(1, &b); ms(100); map_flx10.tick();
+          ms(600); map_flx10.tick(); b.on_air = 1; dd(1, &b); map_flx10.tick();
+          CHECK(sent_n == 6, "...and back on air 700 ms later is a mix: deck 1 keeps it");
+
+          /* rbp's own move, deck 1 to deck 2 at once: undone after a cut */
+          ms(1000); map_flx10.tick();
+          a.on_air = 0; a.master = 0; b.master = 1; dd(0, &a); dd(1, &b); map_flx10.tick();
+          ms(400); a.on_air = 1; dd(0, &a); map_flx10.tick();
+          CHECK(sent_n == 8 && is(6, K_MASTER, OP_PRESS, 1),
+                "rbp moved it on a 400 ms cut: MASTER back on deck 1 (%d)", sent_n);
+          a.master = 1; b.master = 0; dd(0, &a); dd(1, &b); ms(1000); map_flx10.tick();
+          a.on_air = 0; a.master = 0; b.master = 1; dd(0, &a); dd(1, &b); map_flx10.tick();
+          ms(600); map_flx10.tick(); a.on_air = 1; dd(0, &a); map_flx10.tick();
+          CHECK(sent_n == 8, "...but off air 600 ms is a mix: deck 2 keeps it");
+     }
+
+     /* a copy of a paused deck: paused again when rbp starts it */
+     {
+          struct deck_info p0, p1;
+          memset(&p0, 0, sizeof p0); memset(&p1, 0, sizeof p1);
+          p0.loaded = p1.loaded = 1;
+          map_flx10.leds->deck_display(0, &p0); map_flx10.leds->deck_display(1, &p1);
+          reset(); ON(7, 71); OFF(7, 71); ms(60); map_flx10.tick();
+          ms(200); ON(7, 71); OFF(7, 71); ms(1200); map_flx10.tick();
+          CHECK(sent_n == 4 && is(3, K_SYNC, OP_RELEASE, 2), "doubles of a paused deck 1 (%d)", sent_n);
+          ms(300); p1.playing = 1; map_flx10.leds->deck_display(1, &p1); map_flx10.tick();
+          CHECK(sent_n == 6 && is(4, K_PLAY, OP_PRESS, 2), "the copy started: PLAY, paused (%d)", sent_n);
+          place_n = 0; ms(100); map_flx10.tick();
+          CHECK(sent_n == 6 && place_n == 0, "...once, and not placed while still playing");
+          p1.playing = 0; map_flx10.leds->deck_display(1, &p1); map_flx10.tick();
+          CHECK(place_n == 1 && place_deck == 1, "stopped: put where deck 1 stands (%d)", place_n);
+          ms(500); map_flx10.tick();
+          CHECK(sent_n == 6 && place_n == 1, "...once");
+          p0.playing = 1; p1.playing = 0;
+          map_flx10.leds->deck_display(0, &p0); map_flx10.leds->deck_display(1, &p1);
+          ms(500); reset(); ON(7, 71); OFF(7, 71); ms(60); map_flx10.tick();
+          ms(200); ON(7, 71); OFF(7, 71); ms(1200); map_flx10.tick();
+          ms(300); p1.playing = 1; map_flx10.leds->deck_display(1, &p1); map_flx10.tick();
+          CHECK(sent_n == 4 && place_n == 1, "doubles of a playing deck: the copy plays (%d)", sent_n);
+          memset(&p0, 0, sizeof p0); memset(&p1, 0, sizeof p1);
+          map_flx10.leds->deck_display(0, &p0); map_flx10.leds->deck_display(1, &p1);
+          ms(500);
      }
 
      printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);
