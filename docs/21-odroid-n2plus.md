@@ -327,7 +327,21 @@ session; details further down):
    hidden to make the room (operator, 2026-10-26). rbp has no such layout of
    its own, so it would be the shim's to draw, over the space rbp's two lanes
    and pad rows take.
-13. Parked: HOT CUE mode switch lag.
+13. **Line inputs on all four channels -- wished for, not started** (operator,
+   2026-10-26: important; after the booth and master outputs, item 6). Not
+   working today: audioshim answers rbp's capture with silence ("mapped virtual
+   Capture device") and nothing reads the FLX10's inputs. The FLX10 has them:
+   its USB capture is 10 channels, S24_3LE at 44.1 kHz (/proc/asound/DDJFLX10/
+   stream0), five stereo pairs -- CH1..CH4's LINE/PHONO and one more (MIC or a
+   master record pair) -- on the same endpoint the playback's implicit feedback
+   clocks from. Which pair is which channel: record all ten with a signal on
+   one line input. For channels 1/2 rbp has the mixer side already --
+   MixerChInnards::onEv_DeckLineSW(SW_MIXER_SRC), a per-channel DECK/LINE switch
+   playing rbp's capture stream through the channel's fader and EQ -- so: feed
+   the right pair into rbp's capture stream instead of silence, and map the
+   FLX10's input selector to that switch. Channels 3/4 need mixer channels 3/4
+   first: the four-deck item (12).
+14. Parked: HOT CUE mode switch lag.
 
 Done 2026-10-26 (start-up splash, rbp's TRANS picture):
 - For RB_SPLASH_MS (8000) after rbp's first frame the screen shows a picture on
