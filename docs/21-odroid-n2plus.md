@@ -222,13 +222,23 @@ session; details further down):
 6. **Splash until rbp is ready**, input held until then (item below). Needs
    the operator's description of the start-up glitches first.
 7. **Booth and master outputs**, by ear.
-8. **The FLX10's FX screen** stays on what the connect sequence sent: in
-   rekordbox's host mode the unit draws it only from SysEx 0a (the effect's
-   name, ASCII packed 8 bits a character into the 7-bit bytes from bit 1),
-   0b (the beat / parameter) and 0c (state). Decoding from the operator's
-   capture_fx (2026-10-26).
-9. **MASTER, BOOTH and HEADPHONES levels at start**: not read until moved.
-10. Parked: HOT CUE mode switch lag; RX3 effects matching the FLX10's.
+8. **MASTER, BOOTH and HEADPHONES levels at start**: not read until moved.
+9. **Key sync** (operator, 2026-10-26): bring in the key sync functionality
+   from https://github.com/Tratosca/rx3-toolkit.
+10. Parked: HOT CUE mode switch lag.
+
+Done 2026-10-26 (FLX10 FX screen):
+- In rekordbox's host mode the unit draws its FX screen only from three SysEx
+  (decoded from the operator's capture_fx): 0a the name, ASCII packed 8 bits
+  a character into the 7-bit bytes from bit 1 of its field; 0b the beat text,
+  the same packing from bit 0; 0c the BPM x100 in hex digits and a TAP flag.
+  map_flx10.c's flx10_fxscreen_tick sends rbp's effect name, its beat (the
+  rung through getBeatFxNumDen's table, or the percent at +0x30 for REVERB
+  and PITCH) and the Beat FX BPM (BpmManager +0x1c / +0x10).
+- The effect selector matches the FLX10's labels by name (MT DELAY is DELAY)
+  and fills the other five from the RX3 dial's closest detent: LOW CUT ECHO
+  PING PONG, ENIGMA JET FILTER, STRETCH PITCH, MOBIUS saw VINYL BRAKE,
+  MOBIUS triangle HELIX.
 
 Done 2026-10-26 (settings panel):
 - HDMI AUDIO row: ON/OFF, written to /run/rblive4/mirror.mode

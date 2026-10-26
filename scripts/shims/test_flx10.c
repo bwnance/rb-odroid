@@ -104,6 +104,8 @@ void flx10_seek(int d, long pos) { seek_n++; seek_deck = d; seek_pos = pos; }
 void flx10_trrev_as_second_press(int d) { second_press[d]++; }
 static int bpm_auto_n;
 void flx10_bfx_bpm_auto(void) { bpm_auto_n++; }
+/* the FX screen reads nothing of rbp's here: its messages are tested as bytes */
+int flx10_fx_read(int sel, void *v) { (void)sel; (void)v; return 0; }
 void flx10_beat_jump(int d, int type) { if (bj_n < 16) { bj_deck[bj_n] = d; bj_t[bj_n] = type; } bj_n++; }
 static int pj_n, pj_deck[16]; static float pj_b[16];
 int flx10_plain_jump(int d, float b) { if (pj_n < 16) { pj_deck[pj_n] = d; pj_b[pj_n] = b; } pj_n++; return 1; }
@@ -843,11 +845,13 @@ int main(void)
       * 8 FILTER 9 TRANS 10 ROLL 11 SLIP ROLL 12 PITCH 13 VINYL BRAKE */
      {
           static const struct { int note; int pos; const char *name; } fx[] = {
-               { 32, -1, "LOW CUT ECHO" }, { 33, 1, "ECHO" }, { 34, 0, "MT DELAY" },
-               { 35, 3, "SPIRAL" }, { 36, 5, "REVERB" }, { 37, 9, "TRANS" },
-               { 38, -1, "ENIGMA JET" }, { 39, 6, "FLANGER" }, { 40, 7, "PHASER" },
-               { 41, -1, "STRETCH" }, { 42, 11, "SLIP ROLL" }, { 43, 10, "ROLL" },
-               { 44, -1, "MOBIUS saw" }, { 45, -1, "MOBIUS tri" },
+               /* by name, and the rest by the RX3 dial's closest detent */
+               { 32, 2, "LOW CUT ECHO -> PING PONG" }, { 33, 1, "ECHO" },
+               { 34, 0, "MT DELAY -> DELAY" }, { 35, 3, "SPIRAL" }, { 36, 5, "REVERB" },
+               { 37, 9, "TRANS" }, { 38, 8, "ENIGMA JET -> FILTER" }, { 39, 6, "FLANGER" },
+               { 40, 7, "PHASER" }, { 41, 12, "STRETCH -> PITCH" }, { 42, 11, "SLIP ROLL" },
+               { 43, 10, "ROLL" }, { 44, 13, "MOBIUS saw -> VINYL BRAKE" },
+               { 45, 4, "MOBIUS tri -> HELIX" },
           };
           for (unsigned i = 0; i < sizeof fx / sizeof fx[0]; i++) {
                reset(); ON(5, fx[i].note); OFF(5, fx[i].note);
@@ -858,6 +862,58 @@ int main(void)
                           "%s -> RX3 position %d (got %ld)", fx[i].name, fx[i].pos,
                           sent_n ? sent[0].param : -99L);
           }
+     }
+     /* the FX screen's three SysEx, byte for byte against rekordbox's (capture_fx) */
+     {
+          extern int flx10_fx_name_sysex(const char *, unsigned char *);
+          extern int flx10_fx_beat_sysex(const char *, unsigned char *);
+          extern int flx10_fx_bpm_sysex(int, int, unsigned char *);
+          extern void flx10_fx_beat_text(int, int, int, char *, int);
+          static const unsigned char head[10] = {
+               0xF0, 0x00, 0x40, 0x05, 0x00, 0x00, 0x04, 0x01, 0x00, 0x00 };
+          static const unsigned char echo[] = { 0x00, 0x28, 0x00, 0x26, 0x00,
+               0x0a, 0x0d, 0x42, 0x74, 0x09 };
+          static const unsigned char low_cut[] = { 0x00, 0x28, 0x00, 0x26, 0x00,
+               0x18, 0x3d, 0x3a, 0x05, 0x64, 0x50, 0x2a, 0x54, 0x40, 0x14, 0x1a, 0x04,
+               0x69, 0x13 };
+          unsigned char sx[64];
+          char t[8];
+          int n, zero = 1;
+
+          n = flx10_fx_name_sysex("ECHO", sx);
+          for (int k = 16 + 5; k < 53; k++)
+               zero &= sx[k] == 0;
+          CHECK(n == 54 && !memcmp(sx, head, 10) && sx[10] == 0x0A &&
+                !memcmp(sx + 11, echo, sizeof echo) && zero && sx[53] == 0xF7,
+                "FX name ECHO packs as rekordbox's");
+          flx10_fx_name_sysex("LOW CUT ECHO", sx);
+          CHECK(!memcmp(sx + 11, low_cut, sizeof low_cut), "FX name LOW CUT ECHO");
+          n = flx10_fx_beat_sysex("1/2", sx);
+          CHECK(n == 18 && sx[10] == 0x0B && sx[11] == 0x31 && sx[12] == 0x5e &&
+                sx[13] == 0x48 && sx[14] == 0x01 && sx[15] == 0 && sx[16] == 0 &&
+                sx[17] == 0xF7, "FX beat 1/2");
+          flx10_fx_beat_sysex("-1/16", sx);
+          CHECK(sx[11] == 0x2d && sx[12] == 0x62 && sx[13] == 0x3c && sx[14] == 0x09 &&
+                sx[15] == 0x63 && sx[16] == 0x06, "FX beat -1/16 fills all six bytes");
+          n = flx10_fx_bpm_sysex(13590, 0, sx);
+          CHECK(n == 20 && sx[10] == 0x0C && !memcmp(sx + 11,
+                "\x00\x00\x03\x05\x01\x06\x00\x00", 8) && sx[19] == 0xF7,
+                "FX BPM 135.90");
+          flx10_fx_bpm_sysex(12000, 1, sx);
+          CHECK(!memcmp(sx + 11, "\x00\x00\x02\x0e\x0e\x00\x01\x00", 8),
+                "FX BPM 120.00, TAP");
+          flx10_fx_beat_text(5, 0, 0, t, sizeof t);
+          CHECK(!strcmp(t, "1"), "rung 5 reads 1 (got %s)", t);
+          flx10_fx_beat_text(4, 0, 0, t, sizeof t);
+          CHECK(!strcmp(t, "3/4"), "rung 4 reads 3/4 (got %s)", t);
+          flx10_fx_beat_text(0, 0, 0, t, sizeof t);
+          CHECK(!strcmp(t, "1/16"), "rung 0 reads 1/16 (got %s)", t);
+          flx10_fx_beat_text(11, 0, 0, t, sizeof t);
+          CHECK(!strcmp(t, "64"), "rung 11 reads 64 (got %s)", t);
+          flx10_fx_beat_text(1, 10, 1, t, sizeof t);
+          CHECK(!strcmp(t, "10%"), "a percent effect reads its percent, not its rung (got %s)", t);
+          flx10_fx_beat_text(5, -50, 1, t, sizeof t);
+          CHECK(!strcmp(t, "-50%"), "PITCH reads a signed percent (got %s)", t);
      }
      reset(); CC(5, 2, 64);
      CHECK(sent_n == 1 && sent[0].key == K_DEPTH, "LEVEL -> DEPTH");

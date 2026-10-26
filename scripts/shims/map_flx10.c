@@ -1693,20 +1693,33 @@ static void flx10_scfx_tick(unsigned long long t)
  *   FLX10 (32 -> 45, CCW -> CW, as printed): LOW CUT ECHO, ECHO, MT DELAY,
  *   SPIRAL, REVERB, TRANS, ENIGMA JET | FLANGER, PHASER, STRETCH, SLIP ROLL,
  *   ROLL, MOBIUS (saw), MOBIUS (triangle)
+ *   RX3 (CCW -> CW, as printed, from the operator's photo 2026-10-26): DELAY,
+ *   ECHO, PING PONG, SPIRAL, REVERB, TRANS, FILTER | FLANGER, PHASER, PITCH,
+ *   SLIP ROLL, ROLL, VINYL BRAKE, HELIX
  *   rbp's switch positions, MEASURED on the Pi (docs/13 S5.9, and fx_zone.c's
  *   names): 0 DELAY 1 ECHO 2 PING PONG 3 SPIRAL 4 HELIX 5 REVERB 6 FLANGER
  *   7 PHASER 8 FILTER 9 TRANS 10 ROLL 11 SLIP ROLL 12 PITCH 13 VINYL BRAKE.
  *   NOT the order printed round the RX3's knob -- the first version of this
  *   table assumed that and sent REVERB as HELIX. */
+/* MATCHED BY NAME where the FLX10's label has an RX3 effect (MT DELAY is
+ * DELAY), and the other five by the closest detent of the RX3's own dial
+ * (operator, 2026-10-26: "match by name ... the rest by closest position on the
+ * dial"). The two dials then agree position for position except at the ends:
+ * LOW CUT ECHO -> PING PONG (RX3 detent 2), ENIGMA JET -> FILTER (6), STRETCH
+ * -> PITCH (9), MOBIUS saw -> VINYL BRAKE (12), MOBIUS triangle -> HELIX (13).
+ * The FX screen shows the RX3's name (flx10_fxscreen_tick), so the five whose
+ * label differs say what they are. */
 static const signed char fxsel_to_rbp[14] = {
-     -1,  1,  0,  3,  5,  9, -1,     /* LOW CUT ECHO .. ENIGMA JET */
-      6,  7, -1, 11, 10, -1, -1,     /* FLANGER .. MOBIUS */
+      2,  1,  0,  3,  5,  9,  8,     /* LOW CUT ECHO .. ENIGMA JET */
+      6,  7, 12, 11, 10, 13,  4,     /* FLANGER .. MOBIUS */
 };
 static const char *const fxsel_name[14] = {
      "LOW CUT ECHO", "ECHO", "MT DELAY", "SPIRAL", "REVERB", "TRANS",
      "ENIGMA JET", "FLANGER", "PHASER", "STRETCH", "SLIP ROLL", "ROLL",
      "MOBIUS (saw)", "MOBIUS (triangle)",
 };
+
+static int fxsel_pos = -1;          /* the RX3 position last selected, -1 = none yet */
 
 static void flx10_fxsel(int note)
 {
@@ -1718,6 +1731,7 @@ static void flx10_fxsel(int note)
                fxsel_name[i]);
           return;
      }
+     fxsel_pos = pos;
      send_rx_key(K_BFXTYPE, OP_VALUE, CH_GLOBAL, pos);
      klog("knobshim2: flx10 Beat FX %s -> RX3 position %d\n", fxsel_name[i], pos);
 }
@@ -1748,6 +1762,210 @@ static void flx10_fxch(int note)
      send_rx_key(K_BFXCH, OP_VALUE, CH_GLOBAL, fxch_target[i]);
      klog("knobshim2: flx10 Beat FX channel %s -> RX3 target %d\n",
           fxch_name[i], fxch_target[i]);
+}
+
+/* ---- the FX screen ---------------------------------------------------------
+ * In rekordbox's host mode -- which the connect sequence (flx10_display_init)
+ * puts the unit in -- the FLX10 draws its FX screen only from three SysEx the
+ * host sends, and stays on whatever came last (operator, 2026-10-26: "the FX
+ * display on the flx10 does not update"). Decoded from the operator's
+ * capture_fx of the same day, every effect, beat and channel stepped through:
+ *
+ *   F0 00 40 05 00 00 04 01 00 00 0A  00 28 00 26 00 <37 bytes>  F7   the name
+ *   F0 00 40 05 00 00 04 01 00 00 0B  <6 bytes>                  F7   the beat
+ *   F0 00 40 05 00 00 04 01 00 00 0C  00 00 n n n n  tap 00      F7   the BPM
+ *
+ * The name and the beat are ASCII, 8 bits a character LSB first, packed into
+ * the 7-bit bytes LSB first -- the name from bit 1 of its field, the beat from
+ * bit 0 ("ECHO" = 0a 0d 42 74 09, "1/2" = 31 5e 48 01). The BPM is x100 in hex
+ * digits, one a byte (135.90 = 00 00 03 05 01 06), then 1 in TAP mode.
+ * rekordbox's beat texts are "1/16".."64", "3/4", and "50%" for a percent.
+ *
+ * So the screen shows the RX3's effect, its beat and its BPM, read from rbp:
+ *   - the effect: rbp's current one (BeatEffectManager+0x08) while it is on,
+ *     the selector's last position while it is off -- the manager's type reads
+ *     0 then (rbp_abi.h's conjunction);
+ *   - the beat: that effect object's rung (+0x44) through rbp's own table
+ *     (ui::MasterInnards::getBeatFxNumDen: 1/16 1/8 1/4 1/2 3/4 1 2 4 8 16 32
+ *     64), or for REVERB and PITCH, whose arrows step a percent, the percent
+ *     itself (+0x30, what BeatEffectReverb::calcFromPercent and
+ *     BeatEffectPitch::changePercentValuePitch read; REVERB 1 10 25 50 75 90
+ *     100, PITCH -50 .. 100 on rbp's screen). +0x24 does not move with the
+ *     arrows on those two (operator, 2026-10-26). An effect that is off is found
+ *     among the manager's per-effect objects (+0x0c..+0x48) by its class --
+ *     the slots are not in type order on this build (read 2026-10-26);
+ *   - the BPM: dsp::BpmManager's +0x1c, x100, 12000 while it holds the
+ *     invalid marker (getBfxBpmNoCheck), and its +0x10 detect mode (1 TAP).
+ * Plain reads, no call into rbp but BpmManager::getInstance(), which
+ * flx10_bfx_bpm_auto() already makes from this thread. */
+#define FXS_POLL_MS 100
+
+static const char *const rbp_fx_name[14] = {
+     "DELAY", "ECHO", "PING PONG", "SPIRAL", "HELIX", "REVERB", "FLANGER",
+     "PHASER", "FILTER", "TRANS", "ROLL", "SLIP ROLL", "PITCH", "VINYL BRAKE",
+};
+/* each effect's class's vtable (nm: "vtable for mixerengine::BeatEffect..."),
+ * by rbp switch position; an object's first word is this + 8 */
+static const unsigned int rbp_fx_vtable[14] = {
+     0x00425340, 0x004253f0, 0x0041fe38, 0x0041f568, 0x0041f890, 0x0041dd78,
+     0x00425498, 0x0041fd78, 0x0041f978, 0x0041f730, 0x0041f488, 0x0041f7d8,
+     0x0041dc30, 0x0041fc70,
+};
+#define RBP_FX_REVERB        5      /* rbp switch positions of the two percent effects */
+#define RBP_FX_PITCH         12
+#define BE_OFF_PERCENT       0x30   /* BeatEffect* -> long percent (REVERB, PITCH) */
+#define BPMMGR_OFF_BFX_BPM   0x1c   /* BPM x100, or the invalid marker */
+#define BPMMGR_OFF_BFX_MODE  0x10   /* EnBfxBpmDetectMode: 0 AUTO, 1 TAP */
+#define BPMMGR_INVALID_BPM   0x00417334   /* the marker getBfxBpmNoCheck compares */
+
+/* `n` bytes of 7-bit SysEx data holding `text` packed from bit `bit0`. Pure. */
+static void fxs_pack(const char *text, int bit0, unsigned char *out, int n)
+{
+     memset(out, 0, (size_t)n);
+     for (int c = 0; text[c]; c++)
+          for (int i = 0; i < 8; i++) {
+               int b = bit0 + c * 8 + i;
+               if (b >= n * 7)
+                    return;
+               if (((unsigned char)text[c] >> i) & 1)
+                    out[b / 7] |= (unsigned char)(1 << (b % 7));
+          }
+}
+
+static const unsigned char fxs_head[10] = {
+     0xF0, 0x00, 0x40, 0x05, 0x00, 0x00, 0x04, 0x01, 0x00, 0x00 };
+
+/* The three messages. Each fills `out` and answers its length. Pure, for the test. */
+int flx10_fx_name_sysex(const char *name, unsigned char *out)
+{
+     static const unsigned char pre[5] = { 0x00, 0x28, 0x00, 0x26, 0x00 };
+     memcpy(out, fxs_head, 10);
+     out[10] = 0x0A;
+     memcpy(out + 11, pre, 5);
+     fxs_pack(name, 1, out + 16, 37);
+     out[53] = 0xF7;
+     return 54;
+}
+
+int flx10_fx_beat_sysex(const char *text, unsigned char *out)
+{
+     memcpy(out, fxs_head, 10);
+     out[10] = 0x0B;
+     fxs_pack(text, 0, out + 11, 6);
+     out[17] = 0xF7;
+     return 18;
+}
+
+int flx10_fx_bpm_sysex(int bpm_x100, int tap, unsigned char *out)
+{
+     memcpy(out, fxs_head, 10);
+     out[10] = 0x0C;
+     if (bpm_x100 < 0) bpm_x100 = 0;
+     if (bpm_x100 > 0xFFFFFF) bpm_x100 = 0xFFFFFF;
+     for (int k = 0; k < 6; k++)
+          out[11 + k] = (unsigned char)((bpm_x100 >> (4 * (5 - k))) & 0x0F);
+     out[17] = tap ? 1 : 0;
+     out[18] = 0x00;
+     out[19] = 0xF7;
+     return 20;
+}
+
+/* The beat text rbp's screen shows: the rung's fraction, or for a percent effect
+ * the percent. Pure, for the test. */
+void flx10_fx_beat_text(int rung, int pct, int is_pct, char *out, int max)
+{
+     static const char *const rungs[12] = {
+          "1/16", "1/8", "1/4", "1/2", "3/4", "1", "2", "4", "8", "16", "32", "64" };
+     if (is_pct)
+          snprintf(out, (size_t)max, "%d%%", pct);
+     else if (rung >= 0 && rung < 12)
+          snprintf(out, (size_t)max, "%s", rungs[rung]);
+     else
+          snprintf(out, (size_t)max, "%s", "");
+}
+
+struct fxs_view {
+     int pos;              /* rbp switch position, -1 = not known */
+     char beat[8];
+     int bpm_x100, tap;
+};
+
+/* What rbp holds now. WEAK so the host test can answer for rbp. 0 = not up. */
+__attribute__((weak)) int flx10_fx_read(int sel_pos, struct fxs_view *v)
+{
+     unsigned int mixer, bem, be = 0, type, vt;
+     void *bm;
+     int pos = -1;
+
+     mixer = *(volatile unsigned int *)(uintptr_t)ME_SINGLETON;
+     if (!mixer)
+          return 0;
+     bem = *(volatile unsigned int *)(uintptr_t)(mixer + BEM_IN_MIXER);
+     if (!bem)
+          return 0;
+     type = *(volatile unsigned int *)(uintptr_t)(bem + BEM_OFF_TYPE);
+     if (type != BFX_TYPE_OFF) {
+          be = *(volatile unsigned int *)(uintptr_t)(bem + BEM_OFF_EFFECT);
+          vt = be ? *(volatile unsigned int *)(uintptr_t)be : 0;
+          for (int k = 0; k < 14; k++)
+               if (vt == rbp_fx_vtable[k] + 8)
+                    pos = k;
+          if (pos < 0)
+               be = 0;
+     }
+     if (!be && sel_pos >= 0 && sel_pos < 14) {
+          for (unsigned off = 0x0c; off <= 0x48 && !be; off += 4) {
+               unsigned int o = *(volatile unsigned int *)(uintptr_t)(bem + off);
+               if (o && *(volatile unsigned int *)(uintptr_t)o == rbp_fx_vtable[sel_pos] + 8)
+                    be = o;
+          }
+          pos = be ? sel_pos : -1;
+     }
+     v->pos = pos;
+     if (be)
+          flx10_fx_beat_text(*(volatile int *)(uintptr_t)(be + BE_OFF_BEAT),
+                             *(volatile int *)(uintptr_t)(be + BE_OFF_PERCENT),
+                             pos == RBP_FX_REVERB || pos == RBP_FX_PITCH,
+                             v->beat, (int)sizeof v->beat);
+     else
+          v->beat[0] = '\0';
+     v->bpm_x100 = 12000;
+     v->tap = 0;
+     bm = ((void *(*)(void))BPMMGR_GET_INSTANCE)();
+     if (bm) {
+          unsigned int b = *(volatile unsigned int *)((char *)bm + BPMMGR_OFF_BFX_BPM);
+          if (b != *(volatile unsigned int *)(uintptr_t)BPMMGR_INVALID_BPM)
+               v->bpm_x100 = (int)b;
+          v->tap = *(volatile int *)((char *)bm + BPMMGR_OFF_BFX_MODE) == 1;
+     }
+     return 1;
+}
+
+static struct fxs_view fxs_sent;
+static int fxs_valid;                 /* fxs_sent is what the unit shows */
+static int fxs_ready;                 /* the connect sequence has gone out */
+static unsigned long long fxs_at;
+
+static void flx10_fxscreen_tick(unsigned long long t)
+{
+     struct fxs_view v;
+     unsigned char sx[54];
+
+     if (!fxs_ready || t < fxs_at)
+          return;
+     fxs_at = t + FXS_POLL_MS;
+     if (!midi_out_ready() || !flx10_fx_read(fxsel_pos, &v))
+          return;
+     if (v.pos >= 0 && (!fxs_valid || v.pos != fxs_sent.pos))
+          midi_sysex_out(sx, (unsigned)flx10_fx_name_sysex(rbp_fx_name[v.pos], sx));
+     if (v.pos >= 0 && (!fxs_valid || strcmp(v.beat, fxs_sent.beat)))
+          midi_sysex_out(sx, (unsigned)flx10_fx_beat_sysex(v.beat, sx));
+     if (!fxs_valid || v.bpm_x100 != fxs_sent.bpm_x100 || v.tap != fxs_sent.tap)
+          midi_sysex_out(sx, (unsigned)flx10_fx_bpm_sysex(v.bpm_x100, v.tap, sx));
+     if (v.pos < 0 && fxs_valid)
+          v.pos = fxs_sent.pos;         /* nothing known: keep what is shown */
+     fxs_sent = v;
+     fxs_valid = 1;
 }
 
 /* LEVEL/DEPTH (ch 5 CC 2, MSB of a 14-bit pair): DEPTH, or with SHIFT held the
@@ -2435,6 +2653,7 @@ static void flx10_tick(void)
      flx10_scfx_tick(t);
      flx10_panel_tick(t);
      flx10_link_tick(t);
+     flx10_fxscreen_tick(t);
 }
 
 static void flx10_unit_setting(int ch, int is_cc, int num, int val);
@@ -2719,6 +2938,8 @@ static void flx10_display_init(unsigned long long now)
      midi_sysex_out(flx10_init_sx_0a, sizeof flx10_init_sx_0a);
      midi_sysex_out(flx10_init_sx_0b, sizeof flx10_init_sx_0b);
      midi_sysex_out(flx10_init_sx_0c, sizeof flx10_init_sx_0c);
+     fxs_ready = 1;                         /* the FX screen is ours from here */
+     fxs_valid = 0;
      for (unsigned k = 0; k < sizeof flx10_init_short / sizeof flx10_init_short[0]; k++) {
           const unsigned char *m = flx10_init_short[k];
           if (m[0] == 0x9F && m[1] == 0x70)
