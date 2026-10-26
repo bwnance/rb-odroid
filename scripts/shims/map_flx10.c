@@ -613,7 +613,8 @@ static unsigned long long rev_watch_until[2], rev_stop_sent_at[2];
  * every SLIPREV_CHECK_MS and sent again, up to SLIPREV_CHECK_TRIES times */
 #define SLIPREV_CHECK_MS 300
 #define SLIPREV_CHECK_TRIES 5
-static unsigned long long rev_slip_check_at[2];
+#define SLIPREV_CHECK_FOR_MS 3000    /* ...for this long: it can come back late */
+static unsigned long long rev_slip_check_at[2], rev_slip_check_until[2];
 static int rev_slip_tries[2];
 static int rev_led_v[2] = { -1, -1 };
 
@@ -711,6 +712,7 @@ static void flx10_rev_tick(unsigned long long t)
                     flx10_set_slip(d, 0);
                     klog("knobshim2: flx10 deck%d SLIP REVERSE: slip put back off\n", d + 1);
                     rev_slip_check_at[d] = t + SLIPREV_CHECK_MS;
+                    rev_slip_check_until[d] = t + SLIPREV_CHECK_FOR_MS;
                     rev_slip_tries[d] = 0;
                }
           }
@@ -719,11 +721,14 @@ static void flx10_rev_tick(unsigned long long t)
                if (!rev_held[d] && !rev_latched[d] && flx10_slip_mode(d) &&
                    rev_slip_tries[d] < SLIPREV_CHECK_TRIES) {
                     rev_slip_tries[d]++;
-                    klog("knobshim2: flx10 deck%d SLIP REVERSE: slip still on after "
-                         "the release; off again (try %d)\n", d + 1, rev_slip_tries[d]);
+                    klog("knobshim2: flx10 deck%d SLIP REVERSE: slip on again %llu ms "
+                         "after the restore; off again (try %d)\n", d + 1,
+                         t + SLIPREV_CHECK_FOR_MS - rev_slip_check_until[d],
+                         rev_slip_tries[d]);
                     flx10_set_slip(d, 0);
-                    rev_slip_check_at[d] = t + SLIPREV_CHECK_MS;
                }
+               if (t + SLIPREV_CHECK_MS <= rev_slip_check_until[d] && !rev_held[d])
+                    rev_slip_check_at[d] = t + SLIPREV_CHECK_MS;
           }
           if (rev_latched[d] && t - rev_latched_at[d] > 500 && !flx10_reversing(d))
                rev_unlatch(d);               /* rbp ended it (a load, ...) */
@@ -1662,6 +1667,8 @@ static void flx10_note(int ch, int note, int on)
 
           if (note == N_JOG_TOUCH || note == N_JOG_TOUCH_SH)
                flx10_jog_touched[deck] = on;     /* and on to its table row */
+          if (note == N_SLIP && on)
+               rev_slip_check_at[deck] = 0;      /* the operator's own SLIP: hands off */
           switch (note) {
           case N_SHIFT:
                shift_down[deck] = on;
