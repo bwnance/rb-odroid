@@ -1941,10 +1941,22 @@ static void flx10_note(int ch, int note, int on)
           }
      }
 
-     /* SHIFT + a HOT CUE pad: delete that cue (map_flx4.c's gesture). */
-     if ((ch == CH_PADS1S || ch == CH_PADS2S) && note >= 0 && note < 8) {
-          if (on)
-               hotcue_delete(ch == CH_PADS1S ? 0 : 1, note + 1);
+     /* SHIFT + a HOT CUE or GATE CUE pad (page 0 / 64): delete that cue, as
+      * rbp's own gesture -- its SHIFT key held round the pad key (rbp_abi.h,
+      * K_SHIFT). hotcue_delete()'s direct calls (rbp_bridge.c) took only on a
+      * playing deck and left the cue drawn on rbp's screen and the jog until
+      * the next input (operator, 2026-10-26). */
+     if ((ch == CH_PADS1S || ch == CH_PADS2S) && (note & ~64) >= 0 && (note & ~64) < 8) {
+          int sch = ch == CH_PADS1S ? 1 : 2;
+          if (on) {
+               send_rx_key(K_SHIFT, OP_PRESS, sch, 0);
+               send_rx_key(K_PAD1 + (note & 7), OP_PRESS, sch, 0);
+               send_rx_key(K_PAD1 + (note & 7), OP_RELEASE, sch, 0);
+               send_rx_key(K_SHIFT, OP_RELEASE, sch, 0);
+               if (verbose)
+                    klog("knobshim2: flx10 deck%d SHIFT + pad %d: hot cue delete\n",
+                         sch, (note & 7) + 1);
+          }
           return;
      }
 
@@ -2561,6 +2573,7 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
           flx10_hid_set_pos_reader(flx10_pos_now);
           flx10_hid_set_caution_reader(flx10_end_caution);
           flx10_hid_set_path_reader(flx10_track_path);
+          flx10_hid_set_cue_reader(flx10_hot_cues);
      }
      /* the jog screens draw nothing without this (flx10_hid.h); the MIDI
       * values below still go out too */
@@ -2573,7 +2586,6 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
                .tempo_x100 = flx10_shown_tempo(di), .range = di->tempo_range,
                .mt = di->mt, .sync = di->sync,
                .key_code = flx10_key_code(di->key),
-          flx10_hid_set_cue_reader(flx10_hot_cues);
                .cue_ms = di->loaded ? flx10_cue_ms(deck, di->total_ms) : -1,
                .looping = di->looping, .master = di->master,
                .jog_touch = flx10_jog_touched[deck],
@@ -2675,6 +2687,7 @@ static const struct led_notes flx10_leds = {
                       N_MODE_KEYSHIFT },
      .pad_ch = CH_PADS1,
      .pad_ch2 = CH_PADS2,
+     .pad_shift_mirror = 1,
      .n_pad_base = { 0, 96, 16, 32 },   /* unused while pad_base is set */
      .pad_enc = LED_ENC_FLX10_PALETTE,
      .pad_base = flx10_led_pad_base,

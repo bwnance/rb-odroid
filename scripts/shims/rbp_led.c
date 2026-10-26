@@ -149,6 +149,7 @@ static const struct led_notes *led_notes_sel(void)
 #define LED_PAD_FIRST   18
 #define LED_PAD_COUNT   8
 static int led_pad_last[2][LED_PAD_COUNT];  /* last MIDI velocity, -1 unknown */
+static int led_pad_last_s[2][LED_PAD_COUNT]; /* ...on the +SHIFT layer (pad_shift_mirror) */
 static int led_pad_base[2] = { -1, -1 };    /* note base the eight were sent at */
 
 /* A page change on a pad_base surface waits for rbp's pad entries to SETTLE:
@@ -693,6 +694,23 @@ static void led_pad_apply(int sch, int note, int *last, unsigned char vel)
           klog("knobshim2: pad sch%d note%d vel=0x%02x\n", sch, note, vel);
 }
 
+/* One pad's light, and on a pad_shift_mirror surface the same light on its
+ * +SHIFT layer while the page is HOT CUE / GATE CUE (rbp mode 0 / 4) -- dim
+ * on a dim/bright surface, so a held SHIFT shows it is another state
+ * (operator, 2026-10-26): the encoding's dim range, as the other pages'
+ * resting pads (led_pad_dim_bright). */
+static void led_pad_out(const struct led_notes *n, int deck, int sch, int note, int p,
+                        int mode, unsigned char vel)
+{
+     led_pad_apply(sch, note, &led_pad_last[deck][p], vel);
+     if (n->pad_shift_mirror && (mode & 3) == 0) {
+          unsigned char sv = vel;
+          if (n->pad_style == LED_PAD_DIM_BRIGHT && vel)
+               sv = vel >= 64 ? 127 : (unsigned char)(vel + 64);
+          led_pad_apply(sch + 1, note, &led_pad_last_s[deck][p], sv);
+     }
+}
+
 /* The global (FX) panel LEDs, driven straight from rbp's LedStat. The LedStat id
  * is LedDef::ID + 8 for this group (verified live):
  *   EffectOnOff 40 -> 48, CfxFilter 33 -> 41, CfxSweep 34 -> 42,
@@ -1022,6 +1040,7 @@ static void led_refresh(void)
                           * NOT cleared: clearing it is what made it come back
                           * dark for a tick (operator, 2026-10-25). The cache
                           * is still dropped, so the new page is sent now. */
+                         memset(led_pad_last_s[i], -1, sizeof(led_pad_last_s[0]));
                          if (n->pad_base && led_pad_base[i] >= 0) {
                               memset(led_pad_last[i], -1, sizeof(led_pad_last[0]));
                          } else if (led_pad_base[i] >= 0) {
@@ -1062,7 +1081,7 @@ static void led_refresh(void)
                                                 (unsigned)i + 1);
 
                          if (n->pad_style == LED_PAD_DIM_BRIGHT) {
-                              led_pad_apply(pch, pnote, &led_pad_last[i][p],
+                              led_pad_out(n, i, pch, pnote, p, m,
                                             led_pad_dim_bright(n, i, p, m, st));
                               continue;
                          }
@@ -1078,8 +1097,7 @@ static void led_refresh(void)
                                                 (unsigned)i + 1) ||
                              !ledstat_rgb(LED_PAD_FIRST + (unsigned)p,
                                           (unsigned)i + 1, rgb)) {
-                              led_pad_apply(pch, pnote,
-                                            &led_pad_last[i][p], 0);
+                              led_pad_out(n, i, pch, pnote, p, m, 0);
                          } else if (st == 2 || st == 3) {
                               /* 2 is rbp's blink request, and the cadence for
                                * it is rbp's own period out of the same entry.
@@ -1109,11 +1127,11 @@ static void led_refresh(void)
                                    ? led_blink_for(LED_PAD_FIRST + (unsigned)p,
                                                    (unsigned)i + 1)
                                    : blink;
-                              led_pad_apply(pch, pnote, &led_pad_last[i][p],
+                              led_pad_out(n, i, pch, pnote, p, m,
                                    ph ? led_encode(n->pad_enc,
                                                    rgb[0], rgb[1], rgb[2]) : 0);
                          } else {
-                              led_pad_apply(pch, pnote, &led_pad_last[i][p],
+                              led_pad_out(n, i, pch, pnote, p, m,
                                    led_encode(n->pad_enc, rgb[0], rgb[1], rgb[2]));
                          }
                     }
@@ -1290,6 +1308,7 @@ void *led_thread(void *arg)
                "sending will begin when one comes up\n");
      memset(led_last, -1, sizeof(led_last));
      memset(led_pad_last, -1, sizeof(led_pad_last));
+     memset(led_pad_last_s, -1, sizeof(led_pad_last_s));
      led_pad_base[0] = led_pad_base[1] = -1;
      /* Say which panel, or that there is none, once -- a dark panel has three
       * very different causes (this selection, a surface whose rows are all -1,

@@ -672,8 +672,15 @@ int main(void)
      CHECK(is(0, K_PAD1 + 7, OP_PRESS, 2), "deck 2 pad 8 in BEAT JUMP");
      reset(); ON(10, 50); OFF(10, 50);
      CHECK(sent_n == 2 && is(0, K_PAD1 + 2, OP_PRESS, 2), "SAMPLER-base pad 3 bound (BEAT LOOP 2)");
-     ON(11, 3);
-     CHECK(deleted_deck == 1 && deleted_pad == 4, "SHIFT+pad 4 deck 2 deletes its hot cue");
+     reset(); ON(11, 3);
+     CHECK(sent_n == 4 && is(0, K_SHIFT, OP_PRESS, 2) && is(1, K_PAD1 + 3, OP_PRESS, 2) &&
+           is(2, K_PAD1 + 3, OP_RELEASE, 2) && is(3, K_SHIFT, OP_RELEASE, 2),
+           "SHIFT+pad 4 deck 2: rbp's SHIFT held round the pad key (its delete)");
+     reset(); ON(9, 64 + 6);
+     CHECK(sent_n == 4 && is(1, K_PAD1 + 6, OP_PRESS, 1),
+           "SHIFT+pad 7 on deck 1's GATE CUE page: the same");
+     reset(); ON(9, 32 + 6);
+     CHECK(!(sent_n == 4 && is(0, K_SHIFT, OP_PRESS, 1)), "SHIFT+pad on BEAT JUMP is not a delete");
 
      /* channel CUE latches; master CUE */
      ON(1, 84); OFF(1, 84);
@@ -1002,6 +1009,7 @@ int main(void)
                extern int flx10_pad_touch(int, int, unsigned long long *);
                unsigned long long t = 0;
                CHECK(n && n->pad_style == LED_PAD_DIM_BRIGHT && n->pad_touch, "dim/bright pads");
+               CHECK(n && n->pad_shift_mirror, "cue pages lit on the SHIFT layer too");
                reset(); ON(8, 32 + 2);
                CHECK(flx10_pad_touch(0, 2, &t) == 1 && t != 0, "pad 3 held, press time kept");
                CHECK(flx10_pad_touch(1, 2, &t) == 0, "deck 2 pad 3 not held");

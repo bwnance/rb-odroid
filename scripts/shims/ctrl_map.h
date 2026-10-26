@@ -237,6 +237,11 @@ struct led_notes {
       * the second is a surface whose deck 2 has no pads. */
      int pad_ch;           /* pads: send channel, deck 1; -1 = no pad LEDs */
      int pad_ch2;          /* pads: send channel, deck 2 */
+     /* Non-zero: the HOT CUE / GATE CUE pages' lights also go to the pads'
+      * +SHIFT layer, the channel after each of the two above (the FLX10's 8
+      * and 10). There SHIFT + pad deletes the cue, and a layer left dark under
+      * SHIFT hid which pads held one (operator, 2026-10-26). */
+     int pad_shift_mirror;
 
      /* The pads' LED NOTE BASE, indexed by RBP'S OWN MODE VALUE -- the same
       * four and the same index as n_mode above: 0 HOT CUE / 1 AUTO BEAT LOOP /

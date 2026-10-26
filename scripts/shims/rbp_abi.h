@@ -341,6 +341,13 @@
 #define K_PLAY       0x4101
 #define K_CUE        0x4102
 #define K_SYNC       0x4112
+/* SHIFT, per deck channel: ui::KeyInput::getShiftKeyCode @0x37dffc returns it.
+ * IKeyManager::sendKey @0x37ad64 asks isPressed(SHIFT, channel) for every key
+ * it builds and records the answer in the key's shift list, which
+ * IKeyInput::isShifted @0x2e9898 reads -- so a SHIFT press sent ahead of a pad
+ * key makes that pad arrive SHIFTED, and rbp's own pad handler takes its
+ * SHIFT + pad arm (delete the hot cue, with the screen's update) as on an RX3. */
+#define K_SHIFT      0x4103
 #define K_VINYL      0x4104
 #define K_JOG_TOUCH  0x4306    /* jog plate touch  (push/release) */
 #define K_JOG_ROT    0x4305    /* jog wheel rotate: f=speed(rev/s) l=pos */
@@ -802,13 +809,6 @@ static const signed char bfx_type_to_pos[15] = {
  * @0x63ab4 -> ReaderOwner::getFilePath @0x40280, whose fallback 0x4e2358 is
  * the empty string). */
 #define PE_GETFILEPATH     0x5d59c
-/* Player+0xe9b is the reverse ASKED for: Player::setReverse @0x6a5ec writes it
- * at once, quantized or not. The reverse in EFFECT is Player+0xe9c, which
- * setReverse_core @0x68b90 copies from +0xe9b when it applies it. A quantized
- * slip reverse released (setReverse(false)) clears +0xe9b at once and leaves
- * +0xe9c set until the slip end lands on the beat (endSlippingFromCallback
- * @0x79500 clears both). */
-#define PLAYER_REVERSE_ON_OFF 0xe9c
 /* A deck's hot cue slot (0..7 = A..H), as rbp's own screens read it --
  * exported C functions over ui::StatWatcher's 52-byte slot records, (deck,
  * slot): UiGetHotCueINtime @0xfd750 (+0x7c; -1 when the slot is empty),
@@ -817,6 +817,13 @@ static const signed char bfx_type_to_pos[15] = {
 #define UI_GET_HOTCUE_INTIME   0x000fd750
 #define UI_GET_HOTCUE_LOOPFLG  0x000fd7d0
 #define UI_GET_HOTCUE_COLORINF 0x000fd808
+/* Player+0xe9b is the reverse ASKED for: Player::setReverse @0x6a5ec writes it
+ * at once, quantized or not. The reverse in EFFECT is Player+0xe9c, which
+ * setReverse_core @0x68b90 copies from +0xe9b when it applies it. A quantized
+ * slip reverse released (setReverse(false)) clears +0xe9b at once and leaves
+ * +0xe9c set until the slip end lands on the beat (endSlippingFromCallback
+ * @0x79500 clears both). */
+#define PLAYER_REVERSE_ON_OFF 0xe9c
 /* djengine::DjEngineIF setters that ignore `this` (each reloads the PlayEngine
  * singleton itself, as ADDR_ENGINE_CLEAR_HOTCUE does), called (NULL, ch, ...) */
 #define DJE_SET_SLIPMODE   0x4ae10   /* setSlipMode(EnPlayerChannel, bool) */
