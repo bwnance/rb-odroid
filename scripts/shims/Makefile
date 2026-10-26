@@ -248,7 +248,7 @@ CTRL_OBJS  := ctrlshim.o ctrl_map.o map_flx4.o map_flx10.o map_jp21.o map_kbd.o 
 CTRL_HDRS  := rbp_abi.h rbp_bridge.h rbp_key.h rbp_led.h led_table.h rbp_vu.h \
               midi_io.h shimutil.h ctrl_map.h mididump.h evdev_io.h syscalls.h \
               shmstate.h plinn_scan.h controllers.h usb_label.h pitch_state.h \
-              rbp_load.h flx10_hid.h flx10_media.h
+              rbp_load.h flx10_hid.h flx10_media.h settings_remote.h
 knobshim.so: $(CTRL_OBJS) rbp_key.o shmstate.o fader_state.o rbp_transport.o \
              pitch_state.o keylog.o keylog_state.o $(CTRL_HDRS) rbp_transport.h \
              pitch_state.h keylog.h keylog_state.h \
@@ -399,7 +399,7 @@ FBSHIM_HDRS := tscfake.h pointsrc.h point_xform.h touch_zone.h syscalls.h \
                fx_zone.h fx_paint.h hc_zone.h usb_label.h \
                fxpad_zone.h fxpad_paint.h pitch_state.h \
                settings_zone.h settings_paint.h controllers.h usb_devices.h \
-               g2d_sw.h
+               g2d_sw.h settings_remote.h
 
 fbshim.so: $(FBSHIM_OBJS) rbp_key.o fader_state.o rbp_transport.o pitch_state.o \
            keylog.o keylog_state.o $(FBSHIM_HDRS) rbp_transport.h pitch_state.h \

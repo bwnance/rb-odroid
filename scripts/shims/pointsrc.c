@@ -31,6 +31,7 @@
                              * The operator's ask of 2026-10-10 */
 #include "bpmbox_zone.h"    /* the BPM box on the strip: a tap toggles SYNC. The operator's
                              * ask of 2026-10-12 */
+#include "settings_remote.h"
 #include "settings_zone.h"  /* the SETTINGS panel: the gear in the band raises it, and the
                              * mixer route, USB STOP and the viewer's three switches
                              * live in it. The operator's ask of 2026-10-14 */
@@ -726,6 +727,8 @@ static unsigned long long shim_now_ms(void);
  * the panel, which can raise the chooser itself from its USB STOP row. */
 static void usb_stop_send(int ch);      /* the eject, defined beside the chooser's code */
 static void settings_state_fill(struct settings_state *S);
+static void settings_raise(const char *why);
+static int settings_take(int down, int x, int y);
 static void settings_apply(int row);
 static void settings_eject(int row, unsigned long long held_ms);
 static const char *settings_refusal(int row);
@@ -792,25 +795,9 @@ static void menu_fire(int button, int held_ms)
      * time this runs -- menu_fire() is called on the release of a tap on an open panel's own
      * button -- so nothing else has to be put away. */
     if (menu_column_is_gear(button)) {
-        if (fxlist_is_open()) {
-            fxlist_close();
-            pointsrc_log("pointsrc: the settings panel displaces the Beat FX picker");
-        }
-        settings_open(shim_now_ms());
-        {
-            struct settings_state S;
-            int i;
-
-            /* The panel's opening line names every row and what it reads, so a drill's log
-             * says what the operator was looking at without a screenshot of the glass --
-             * the same rule the chooser's own line keeps. */
-            settings_state_fill(&S);
-            pointsrc_log("pointsrc: menu '%s' -> the settings panel", label);
-            for (i = 1; i <= SB_ROWS; i++)
-                pointsrc_log("pointsrc: settings row %d '%s' reads '%s'%s",
-                             i, settings_row_label(i), settings_row_text(i, &S),
-                             settings_row_live(i, &S) ? "" : " (not operable)");
-        }
+        char why[64];
+        snprintf(why, sizeof why, "menu '%s'", label);
+        settings_raise(why);
         return;
     }
 
@@ -2307,42 +2294,8 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * silence. A HOLD is logged where it fires -- from here with the finger still down, or
      * from the read loop's tick -- and the line names the milliseconds it was actually
      * held, because that is what separates a real three seconds from the tick's slice. */
-    if (settings_is_open()) {
-        struct settings_state ss;
-        int sact = ST_ACT_NONE;
-        unsigned long long shel = settings_hold_ms(shim_now_ms());
-
-        int held_row = settings_hold_row();
-
-        settings_state_fill(&ss);
-        if (settings_feed(&ss, down, x, y, shim_now_ms(), &sact) != MZ_FEED_NONE) {
-            if (sact != ST_ACT_NONE) {
-                /* A row that EJECTS answers from a completed hold and sends on a device's
-                 * own channel; every other row writes a word into a switch file. The module
-                 * says which kind (settings_row_ejects()) and the two never mix. */
-                if (settings_row_ejects(sact))
-                    settings_eject(sact, shel);
-                else
-                    settings_apply(sact);
-            } else if (!down && held_row) {
-                /* A HOLD THAT WAS LET GO EARLY, which sends nothing -- the operator's "if they
-                 * release it before three seconds don't eject it". It is logged for the
-                 * chooser's reason: without this line the absence of an eject is the same
-                 * evidence as "the hold never started", and a drill cannot tell them apart. */
-                pointsrc_log("pointsrc: settings '%s' released after %llu ms (hold is %d ms)"
-                             " -> nothing", settings_row_label(held_row), shel, ST_HOLD_MS);
-            } else if (!down) {
-                int row = settings_value_at(x, y);
-
-                if (row && !settings_row_live(row, &ss))
-                    pointsrc_log("pointsrc: settings '%s' refused -- %s",
-                                 settings_row_label(row), settings_refusal(row));
-                else if (!settings_is_open())
-                    pointsrc_log("pointsrc: settings panel closed");
-            }
-            return;
-        }
-    }
+    if (settings_is_open() && settings_take(down, x, y))
+        return;
 
     /* THE EFFECT PICKER, and for the reason the settings panel's rung above gives: while the box is
      * up it owns every report (fx_zone.h), so a finger that dismisses it must not also
@@ -3174,6 +3127,228 @@ static int open_pointer(int *kind_out, char *path_out, unsigned long path_len,
         }
     }
     return -1;
+}
+
+/* RAISE THE PANEL -- the gear's act, and the controller's (settings_remote.h). The opening
+ * line names every row and what it reads, so a drill's log says what the operator was
+ * looking at without a screenshot of the glass -- the same rule the chooser's own line
+ * keeps. The Beat FX picker goes away first: there is one box at a time. */
+static void settings_raise(const char *why)
+{
+    struct settings_state S;
+    int i;
+
+    if (fxlist_is_open()) {
+        fxlist_close();
+        pointsrc_log("pointsrc: the settings panel displaces the Beat FX picker");
+    }
+    settings_open(shim_now_ms());
+    settings_state_fill(&S);
+    pointsrc_log("pointsrc: %s -> the settings panel", why);
+    for (i = 1; i <= SB_ROWS; i++)
+        pointsrc_log("pointsrc: settings row %d '%s' reads '%s'%s",
+                     i, settings_row_label(i), settings_row_text(i, &S),
+                     settings_row_live(i, &S) ? "" : " (not operable)");
+}
+
+/* ONE REPORT TO THE OPEN PANEL -- a finger's, or the controller's at the selected row's
+ * value (settings_remote.h). Returns 1 when the panel took it, which while it is up is
+ * every report.
+ *
+ * THE STATE IS RE-READ ON EVERY REPORT, like the chooser's device liveness and for the
+ * same reason: a row's operability is rbp's answer about the bus and about the media
+ * slots, and both change while the panel is up -- plugging the digital mixer in is
+ * exactly the change the operator is watching for (settings_zone.h). Four small file
+ * reads and one sysfs walk per report is the price, and it is the price
+ * pointsrc_usb_state() already pays on this same path.
+ *
+ * EVERY WAY OUT IS LOGGED, INCLUDING THE REFUSAL: a tap on a dim row's value answers
+ * nothing at all (settings_zone.c will not fire a control that cannot be operated), so
+ * without the line below a refused tap and a tap that never landed are the same
+ * silence. A HOLD is logged where it fires -- from here with the finger still down, or
+ * from the clock's tick -- and the line names the milliseconds it was actually held,
+ * because that is what separates a real three seconds from the tick's slice. */
+static int settings_take(int down, int x, int y)
+{
+    struct settings_state ss;
+    int sact = ST_ACT_NONE;
+    unsigned long long shel = settings_hold_ms(shim_now_ms());
+    int held_row = settings_hold_row();
+
+    settings_state_fill(&ss);
+    if (settings_feed(&ss, down, x, y, shim_now_ms(), &sact) == MZ_FEED_NONE)
+        return 0;
+    if (sact != ST_ACT_NONE) {
+        /* A row that EJECTS answers from a completed hold and sends on a device's
+         * own channel; every other row writes a word into a switch file. The module
+         * says which kind (settings_row_ejects()) and the two never mix. */
+        if (settings_row_ejects(sact))
+            settings_eject(sact, shel);
+        else
+            settings_apply(sact);
+    } else if (!down && held_row) {
+        /* A HOLD THAT WAS LET GO EARLY, which sends nothing -- the operator's "if they
+         * release it before three seconds don't eject it". It is logged for the
+         * chooser's reason: without this line the absence of an eject is the same
+         * evidence as "the hold never started", and a drill cannot tell them apart. */
+        pointsrc_log("pointsrc: settings '%s' released after %llu ms (hold is %d ms)"
+                     " -> nothing", settings_row_label(held_row), shel, ST_HOLD_MS);
+    } else if (!down) {
+        int row = settings_value_at(x, y);
+
+        if (row && !settings_row_live(row, &ss))
+            pointsrc_log("pointsrc: settings '%s' refused -- %s",
+                         settings_row_label(row), settings_refusal(row));
+        else if (!settings_is_open())
+            pointsrc_log("pointsrc: settings panel closed");
+    }
+    return 1;
+}
+
+/* --- THE PANEL FROM A CONTROLLER (settings_remote.h) ------------------------------
+ *
+ * Commands are queued by the controls shim's MIDI thread and carried out here, on a
+ * thread of this shim's own, so the panel is only ever driven from this library. A
+ * press lands at the centre of the selected row's VALUE -- the one rect a press can act
+ * on -- through settings_take(), so a controller press and a finger's are the same
+ * report and the same outcome, the three-second USB hold included.
+ *
+ * THE CLOCK. With no pointing device attached the read loop that ticks the panel is not
+ * running (reader_thread() is waiting for a device), so this thread ticks it instead --
+ * the same tick, the same timeout and the same eject. With one attached the read loop
+ * ticks, and this thread does not, so the clock is never run twice. A controller and a
+ * finger working the panel at the same instant are two threads in it; the module holds
+ * ints, so the worst of that is a lost press, and it needs both hands on both. */
+#define SR_QUEUE   32
+#define SR_TICK_MS 20
+static pthread_mutex_t sr_mu = PTHREAD_MUTEX_INITIALIZER;
+static int sr_q[SR_QUEUE], sr_head, sr_tail;
+static int sr_press_row;           /* the row a controller press is down on, or 0 */
+
+static void sr_centre(int row, int *x, int *y)
+{
+    int x0, y0, x1, y1;
+
+    settings_value_rect(row, &x0, &y0, &x1, &y1);
+    *x = (x0 + x1) / 2;
+    *y = (y0 + y1) / 2;
+}
+
+static void sr_do(int cmd)
+{
+    unsigned long long now = shim_now_ms();
+    int f = settings_focused(), x, y;
+
+    switch (cmd) {
+    case SR_TOGGLE:
+        if (settings_is_open()) {
+            if (sr_press_row) {
+                sr_centre(sr_press_row, &x, &y);
+                settings_take(0, x, y);
+                sr_press_row = 0;
+            }
+            settings_close();
+            pointsrc_log("pointsrc: settings panel closed from the controller");
+        } else {
+            settings_raise("the controller");
+            settings_focus(1, now);
+        }
+        break;
+    case SR_NEXT:
+    case SR_PREV:
+        if (settings_is_open() && !sr_press_row)
+            settings_focus((f ? f : 1) + (cmd == SR_NEXT ? (f ? 1 : 0) : -1), now);
+        break;
+    case SR_PRESS:
+        if (settings_is_open() && f && !sr_press_row) {
+            settings_focus(f, now);
+            sr_centre(f, &x, &y);
+            sr_press_row = f;
+            settings_take(1, x, y);
+        }
+        break;
+    case SR_RELEASE:
+        if (sr_press_row) {
+            sr_centre(sr_press_row, &x, &y);
+            sr_press_row = 0;
+            settings_take(0, x, y);
+            if (settings_is_open())
+                settings_focus(f, now);       /* restart the clock; keep the selection */
+        }
+        break;
+    case SR_CLOSE:
+        if (settings_is_open()) {
+            sr_press_row = 0;
+            settings_close();
+            pointsrc_log("pointsrc: settings panel closed from the controller");
+        }
+        break;
+    }
+}
+
+static void *sr_thread(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        usleep(SR_TICK_MS * 1000);
+        for (;;) {
+            int cmd = 0;
+            pthread_mutex_lock(&sr_mu);
+            if (sr_head != sr_tail) {
+                cmd = sr_q[sr_tail];
+                sr_tail = (sr_tail + 1) % SR_QUEUE;
+            }
+            pthread_mutex_unlock(&sr_mu);
+            if (!cmd)
+                break;
+            sr_do(cmd);
+        }
+        if (settings_is_open() && st_kind == POINT_KIND_NONE) {
+            struct settings_state ss;
+            int sact = ST_ACT_NONE, ev;
+            unsigned long long now = shim_now_ms();
+            unsigned long long shel = settings_hold_ms(now);
+
+            settings_state_fill(&ss);
+            ev = settings_tick(&ss, now, &sact);
+            if (ev == ST_TICK_EJECT)
+                settings_eject(sact, shel);
+            else if (ev == ST_TICK_TIMEOUT) {
+                sr_press_row = 0;
+                pointsrc_log("pointsrc: settings panel timed out after %d ms",
+                             SB_TIMEOUT_MS);
+            }
+        }
+    }
+    return NULL;
+}
+
+static void sr_start(void)
+{
+    pthread_t t;
+
+    if (pthread_create(&t, NULL, sr_thread, NULL) == 0)
+        pthread_detach(t);
+    else
+        pointsrc_log("pointsrc: cannot start the settings panel's controller thread");
+}
+
+__attribute__((visibility("default"))) void shim_settings_remote(int cmd)
+{
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+
+    pthread_once(&once, sr_start);
+    pthread_mutex_lock(&sr_mu);
+    if ((sr_head + 1) % SR_QUEUE != sr_tail) {
+        sr_q[sr_head] = cmd;
+        sr_head = (sr_head + 1) % SR_QUEUE;
+    }
+    pthread_mutex_unlock(&sr_mu);
+}
+
+__attribute__((visibility("default"))) int shim_settings_remote_open(void)
+{
+    return settings_is_open();
 }
 
 static void *reader_thread(void *arg)

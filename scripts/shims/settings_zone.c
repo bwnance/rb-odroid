@@ -281,6 +281,7 @@ static int press_row;            /* the row the press began on, 1..SB_ROWS, or 0
 static int press_value;          /* ...and whether it began on that row's VALUE */
 static int cur_value;            /* the value rect under the finger right now, or 0 */
 static unsigned long long deadline_ms;
+static int focus_row;            /* the controller's selection, 1..SB_ROWS, or 0 */
 /* THE HOLD, and it belongs to the two USB rows alone. `hold_row` is the one piece of state
  * that outlives a press report, and it is set only by a
  * press on a USB row rbp says is live: "there is a hold" and "there is a live device under a
@@ -571,6 +572,7 @@ void settings_open(unsigned long long now_ms)
     cur_value = 0;
     hold_row = 0;
     flash_on = 0;
+    focus_row = 0;
 }
 
 void settings_close(void)
@@ -582,6 +584,20 @@ void settings_close(void)
     cur_value = 0;
     hold_row = 0;
     flash_on = 0;
+    focus_row = 0;
+}
+
+void settings_focus(int row, unsigned long long now_ms)
+{
+    if (!open_state)
+        return;
+    focus_row = row < 1 ? 1 : row > SB_ROWS ? SB_ROWS : row;
+    deadline_ms = now_ms + SB_TIMEOUT_MS;
+}
+
+int settings_focused(void)
+{
+    return open_state ? focus_row : 0;
 }
 
 int settings_is_open(void)
@@ -613,7 +629,7 @@ int settings_pressed(void)
     /* IT IS 0 FOR THE ROW WHOSE HOLD IS RUNNING, and that is the only
      * way the blink has somewhere to blink to: a steady finger highlight and the lit half of
      * the flash are the same pair of pixels, so a row that was both would show nothing. */
-    return hold_row ? 0 : cur_value;
+    return hold_row ? 0 : cur_value ? cur_value : focus_row;
 }
 
 unsigned long long settings_deadline(void)

@@ -263,6 +263,14 @@ void settings_close(void);
 
 int settings_is_open(void);
 
+/* THE CONTROLLER'S SELECTION -- the panel worked from a browse knob, with no finger
+ * (settings_remote.h): the focused row, clamped to 1..SB_ROWS, is the highlight
+ * whenever no press is in flight (settings_pressed()), and moving it restarts the
+ * panel's clock as a touch would. 0 until something focuses; settings_open() and
+ * settings_close() clear it, so a panel a finger raised shows no selection. */
+void settings_focus(int row, unsigned long long now_ms);
+int settings_focused(void);
+
 /* The wall-clock milliseconds at which the panel closes itself. Only meaningful while
  * settings_is_open(). */
 unsigned long long settings_deadline(void);
@@ -327,7 +335,9 @@ int settings_row_at(int x, int y);
 int settings_value_at(int x, int y);
 
 /* The row the finger is highlighting, or 0 -- settings_value_at()'s answer, published
- * for the painter (menu_pressed()'s question asked of this module). */
+ * for the painter (menu_pressed()'s question asked of this module). With no finger on
+ * a value it is the controller's focused row (settings_focus()), so the selection is
+ * drawn with the same pressed pair. */
 int settings_pressed(void);
 
 /* The row's and the value's rects, logical, inclusive at both ends -- the same rects the

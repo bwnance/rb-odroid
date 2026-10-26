@@ -27,6 +27,7 @@
 #include "pitch_state.h"
 #include "flx10_hid.h"
 #include "flx10_media.h"
+#include "settings_remote.h"
 
 static int checks, failures;
 #define CHECK(cond, ...) do { checks++; if (!(cond)) { failures++;           \
@@ -81,6 +82,10 @@ void flx10_toggle_time_mode(int d) { timemode_n[d]++; }
 int flx10_pos_now(int d, int *pos, int *mov) { (void)d; *pos = 0; *mov = 0; return 0; }
 int flx10_track_path(int d, char *b, size_t n) { (void)d; if (n) b[0] = 0; return 0; }
 int flx10_hot_cues(int d, int *i, int *l, unsigned *c) { (void)d; (void)i; (void)l; (void)c; return 0; }
+/* the SETTINGS panel in fbshim.so (settings_remote.h) */
+static int panel_up, panel_cmds[16], panel_cmds_n;
+void shim_settings_remote(int cmd) { if (panel_cmds_n < 16) panel_cmds[panel_cmds_n++] = cmd; }
+int shim_settings_remote_open(void) { return panel_up; }
 int flx10_end_caution(int d) { (void)d; return 0; }
 static int loop_primes[2];
 void flx10_loop_prime(int d) { loop_primes[d]++; }
@@ -738,11 +743,32 @@ int main(void)
      reset(); ON(7, 122); OFF(7, 122);
      CHECK(sent_n == 2 && is(0, K_SOURCE, OP_PRESS, 1), "VIEW on SOURCE -> SOURCE (closes it)");
      browse_mode = 1;
-     reset(); ON(7, 122); ON(7, 104); ON(7, 93);
-     CHECK(is(0, K_SOURCE, OP_PRESS, 1) && is(1, K_SHORTCUT, OP_PRESS, 1) &&
-           is(2, K_TRACKFILTER, OP_PRESS, 1) && is(3, K_TRACKFILTER, OP_REPEAT, 1),
-           "VIEW -> SOURCE, SHIFT+VIEW -> SHORTCUT, SHIFT+push -> TRACK FILTER");
-     OFF(7, 122); OFF(7, 104); OFF(7, 93);
+     reset(); ON(7, 122); ON(7, 93);
+     CHECK(is(0, K_SOURCE, OP_PRESS, 1) && is(1, K_TRACKFILTER, OP_PRESS, 1) &&
+           is(2, K_TRACKFILTER, OP_REPEAT, 1), "VIEW -> SOURCE, SHIFT+push -> TRACK FILTER");
+     OFF(7, 122); OFF(7, 93);
+
+     /* SHIFT + VIEW: SHORTCUT on a short press (on the release), the shim's
+      * SETTINGS panel on a long one; while the panel is up the browse knob, its
+      * push and BACK work it */
+     reset(); panel_cmds_n = 0; ON(7, 104);
+     CHECK(sent_n == 0, "SHIFT+VIEW press: nothing yet (the length decides)");
+     ms(300); map_flx10.tick(); OFF(7, 104);
+     CHECK(sent_n == 2 && is(0, K_SHORTCUT, OP_PRESS, 1) && is(1, K_SHORTCUT, OP_RELEASE, 1) &&
+           panel_cmds_n == 0, "short SHIFT+VIEW -> SHORTCUT");
+     reset(); ON(7, 104); ms(1100); map_flx10.tick(); OFF(7, 104);
+     CHECK(sent_n == 0 && panel_cmds_n == 1 && panel_cmds[0] == SR_TOGGLE,
+           "SHIFT+VIEW held 1 s -> the settings panel, no SHORTCUT");
+     panel_up = 1; reset(); panel_cmds_n = 0;
+     CC(7, 64, 1); CC(7, 64, 127); ON(7, 70); OFF(7, 70); ON(7, 101); OFF(7, 101);
+     CHECK(sent_n == 0 && panel_cmds_n == 5 && panel_cmds[0] == SR_NEXT &&
+           panel_cmds[1] == SR_PREV && panel_cmds[2] == SR_PRESS &&
+           panel_cmds[3] == SR_RELEASE && panel_cmds[4] == SR_CLOSE,
+           "panel up: knob selects, push presses / releases, BACK closes -- rbp gets none");
+     reset(); panel_cmds_n = 0; ON(7, 71); panel_up = 0; OFF(7, 71);
+     CHECK(sent_n == 0 && panel_cmds_n == 2 && panel_cmds[1] == SR_RELEASE,
+           "a push the panel took keeps its release, the panel gone or not");
+     panel_up = 0;
 
      /* Sound Color FX radio group */
      reset(); ON(7, 0);

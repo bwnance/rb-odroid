@@ -1273,6 +1273,28 @@ int main(void)
     test_paint_image();
     test_values_are_drawn();
 
+    /* THE CONTROLLER'S SELECTION (settings_remote.h): none until focused, clamped to the
+     * rows, the highlight while no finger is on a value, and moving it restarts the clock */
+    {
+        int act = ST_ACT_NONE;
+        begin(1000);
+        CHECK(settings_focused() == 0 && settings_pressed() == 0,
+              "a raised panel has no selection until something focuses");
+        settings_focus(0, 1000);
+        CHECK(settings_focused() == 1 && settings_pressed() == 1, "focus clamps up to row 1");
+        settings_focus(SB_ROWS + 5, 1000);
+        CHECK(settings_focused() == SB_ROWS, "...and down to the last row");
+        settings_focus(ST_ROW_MIXER, 9000);
+        CHECK(settings_deadline() == 9000 + SB_TIMEOUT_MS, "moving the focus restarts the clock");
+        feed(1, val_x(), row_ymid(ST_ROW_USB1), &act);
+        CHECK(settings_pressed() == ST_ROW_USB1 || settings_hold_row() == ST_ROW_USB1,
+              "a finger's press outranks the selection");
+        settings_close();
+        CHECK(settings_focused() == 0, "closing clears the selection");
+        settings_focus(2, 1000);
+        CHECK(settings_focused() == 0, "a shut panel takes no focus");
+    }
+
     printf("ok: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

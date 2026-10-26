@@ -63,6 +63,7 @@
 #include "rbp_led.h"        /* led_loop_flash */
 #include "midi_io.h"        /* midi_cc / midi_note, for the jog displays */
 #include "flx10_hid.h"      /* the jog screens' per-deck HID state */
+#include "settings_remote.h" /* the SETTINGS panel, from SHIFT + VIEW held */
 
 /* ---- receive channels, 0-based (MIDI channel minus one) ------------------ */
 #define CH_DECK1   0    /* deck 1: buttons, jog, tempo, mixer strip 1 */
@@ -270,6 +271,87 @@ static void pulse(int key, int sch)
 {
      send_rx_key(key, OP_PRESS, sch, 0);
      send_rx_key(key, OP_RELEASE, sch, 0);
+}
+
+/* ---- the SETTINGS panel ---------------------------------------------------
+ * The shim's own panel (MIXER ROUTE, USB STOP, ...; settings_remote.h), which is
+ * otherwise raised by the gear in the swipe-down menu -- out of reach on a unit
+ * with no touchscreen or mouse (operator, 2026-10-26):
+ *   SHIFT + VIEW, held PANEL_HOLD_MS   raise it / put it away. A shorter press is
+ *                                      rbp's SHORTCUT, as before, sent on the
+ *                                      release now that the length decides.
+ *   while it is up:
+ *     either browse knob              select a row
+ *     either browse knob's push       press the row's value -- held, for the USB
+ *                                     rows' three-second eject
+ *     BACK                            put it away
+ * A push or a BACK that went to the panel takes its release there too. The
+ * panel lives in fbshim.so; these are WEAK so a build without it has none. */
+#define PANEL_HOLD_MS 1000
+__attribute__((weak, visibility("default"))) void shim_settings_remote(int cmd);
+__attribute__((weak, visibility("default"))) int shim_settings_remote_open(void);
+static int view_held, view_long;
+static unsigned long long view_at;
+static int panel_owns[128];               /* a mixer-channel note's press went to the panel */
+
+static int panel_open(void)
+{
+     return shim_settings_remote_open && shim_settings_remote_open();
+}
+
+static void panel_cmd(int cmd)
+{
+     if (shim_settings_remote)
+          shim_settings_remote(cmd);
+}
+
+/* A mixer-channel note for the panel: SHIFT + VIEW always (its length decides),
+ * the browse pushes and BACK while the panel is up. 1 = taken. */
+static int flx10_panel_note(int note, int on)
+{
+     if (note == N_VIEW_SHIFT) {
+          if (on) {
+               view_held = 1;
+               view_long = 0;
+               view_at = shim_now_ms();
+          } else if (view_held) {
+               view_held = 0;
+               if (!view_long)
+                    pulse(K_SHORTCUT, CH_GLOBAL);
+          }
+          return 1;
+     }
+     if (note < 0 || note > 127)
+          return 0;
+     if (!on && panel_owns[note]) {
+          panel_owns[note] = 0;
+          if (note == N_LOAD1 || note == N_LOAD2)
+               panel_cmd(SR_RELEASE);
+          return 1;
+     }
+     if (!on || !panel_open())
+          return 0;
+     if (note == N_LOAD1 || note == N_LOAD2) {
+          panel_owns[note] = 1;
+          panel_cmd(SR_PRESS);
+          return 1;
+     }
+     if (note == N_BACK) {
+          panel_owns[note] = 1;
+          panel_cmd(SR_CLOSE);
+          return 1;
+     }
+     return 0;
+}
+
+static void flx10_panel_tick(unsigned long long t)
+{
+     if (view_held && !view_long && t - view_at >= PANEL_HOLD_MS) {
+          view_long = 1;
+          panel_cmd(SR_TOGGLE);
+          if (verbose)
+               klog("knobshim2: flx10 SHIFT + VIEW held: settings panel\n");
+     }
 }
 
 /* ---- SHIFT ---------------------------------------------------------------
@@ -1726,6 +1808,9 @@ static void flx10_note(int ch, int note, int on)
 {
      int deck = IS_DECK(ch) ? ch : -1;
 
+     if (ch == CH_MIX && flx10_panel_note(note, on))
+          return;
+
      /* A pad hit says exactly which page the unit is on: the backstop for
       * any mode change the toggle above gets wrong. */
      if ((ch == CH_PADS1 || ch == CH_PADS1S || ch == CH_PADS2 ||
@@ -2051,6 +2136,10 @@ static void flx10_cc(int ch, int cc, int val)
                return;
           }
      } else if (ch == CH_MIX) {
+          if ((cc == CC_BROWSE || cc == CC_BROWSE_SHIFT) && panel_open()) {
+               panel_cmd(val < 64 ? SR_NEXT : SR_PREV);   /* 0x01 down, 0x7F up */
+               return;
+          }
           if (cc == CC_BROWSE) {
                flx10_browse(val, 1);
                return;
@@ -2168,7 +2257,8 @@ static void flx10_build(void)
      add_note(CH_MIX, N_BACK, K_BACK, CH_GLOBAL);
      /* VIEW is a named case in flx10_note() (SOURCE from the player, BROWSE
       * from anywhere else). SHIFT + VIEW is SHORTCUT. */
-     add_note(CH_MIX, N_VIEW_SHIFT, K_SHORTCUT, CH_GLOBAL);
+     /* SHIFT + VIEW: rbp's SHORTCUT on a short press, the shim's SETTINGS panel on
+      * a long one -- flx10_panel_note(), ahead of this table. */
      /* SHIFT + browse push: TRACK FILTER. It needs the second edge --
       * map_flx4.c's add_note_repeat() note and rbp_abi.h's OP_REPEAT explain
       * why. 93 is deck 1's knob (measured); deck 2's SHIFT push is unrecorded
@@ -2213,6 +2303,7 @@ static void flx10_tick(void)
      flx10_track_tick(t);
      flx10_push_tick(t);
      flx10_scfx_tick(t);
+     flx10_panel_tick(t);
 }
 
 static void flx10_unit_setting(int ch, int is_cc, int num, int val);
