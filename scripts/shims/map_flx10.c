@@ -2503,17 +2503,20 @@ static void flx10_display_init(unsigned long long now)
      jd[0].refresh = jd[1].refresh = 0;
 }
 
-/* The tempo % the jog screen shows (and the key shift with it). On a synced
- * deck that is not the master rbp's getTempoX100 still follows the deck's own
- * fader and the jog's bend, while the deck plays at the master's BPM -- so it
- * is the playing BPM over the track's own (StatWatcher +0x14 / +0x18), which
- * the fader and the jog do not move (operator, 2026-10-25). */
-static int flx10_shown_tempo(const struct deck_info *di)
+/* The tempo % the jog screen shows (and the key shift with it): the speed
+ * the deck really plays at, the playing BPM over the track's own (StatWatcher
+ * +0x14 / +0x18). rbp's getTempoX100 is the deck's fader: on a synced deck
+ * that is not the master it follows the fader and the jog's bend while the
+ * deck plays at the master's BPM (operator, 2026-10-25), and after SYNC is
+ * turned off the deck keeps the synced speed until the fader is moved while
+ * getTempoX100 says where the fader is -- the unit scales a stacked waveform
+ * by this number, so a deck at +36% sent as -2% scrolled at the wrong speed
+ * beside a BPM-matched deck (operator, 2026-10-26). Exposed for the test. */
+int flx10_shown_tempo(const struct deck_info *di)
 {
      long long t;
 
-     if (!di->loaded || !di->sync || di->master || di->bpm_raw <= 0 ||
-         di->bpm_orig <= 0 || di->bpm_orig >= 0xffff)
+     if (!di->loaded || di->bpm_raw <= 0 || di->bpm_orig <= 0 || di->bpm_orig >= 0xffff)
           return di->tempo_raw;
      t = (long long)di->bpm_raw * 10000 / di->bpm_orig - 10000;
      if (t < -10000 || t > 10000)

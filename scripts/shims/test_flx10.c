@@ -885,6 +885,19 @@ int main(void)
                CHECK(dg == 40, "155000 ms -> 200 ms into a 1.8 s turn = 40 deg (%d)", dg);
                CHECK(n && n->deck_display != NULL, "the FLX10 takes deck display values");
           }
+          /* the tempo % sent is the speed the deck plays at */
+          {
+               extern int flx10_shown_tempo(const struct deck_info *);
+               struct deck_info di = { 0 };
+               di.loaded = 1; di.bpm_raw = 13600; di.bpm_orig = 10000; di.tempo_raw = -200;
+               CHECK(flx10_shown_tempo(&di) == 3600,
+                     "sync off, fader untouched: +36%% played, not the fader's -2%% (%d)",
+                     flx10_shown_tempo(&di));
+               di.sync = 1;
+               CHECK(flx10_shown_tempo(&di) == 3600, "synced: the same (%d)", flx10_shown_tempo(&di));
+               di.bpm_orig = 0;
+               CHECK(flx10_shown_tempo(&di) == -200, "no track BPM: rbp's own value");
+          }
           /* the pad page follows the unit's own mode buttons */
           reset(); ON(1, 30); OFF(1, 30);
           CHECK(flx10_led_pad_base(0, pmode(16)) == 16, "PAD FX1 -> page 16");
