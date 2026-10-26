@@ -160,29 +160,41 @@ On the unit, Armbian `6.18.43-current-meson64`, with a 1024×768 bench monitor
 **Open, as of the end of 2026-10-25** (the start-here list for the next
 session; details further down):
 
-1. **To confirm on the unit** (built and committed, not yet tested):
-   - SLIP REVERSE with quantize ON ends the reverse on release and puts slip
-     off right after (slip is set with DjEngineIF::setSlipMode again, so the
-     REV key sees it; quantize OFF already confirmed perfect). A tap released
-     before a quantized reverse began waits up to 1 s for it.
-   - Slip mode no longer blinks the HOT CUE / GATE CUE pads white (rbp puts
-     all eight pad entries in state 3 with slip on; an empty slot is dark now,
-     rbp_led.c). Check a hot cue pad keeps its colour with slip on -- if rbp
-     makes those white too, keep the pre-slip colour.
-2. **HDMI audio mirror**: run `scripts/odroid/hdmi-audio-probe.sh`, read
+1. **HDMI audio mirror**: run `scripts/odroid/hdmi-audio-probe.sh`, read
    `~/hdmi-audio.txt`, then set the mixer route in start-rb.sh and
    `RB_AUDIO_MIRROR_DEV=hw:CARD=ODROIDN2,DEV=0` with a format that works.
-3. **Waveforms on the jog screens**: the unit caches waveform data it is sent
+2. **Waveforms on the jog screens**: the unit caches waveform data it is sent
    (rekordbox's showed up after a capture session until a power cycle). Decode
    rekordbox's waveform HID packets from the captures in ~/Downloads on the
    Mac (capture, capture_2, capture_jog; tools/flx10-pcap-decode.py --dump
    <type>), then feed rbp's own waveform per loaded track.
-4. **Album art on the jog screens**: same route, image data (rbp has
+3. **Album art on the jog screens**: same route, image data (rbp has
    sendJogArtworkData / UiSetJogArtwork for the RX3's own jog screens).
-5. **Splash until rbp is ready**, input held until then (item below). Needs
+4. **Splash until rbp is ready**, input held until then (item below). Needs
    the operator's description of the start-up glitches first.
-6. **Booth and master outputs**, by ear.
-7. Parked: HOT CUE mode switch lag; RX3 effects matching the FLX10's.
+5. **Booth and master outputs**, by ear.
+6. Parked: HOT CUE mode switch lag; RX3 effects matching the FLX10's.
+
+Done and confirmed 2026-10-25 (slip and pads):
+- SLIP REVERSE with quantize ON ends on release and puts slip off after. The
+  release clears rbp's asked-for reverse (Player+0xe9b) at once while the
+  deck reverses on to the beat (+0xe9c, rbp_abi.h); slip went off in between,
+  which ends the slip and leaves the reverse running. The map now waits for
+  both (map_flx10.c, flx10_reversing).
+- rbp's slip flash (the SLIP key puts all eight pad entries in state 3 for
+  ~0.5 s) no longer lights the pads: empty hot cue pads went white, other
+  modes' pads bright. The bridge leaves the pads alone while all eight are at
+  3 (rbp_led.c). The previous fix (UiGetHotCueINtime) never ran on the FLX10:
+  its dim/bright pad style returns first.
+- No stale lights on the first visit to a pad page after a restart: the
+  connect sequence sends every pad page dark but the one shown, as rekordbox
+  does (map_flx10.c).
+- Pads dark during SLIP REVERSE (some BEAT LOOP / BEAT JUMP pads, varying) are
+  rbp's own: it marks them unusable while the deck slip-reverses, and they do
+  nothing when pressed. Left as is.
+- The deck badge no longer retries a refused overlay plane on every playing
+  tick: on the ODROID that logged two lines per tick and filled the 1.9 GB
+  /tmp (pointsrc.log), which failed the next install.
 
 Done and confirmed 2026-10-25 (HID jog screens): arm tracks the platter (top
 and side ring, ten turns land back on 12:00), smooth while playing, paused,
