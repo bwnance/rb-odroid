@@ -1886,6 +1886,28 @@ int main(void)
           map_flx10.leds->deck_display(0, &m); map_flx10.leds->deck_display(1, &f);
      }
 
+     /* SYNC pressed at +-6 on a deck that needs WIDE: WIDE, and back to +-6 later --
+      * the floor taken at the press survives the moment before rbp says synced */
+     {
+          struct deck_info m, f;
+          memset(&m, 0, sizeof m); memset(&f, 0, sizeof f);
+          m.loaded = f.loaded = 1; m.master = 1;
+          m.bpm_raw = 2000; f.bpm_raw = 10000; f.bpm_orig = 10000; f.tempo_range = 0;
+          map_flx10.leds->deck_display(0, &m); map_flx10.leds->deck_display(1, &f);
+          ms(600); reset(); ON(2, 88); OFF(2, 88);
+          CHECK(sent_n == 8 && is(6, K_SYNC, OP_PRESS, 2), "SYNC at +-6, -80%% needed: WIDE first (%d)", sent_n);
+          ms(100); map_flx10.tick();                         /* rbp not synced yet */
+          f.tempo_range = 3; map_flx10.leds->deck_display(1, &f); ms(100); map_flx10.tick();
+          f.sync = 1; f.bpm_raw = 2000; map_flx10.leds->deck_display(1, &f); ms(100); map_flx10.tick();
+          CHECK(sent_n == 8, "synced at WIDE: nothing more (%d)", sent_n);
+          m.bpm_raw = 10300; f.bpm_raw = 10300;
+          map_flx10.leds->deck_display(0, &m); map_flx10.leds->deck_display(1, &f);
+          ms(600); map_flx10.tick();
+          CHECK(sent_n == 10, "the master back to +3%%: WIDE -> +-6, the range SYNC was pressed on (%d)", sent_n);
+          memset(&m, 0, sizeof m); memset(&f, 0, sizeof f);
+          map_flx10.leds->deck_display(0, &m); map_flx10.leds->deck_display(1, &f);
+     }
+
      printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);
      return failures ? 1 : 0;
 }

@@ -1177,6 +1177,9 @@ static int range_floor[2] = { -1, -1 };    /* -1 = not synced */
 static int range_expect[2] = { -1, -1 };   /* the range our steps are heading to */
 static int range_seen[2] = { -1, -1 };     /* the range when last looked at */
 static int range_by_hand[2];               /* range_expect is the operator's press */
+static int range_synced[2];                /* deck_sync when last looked at */
+#define RANGE_PRESS_MS 2000                /* SYNC pressed: its floor kept this long for rbp */
+static unsigned long long range_press_at[2];
 static unsigned long long range_sent_at[2];
 
 /* the smallest range that holds the sync's tempo, -1 = not known */
@@ -1229,6 +1232,7 @@ static void flx10_sync_fit_range(int deck)
 
      range_floor[deck] = cur;
      range_seen[deck] = cur;
+     range_press_at[deck] = shim_now_ms();
      if (need > cur)
           flx10_range_steer(deck, need, "on");
 }
@@ -1265,10 +1269,20 @@ static void flx10_range_tick(unsigned long long t)
           int cur = deck_range[d] & 3, need, want;
 
           if (!deck_sync[d]) {
+               /* not synced YET, just after SYNC was pressed: the floor taken
+                * then is kept for rbp to catch up -- dropped here, the deck came
+                * on synced at the widened range and that became the floor, so it
+                * never narrowed (operator, 2026-10-26: +-6, SYNC, WIDE for good) */
+               if (!range_synced[d] && range_press_at[d] &&
+                   t - range_press_at[d] < RANGE_PRESS_MS)
+                    continue;
                range_floor[d] = range_expect[d] = -1;
                range_by_hand[d] = 0;
+               range_synced[d] = 0;
                continue;
           }
+          range_synced[d] = 1;
+          range_press_at[d] = 0;
           if (range_floor[d] < 0)                 /* synced some other way */
                range_floor[d] = range_seen[d] = cur;
           if (range_expect[d] >= 0) {
