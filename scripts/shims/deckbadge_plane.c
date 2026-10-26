@@ -72,6 +72,7 @@
 static struct drm_band band[2];
 static int  tried;                  /* setup has been attempted (once per process) */
 static int  usable[2];              /* this deck has a plane we can draw into */
+static int  no_plane[2];            /* ...or it was refused one, and is not asked again */
 static int  up[2];                  /* ...and it is currently on the glass */
 static int  run[2];                 /* consecutive ticks this deck has read as playing */
 static int  idle[2];
@@ -251,12 +252,18 @@ static int setup_once(int deck)
 
     if (usable[deck])
         return 0;
+    if (no_plane[deck])
+        return -1;
     drm_band_want_rank(DRM_RANK_RING);
     if (drm_band_setup(&band[deck], w, h, 16) != 0) {
         /* Said once per deck and then remembered: a machine that cannot have a third plane is a
          * machine with no ring, and that must not cost the player anything. */
         pointsrc_log("badge: deck%d has no overlay plane -- no play ring (the badge still works)",
                      deck + 1);
+        /* Remembered, not retried: asked again on every playing tick, this and drm_band_setup's
+         * own line filled the ODROID's 1.9 GB /tmp (SET_MASTER refused -- DirectFB holds the
+         * card; 2026-10-25). */
+        no_plane[deck] = 1;
         return -1;
     }
     usable[deck] = 1;
