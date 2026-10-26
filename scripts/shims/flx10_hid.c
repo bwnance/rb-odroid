@@ -310,6 +310,12 @@ int flx10_hid_merge(struct flx10_hid_track *k, int reading, int mov, int jog,
            * wobble against the hand is not shown unless it is a real jump
            * (more than NO_BACKSTEP_MS). */
           int dir = jog == FLX10_JOG_TURNING ? 1 : -1;
+          /* on a playing deck the jog bends the speed and the track still
+           * runs forward (a jog turned back slows it): the arm goes the way
+           * the TRACK moves, not the hand -- holding it against the hand
+           * made it stutter forward in NO_BACKSTEP_MS jumps */
+          if (mov)
+               dir = k->vel < 0.0f ? -1 : 1;
           long v = reading;
           if (k->fresh && k->vel * (float)dir >= JOG_LEAD_MIN_VEL) {
                long ahead = (long)(now - k->changed_at) + JOG_LEAD_MS;

@@ -889,6 +889,24 @@ int main(void)
                     CHECK(v - r <= 30, "hand stopped: lead dropped, at most a small hold (%d vs %d)", v, r);
                     k.fresh = 1;
                }
+               /* playing, the jog turned back (a bend down): the track still
+                * runs forward, slower, and the arm follows it smoothly */
+               {
+                    int r = 7000, v, prev = 0, back = 0, jump = 0;
+                    k.fresh = 1;
+                    for (int i = 0; i < 10; i++)          /* playing at 1x first */
+                         prev = flx10_hid_merge(&k, r += 10, 1, 0, 0, 0, t += 10);
+                    for (int i = 0; i < 40; i++) {
+                         r += 6;                         /* 0.6x speed */
+                         v = flx10_hid_merge(&k, r, 1, FLX10_JOG_TURNING_BACK, 0, 0, t += 10);
+                         back += v < prev;
+                         jump += v - prev > 25;
+                         prev = v;
+                    }
+                    CHECK(!back && !jump && prev >= r - 10 && prev <= r + 20,
+                          "bend down while playing: arm runs forward smoothly (back %d jumps %d, %d vs %d)",
+                          back, jump, prev, r);
+               }
                CHECK(flx10_hid_merge(&k, 9000, 0, 0, 0, 0, t += 10) == 9000, "cue/seek while paused: the reading");
                flx10_hid_merge(&k, 9000, 1, 0, 0, 0, t += 10);
                flx10_hid_merge(&k, 9000, 1, 0, 0, 0, t += 10);
