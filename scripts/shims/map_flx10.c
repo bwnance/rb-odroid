@@ -189,19 +189,21 @@ static int jog_scale = 1;
 #define FLX10_JOG_PPR 12960
 #define JOG_WINDOW_US 4000           /* one jog update per window at most */
 #define JOG_POS_PPR   720            /* the resolution rbp's position is fed at */
-/* How far a jog count moves the track: rekordbox's own, measured from a USB
- * capture on the same FLX10 (2026-10-25, tools/flx10-pcap-decode.py --jog,
- * paused deck, three turns each way): the platter top 0.1390 ms of track per
- * count (1.8 s a turn -- the jog screen's arm, a record at 33 1/3 -- at
- * ~12950 counts), the side ring 0.1650 (1.8 s a turn at ~10900 counts).
+/* How far a jog count moves the track: one platter turn = one turn of the
+ * jog screen's arm = 1.8 s of track (a record at 33 1/3), for both controls.
+ * Counts per turn measured on the unit with JOG_CAL over ten taped turns
+ * (2026-10-25): the top 129410 / 10 = 12941 (0.1391 ms a count -- rekordbox's
+ * own, from the USB capture, is 0.1390), the side ring 125437 / 10 = 12544
+ * (0.1435; rekordbox moves the side ring 0.1650 a count, ~2.07 s a turn, which
+ * runs ahead of the arm).
  * rbp takes a position in 1/720 turns of ITS jog, and one of its turns moves
  * the track RBP_TURN_MS: 1000 ms, measured with JOG_CAL on the unit
  * (2026-10-25: 1000.3 / 1000.0 / 1002.3 / 999.1 over four three-turn
  * gestures, top and side, both ways). So a count is ms_per_count * 720 / RBP_TURN_MS rbp units,
  * applied to the position and the speed alike. JOG_RBP_TURN_MS sets rbp's
  * turn, JOG_GAIN multiplies both controls (default 1). */
-#define FLX10_MS_PER_COUNT_TOP  0.1390
-#define FLX10_MS_PER_COUNT_SIDE 0.1650
+#define FLX10_MS_PER_COUNT_TOP  0.1391
+#define FLX10_MS_PER_COUNT_SIDE 0.1435
 #define FLX10_RBP_TURN_MS       1000.0
 #define FLX10_JOG_GAIN          1.0
 static double jog_rbp_turn_ms = FLX10_RBP_TURN_MS;

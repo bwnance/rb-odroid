@@ -454,6 +454,13 @@ MIDI beside the jog screen's position, with no turns counted by hand:
 | platter top (CC 34/35/31) | 0.1390 | ~12950 |
 | side ring (CC 33/38) | 0.1650 | ~10900 |
 
+**Then measured on the unit** (JOG_CAL, ten taped turns each): the top gives
+129410 counts in 10 turns (12941 a turn: rekordbox's 0.1390 ms a count is 1.8 s
+a turn, the arm exactly), the side ring 125437 (12544 a turn -- the capture's
+hand count was off, and rekordbox's 0.165 runs the side ring ~2.07 s a turn,
+ahead of the arm). The map uses 1.8 s a turn on both: **top 0.1391, side 0.1435
+ms a count**.
+
 (Single stray jog CCs on the other deck channels, value 0x58, show up in the
 capture and are ignored.) The map now moves rbp by exactly those: a count is
 `ms_per_count x 720 / RBP_TURN_MS` of rbp's 1/720-turn units, speed and position

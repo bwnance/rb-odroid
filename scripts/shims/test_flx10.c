@@ -515,7 +515,7 @@ int main(void)
           CHECK(fast > 20.0f * (sent_n ? sent[sent_n - 1].f : 1.0f), "fast is much faster than slow");
           ms(200); map_flx10.tick();
           /* one turn of the top (12960 counts) moves the track 1.8 s, as
-           * rekordbox: 12960 x 0.139 ms x 720 / rbp's 1000 ms turn = ~1297 */
+           * the arm: 12960 x 0.1391 ms x 720 / rbp's 1000 ms turn = ~1298 */
           reset();
           long before = -1;
           CC(2, 35, 64 + 1); ms(5); CC(2, 35, 64 + 1);
@@ -526,11 +526,11 @@ int main(void)
           long moved = (after - before) & 0xFFFF;
           CHECK(sent[0].ch == 2 && moved > 1285 && moved < 1310, "one top turn moves rbp's position ~1297 (%ld)", moved);
           ms(200); map_flx10.tick();
-          /* the side ring: one turn is ~10900 counts and also 1.8 s */
+          /* the side ring: one turn is ~12544 counts and also 1.8 s */
           reset();
           CC(2, 33, 64 + 1); ms(5); CC(2, 33, 64 + 1);
           before = sent_n ? sent[sent_n - 1].l : -1;
-          for (int n = 0; n < 10900; n += 20) { CC(2, 33, 64 + 20); }
+          for (int n = 0; n < 12544; n += 20) { CC(2, 33, 64 + 20); }
           ms(5); CC(2, 33, 64 + 1); ms(30); map_flx10.tick();
           moved = (sent[sent_n - 1].l - before) & 0xFFFF;
           CHECK(moved > 1285 && moved < 1310, "one side-ring turn moves it the same (%ld)", moved);
