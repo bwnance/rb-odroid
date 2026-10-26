@@ -36,7 +36,8 @@
  *            0x04 master tempo
  *   [5]      0x01, +0x10 SYNC on, +0x80 tempo MASTER (second capture)
  *   [6]      0x02          [7] 0x02 decks 1/3, 0x01 decks 2/4
- *   [8]      0x80 the jog's light ring (dark without it)
+ *   [8]      0x80 the jog's light ring (dark without it): flashed off with
+ *            rbp's track-end warning (end_caution)
  *   [9]      0xb4 loaded (0x10 empty; 0xbc while looping); 0x04 of it is the
  *            cue marker, cleared with no cue point
  *   [11..14] position: minutes, seconds, milliseconds (LE16)
@@ -190,6 +191,10 @@ void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
      if (s->master)
           p[5] |= 0x80;
      p[9] = 0xb4;
+     /* the track-end warning: the jog's light ring ([8] 0x80) flashes with
+      * rbp's own overview-waveform warning, slow at 30 s left, fast at 15 */
+     if (s->end_caution)
+          p[8] &= (unsigned char)~0x80;
      /* at the track's end rbp's position reaches (or passes) the length, and
       * the screen drops the arms for a position not inside the track: kept a
       * millisecond short of the end */
@@ -269,6 +274,7 @@ struct hid_slot {
 static struct hid_slot hd[4];
 static pthread_mutex_t hd_lock = PTHREAD_MUTEX_INITIALIZER;
 static int (*pos_reader)(int deck, int *pos_ms, int *moving);
+static int (*caution_reader)(int deck);
 
 static int moving(const struct flx10_hid_deck *s)
 {
@@ -413,6 +419,11 @@ void flx10_hid_tempo_hold(struct flx10_hid_tempo_hold *h, struct flx10_hid_deck 
      s->bpm_x100 = h->bpm_x100;
 }
 
+void flx10_hid_set_caution_reader(int (*fn)(int deck))
+{
+     caution_reader = fn;
+}
+
 void flx10_hid_set_pos_reader(int (*fn)(int deck, int *pos_ms, int *moving))
 {
      pos_reader = fn;
@@ -530,6 +541,8 @@ static void *hid_thread(void *arg)
                     }
                }
                pthread_mutex_unlock(&hd_lock);
+               if (caution_reader && d < 2 && s.loaded)
+                    s.end_caution = caution_reader(d);
                flx10_hid_state_pkt(p, d, &s);
                ok = send_pkt(fd, p);
           }

@@ -73,6 +73,7 @@ int flx10_cue_ms(int d, int total_ms) { (void)d; (void)total_ms; return 1000; }
 static int timemode_n[2];
 void flx10_toggle_time_mode(int d) { timemode_n[d]++; }
 int flx10_pos_now(int d, int *pos, int *mov) { (void)d; *pos = 0; *mov = 0; return 0; }
+int flx10_end_caution(int d) { (void)d; return 0; }
 static int loop_primes[2];
 void flx10_loop_prime(int d) { loop_primes[d]++; }
 static int xf_assign[2] = { -1, -1 };
@@ -759,6 +760,9 @@ int main(void)
                     printf("  byte %d: %02x, capture %02x\n", i, p[i], cap_loaded[i]);
                }
           CHECK(same, "loaded deck 2 = rekordbox's packet (byte 45 aside)");
+          hs.end_caution = 1; flx10_hid_state_pkt(p, 1, &hs);
+          CHECK(p[8] == 0x00, "track-end warning flash: the jog ring off ([8] 00)");
+          hs.end_caution = 0;
 
           /* deck 1 at WIDE +33.78%, MT off: 220.15 BPM, key 8B shown 7B "+5" */
           memset(&hs, 0, sizeof hs);

@@ -37,6 +37,7 @@ struct flx10_hid_deck {
      int jog_touch;         /* the platter is pressed */
      int time_remain;       /* rbp shows remaining time: [3] 0x08 */
      int on_air;            /* rbp's ON AIR icon for the deck: the white edges */
+     int end_caution;       /* rbp's track-end warning flash, "on" half: ring dark */
 };
 
 /* The jog screen's loop-size code (byte 10) for a loop of len_ms at the track's
@@ -101,6 +102,10 @@ void flx10_hid_tempo_hold(struct flx10_hid_tempo_hold *h, struct flx10_hid_deck 
  * standby), returns 0 when it cannot read. Without one, the 20 Hz value from
  * flx10_hid_update is used. */
 void flx10_hid_set_pos_reader(int (*fn)(int deck, int *pos_ms, int *moving));
+
+/* Where the sender reads rbp's track-end warning phase (map_flx10.c sets it):
+ * non-zero during the warning flash's "on" half. */
+void flx10_hid_set_caution_reader(int (*fn)(int deck));
 
 /* The jog was turned on this deck (0..3), dir +1 forward / -1 back. */
 void flx10_hid_jog_activity(int deck, int dir);

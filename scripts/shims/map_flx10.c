@@ -913,6 +913,16 @@ __attribute__((weak)) void flx10_toggle_time_mode(int deck)
           remain ? "elapsed" : "remaining");
 }
 
+/* rbp's track-end warning phase for the deck (rbp_abi.h
+ * UI_REMAIN_CAUTION_REVERSE): 1 while the warning flash is in its "on" half.
+ * Read by the HID sender at 100 Hz for the jog's light ring. WEAK for the
+ * host test. */
+__attribute__((weak)) int flx10_end_caution(int deck)
+{
+     return deck >= 0 && deck < 2 &&
+            ((volatile int *)UI_REMAIN_CAUTION_REVERSE)[deck] != 0;
+}
+
 /* The main cue point in ms (the jog's cue arm), -1 when there is none: the
  * reader's cue object for LAST_CUE, as flx10_start_pos reads it, scaled from
  * samples by the track's length. WEAK so the host test can answer for rbp. */
@@ -2406,6 +2416,7 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
      if (deck == 0) {
           flx10_display_init(now);
           flx10_hid_set_pos_reader(flx10_pos_now);
+          flx10_hid_set_caution_reader(flx10_end_caution);
      }
      /* the jog screens draw nothing without this (flx10_hid.h); the MIDI
       * values below still go out too */

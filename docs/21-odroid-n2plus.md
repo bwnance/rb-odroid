@@ -318,6 +318,13 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   light ring (dark without it -- a candidate for the track-end warning flash);
   [9] 0x04 is the cue marker on the screen, now cleared when there is no cue
   point.
+* **Track-end warning** (2026-10-25): the jog's light ring ([8] 0x80) flashes
+  with rbp's own warning -- the one that flashes the overview waveform on the
+  screen. Ui_CulcRemainCaution @0x134244 keeps int
+  ui_remainCautionReverse[deck] @0x03275750 as the flash phase: 30 s or less
+  left, 450 ms on / 450 off; 15 s or less, 100 / 100; 0 otherwise. The HID
+  sender reads it at 100 Hz (flx10_end_caution) and clears [8] 0x80 in the
+  "on" half.
 * **Splash until rbp is ready** (operator, 2026-10-25). A splash covering the
   whole screen from launch until rbp has fully initialized, so none of its
   start-up drawing shows, and no input (FLX10, keyboard, touch) reaching rbp

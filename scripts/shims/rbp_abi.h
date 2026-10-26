@@ -937,6 +937,15 @@ static const signed char bfx_type_to_pos[15] = {
 /* PlayEngine::isJogTouching(ch) @0x5e308: Player+0xeae, the platter held --
  * a playing deck held by the hand (vinyl mode) is not moving */
 #define PE_ISJOGTOUCHING   0x5e308
+/* The track-end warning, rbp's own: Ui_CulcRemainCaution(deck) @0x134244
+ * (called from ComputePlayAddress, i.e. the play-info / jog-GUI updates) sets
+ * int ui_remainCautionReverse[deck] @0x03275750 to the flash phase of the
+ * overview waveform's warning: with 30 s or less left it toggles every
+ * 450 ms (on 0..449 ms, off 450..899), with 15 s or less every 100 ms; 0
+ * otherwise (no track, arrived at the end, track search, and two player
+ * states at 0x05a19208 + deck*64 + 8 == 1 / 2). Read by
+ * Ui_GetRemainCautionReverse @0x13439c and ComputePlayAddRemain. */
+#define UI_REMAIN_CAUTION_REVERSE 0x03275750UL
 #define PE_ISCUESAMPLING   0x5e958
 
 /* rbp LedStat ids we have identified (channels 1/2 = deck 1/2):
