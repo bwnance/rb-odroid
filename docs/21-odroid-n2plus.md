@@ -311,7 +311,11 @@ session; details further down):
    rbp's two lanes could follow the selected decks as rekordbox's 2-lane view
    follows DECK 1/3 and 2/4 -- or the shim draws lanes for 3/4 itself, as it
    overlays other panels. If it cannot, four decks is a second engine beside
-   rbp's, a much larger thing.
+   rbp's, a much larger thing. For the screen, the operator's model: the
+   XDJ-AZ's four-deck layout -- four waveform lanes, the HOT CUE pad rows
+   hidden to make the room (operator, 2026-10-26). rbp has no such layout of
+   its own, so it would be the shim's to draw, over the space rbp's two lanes
+   and pad rows take.
 13. Parked: HOT CUE mode switch lag.
 
 Done 2026-10-26 (start-up splash, rbp's TRANS picture):
