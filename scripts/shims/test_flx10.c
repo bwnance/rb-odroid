@@ -57,6 +57,9 @@ int midi_sysex_out(const unsigned char *b, unsigned n) { (void)b; (void)n; retur
 int midi_surface_generation(void) { return 1; }
 int midi_out_ready(void) { return 1; }
 volatile int led_kick;
+static int query_n, splash_up;
+int led_query_absolute(void) { query_n++; return 1; }
+int shim_splash_active(void) { return splash_up; }
 static int cue[4], mcue, deleted_deck = -1, deleted_pad = -1;
 int me_get_cue(int idx) { return cue[idx]; }
 void me_set_cue(int idx, int on) { cue[idx] = on; }
@@ -754,6 +757,20 @@ int main(void)
      CHECK(is(0, K_SOURCE, OP_PRESS, 1) && is(1, K_TRACKFILTER, OP_PRESS, 1) &&
            is(2, K_TRACKFILTER, OP_REPEAT, 1), "VIEW -> SOURCE, SHIFT+push -> TRACK FILTER");
      OFF(7, 122); OFF(7, 93);
+
+     /* the start-up splash: the controller is ignored while it is up, and asked
+      * for its controls again the moment it ends */
+     splash_up = 1; map_flx10.tick(); reset(); query_n = 0;
+     ON(7, 122); OFF(7, 122);
+     CHECK(sent_n == 0, "splash up: VIEW goes nowhere (%d sent)", sent_n);
+     map_flx10.tick();
+     CHECK(query_n == 0, "...and nothing is asked while it is up");
+     splash_up = 0; map_flx10.tick();
+     CHECK(query_n == 1, "splash over: the unit is asked for its controls once");
+     map_flx10.tick();
+     CHECK(query_n == 1, "...only once");
+     ON(7, 122); OFF(7, 122);
+     CHECK(sent_n == 2, "...and the controller is live again");
 
      /* SHIFT + VIEW: SHORTCUT on a short press (on the release), rbp's UTILITY
       * (MENU held 500 ms) on a long one; while the shim's panel is up the browse

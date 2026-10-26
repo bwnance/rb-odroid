@@ -324,7 +324,7 @@ MIXER_MODE_FILE
 AUDIO_PAIRS_MEMORY
 VNC_LIVE_FILE VNC_MODE_FILE VNC_INPUT_FILE
 AUDIO_MIRROR_DEV AUDIO_MIRROR_FMT AUDIO_MIRROR_REOPEN_MS AUDIO_MIRROR_BOOST_DB
-AUDIO_MIRROR_FILE SETTINGS_DJM SETTINGS_VNC UTILITY_ROWS
+AUDIO_MIRROR_FILE SETTINGS_DJM SETTINGS_VNC UTILITY_ROWS SPLASH_MS SPLASH_FILE
 STARTUP_MUTE_MS STARTUP_FADE_MS SCHED_RT
 MIDI_MAP EVDEV_MAP MIDI_IN_MATCH MIDI_OUT_MATCH MIDI_DUMP MIDI_REPLAY FLX10_KEYS FLX10_HID FLX10_MEDIA FLX10_ONAIR SYNC_BLINK_MS
 MIDI_REPLAY_SPEED KEY_DUMP KEY_REPLAY KEY_REPLAY_SPEED
@@ -431,6 +431,20 @@ if [ "${RB_PREWARM:-1}" = 1 ]; then
     _pw_s=$(awk -v a="$_pw0" -v b="$_pw1" 'BEGIN{printf "%.1f", b-a}')
     echo "start-rb: pre-warmed rbp's startup set in ${_pw_s}s"
     rb_bootmsg "pre-warmed rbp files (${_pw_s}s)"
+fi
+
+# --- 8b. the start-up pictures ----------------------------------------------
+# rbassets.py writes the splash fbshim.so draws over rbp's first seconds
+# (RB_SPLASH_IMAGE, or rbp's own rekordbox logo) to /run/rblive4, and makes rbp's
+# own TRANS picture read TRANNY. Before the launch, because rbp reads its pictures
+# at start; it never fails the start.
+if [ -f "$HERE/rbassets.py" ] && command -v python3 >/dev/null 2>&1; then
+    mkdir -p /run/rblive4
+    python3 "$HERE/rbassets.py" \
+        --imagedata "$RB_CHROOT/root/gui/pset/imagedata/imagedata.dat" \
+        --splash-out /run/rblive4/splash.rgb565 \
+        --splash-image "${RB_SPLASH_IMAGE:-}" \
+        --tranny "${RB_FX_TRANNY:-1}" >&2 || true
 fi
 
 # --- 9. start rbp -----------------------------------------------------------

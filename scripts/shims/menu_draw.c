@@ -127,6 +127,7 @@
 #include "fxpad_paint.h"       /* ...and the HUD it draws over rbp's BPM cell */
 #include "settings_zone.h"     /* the SETTINGS panel: its box, and whether it is up */
 #include "settings_paint.h"    /* ...and the image it is drawn with */
+#include "splash.h"            /* the start-up splash, over the whole page */
 #include "rbp_vu.h"            /* g_fader[]: the value the drawer's handle follows */
 #include "pitch_state.h"       /* ...and g_pitch_norm[], when the fader is a PITCH one */
 #include "drmband.h"           /* the overlay plane, when this machine has one */
@@ -2298,6 +2299,28 @@ static void menu_band_present(void)
     else
         menu_paint(&g.view, g.painted_pressed);
     pointsrc_log("menu: the plane would not take the band -- back on the page");
+}
+
+/* 64-bit milliseconds: menu_now_us() wraps a 32-bit long every 35 minutes, and the
+ * splash measures a five-second span from a reading taken at any uptime. */
+static unsigned long long menu_now_ms64(void)
+{
+    struct timespec t;
+
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (unsigned long long)t.tv_sec * 1000ull + (unsigned long long)t.tv_nsec / 1000000ull;
+}
+
+void menu_splash_tick(void)
+{
+    if (!g.ok || !g.fb_pix || (g.view.bpp != 16 && g.view.bpp != 32)) {
+        splash_frame(NULL, 0, 0, 0, 0, menu_now_ms64());   /* the clock still runs */
+        return;
+    }
+    splash_frame((unsigned char *)g.fb_pix
+                 + ((size_t)g.fb_by * (size_t)g.fb_pitch + (size_t)g.fb_bx)
+                   * (size_t)(g.view.bpp / 8),
+                 g.fb_pitch, g.view.dw, g.view.dh, g.view.bpp, menu_now_ms64());
 }
 
 void menu_frame_tick(void)

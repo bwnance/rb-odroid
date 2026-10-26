@@ -494,6 +494,7 @@ int ioctl(int fd, unsigned long request, ...)
         unsigned long long t0 = fb_now_us(), t1;
         vsync_rate_tick();
         menu_frame_tick();
+        menu_splash_tick();             /* the start-up splash, over all of it */
         /* THE VIDEO MASK, AND IT BELONGS HERE RATHER THAN IN menu_frame_tick(), which is the
          * mistake this line fixes. That function runs from TWO threads, and the second is a
          * builder loop whose period is POINT_MENU_MS -- shipped at 0.1 ms, i.e. ~8,900 calls a

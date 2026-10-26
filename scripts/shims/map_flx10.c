@@ -2657,6 +2657,8 @@ static void flx10_sb_tick(unsigned long long t)
           pulse(K_BROWSE, CH_GLOBAL);
 }
 
+static void flx10_splash_tick(void);
+
 static void flx10_tick(void)
 {
      unsigned long long t = shim_now_ms();
@@ -2670,9 +2672,39 @@ static void flx10_tick(void)
      flx10_panel_tick(t);
      flx10_link_tick(t);
      flx10_fxscreen_tick(t);
+     flx10_splash_tick();
 }
 
 static void flx10_unit_setting(int ch, int is_cc, int num, int val);
+
+/* ---- the start-up splash ---------------------------------------------------
+ * While fbshim's splash covers rbp's first seconds (splash.h) the controller is
+ * covered too (operator, 2026-10-26): its input goes nowhere -- the unit's own
+ * display settings are still recorded, the connect sequence needs them -- and the
+ * LED bridge sends nothing (rbp_led.c). When it ends the unit is asked again for
+ * every absolute control, so a fader or switch moved meanwhile, or reported in
+ * the dump the splash swallowed, is where the hardware says. WEAK: no fbshim.so,
+ * no splash. */
+__attribute__((weak, visibility("default"))) int shim_splash_active(void);
+
+static int splash_on(void)
+{
+     return shim_splash_active && shim_splash_active();
+}
+
+static void flx10_splash_tick(void)
+{
+     static int was = -1;
+     int on = splash_on();
+
+     if (was == 1 && !on) {
+          klog("knobshim2: FLX10: splash over -- controller live, asking for its "
+               "controls again\n");
+          led_query_absolute();
+          led_kick = 2;
+     }
+     was = on;
+}
 
 static void flx10_event(const struct snd_seq_event *ev)
 {
@@ -2682,6 +2714,8 @@ static void flx10_event(const struct snd_seq_event *ev)
      else if (ev->type == SNDRV_SEQ_EVENT_NOTEON || ev->type == SNDRV_SEQ_EVENT_NOTEOFF)
           flx10_unit_setting(ev->data.note.channel, 0, ev->data.note.note,
                              ev->type == SNDRV_SEQ_EVENT_NOTEON ? ev->data.note.velocity : 0);
+     if (splash_on())
+          return;
      switch (ev->type) {
      case SNDRV_SEQ_EVENT_CONTROLLER:
           flx10_cc(ev->data.control.channel, ev->data.control.param,

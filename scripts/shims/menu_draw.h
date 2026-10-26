@@ -36,4 +36,9 @@ int menu_draw_start(void);
  * idempotent. */
 void menu_frame_tick(void);
 
+/* The start-up splash (splash.h) over rbp's whole page, for as long as it is up.
+ * Called by fb_shim.c's FBIO_WAITFORVSYNC interposer only -- rbp's render thread,
+ * once per frame, after menu_frame_tick() so nothing of the shim's shows either. */
+void menu_splash_tick(void);
+
 #endif /* RBPI4B_MENU_DRAW_H */

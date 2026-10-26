@@ -219,19 +219,26 @@ session; details further down):
    ref_mpf's -18 every 300 ms for good, and the watcher thread with it. A
    line already there is now not replayed, a load waits for the pool, and
    the watcher runs only in rbp.
-6. **Splash until rbp is ready**, input held until then (item below). Needs
-   the operator's description of the start-up glitches first.
-7. **Booth and master outputs**, by ear.
-8. **MASTER, BOOTH and HEADPHONES levels at start**: not read until moved, and
-   the unit cannot be asked -- its answer to the position query (rekordbox's
-   startup capture) has every other absolute control and none of CC 8, 9, 12,
-   13 on ch 7, and its HID input reports carry no knob state. Remembering them
-   in a file was tried and dropped (operator, 2026-10-26). MASTER only drives
-   the HDMI mirror's level and BOOTH nothing here (the unit applies both
-   itself); HEADPHONES LEVEL / MIX go to rbp as K_HPLEVEL / K_HPMIX.
-9. **Key sync** (operator, 2026-10-26): bring in the key sync functionality
+6. **Booth and master outputs**, by ear.
+7. **Key sync** (operator, 2026-10-26): bring in the key sync functionality
    from https://github.com/Tratosca/rx3-toolkit.
-10. Parked: HOT CUE mode switch lag.
+8. Parked: HOT CUE mode switch lag.
+
+Done 2026-10-26 (start-up splash, rbp's TRANS picture):
+- For RB_SPLASH_MS (5000) after rbp's first frame the screen shows a picture on
+  black (RB_SPLASH_IMAGE, a PNG, or rbp's own white rekordbox logo from
+  imagedata.dat), the FLX10's LEDs are held and its input dropped; then the unit
+  is asked for its controls again. rbp draws into a private buffer meanwhile:
+  painting over its page was tried and failed, because rbp reads its page back
+  (the splash came back out of rbp's own buffers). fbshim answers rbp's mmap of
+  /dev/fb0 with anonymous memory, follows DirectFB's unmap and re-map at start,
+  and at the end copies rbp's page across and maps the framebuffer back over
+  rbp's address (splash.c). The empty performance screen's big rekordbox logo
+  is rbp's own, not the splash's.
+- rbassets.py (start-rb.sh, before the launch) writes the splash picture to
+  /run/rblive4 and rebuilds rbp's two TRANS pictures in imagedata.dat (records
+  1059/1060, RGB565, 0xF81F transparent) as TRANNY from rbp's own letters --
+  T R A N from TRANS, Y from VINYL BRAKE. RB_FX_TRANNY=0 leaves them alone.
 
 Done and confirmed 2026-10-26 (rbp's UTILITY menu):
 - HDMI AUDIO is a row of rbp's own UTILITY menu, after MIXER MODE

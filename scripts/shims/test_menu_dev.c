@@ -608,6 +608,9 @@ void __wrap_drm_band_teardown(struct drm_band *b)
  * performance screen" is the honest stub -- it means the badge ring is never drawn here, so no
  * painter and no touch thread has to be linked into a test that does not look at either. */
 int __wrap_rbp_perf_screen(void) { return 0; }
+/* the start-up splash (splash.c) is not under test here: it never paints */
+int splash_frame(void *page, int pitch, int w, int h, int bpp, unsigned long long t)
+{ (void)page; (void)pitch; (void)w; (void)h; (void)bpp; (void)t; return 0; }
 
 /* ...and the ring's planes, for the same reason: deckbadge_plane_sync() opens /dev/dri/card1 and
  * asks for overlay planes, which is not something a host test should do -- and this suite is about

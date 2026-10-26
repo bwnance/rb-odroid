@@ -64,6 +64,8 @@
 int led_loop_armed[2];
 int led_loop_flash[2];
 volatile int led_kick;
+/* fbshim.so's start-up splash (splash.h); WEAK, so no fbshim means no splash */
+__attribute__((weak, visibility("default"))) int shim_splash_active(void);
 
 /* LED_LOOP_REKORDBOX's loop-in flash: four cycles of this, off half first so
  * the first flash is visible against the solid LED. */
@@ -861,6 +863,11 @@ static void led_refresh(void)
       * reading and do not need a panel (rbp_led.h). */
      n = led_notes_sel();
      int have_panel = !led_disabled && n != NULL && midi_out_ready();
+     /* Nothing to the controller while fbshim's start-up splash is up (splash.h):
+      * rbp's first seconds light the hot cue pads blue. Nothing is cached meanwhile,
+      * so the first tick after it sends every LED as it then is. */
+     if (have_panel && shim_splash_active && shim_splash_active())
+          have_panel = 0;
 
      if (!have_panel && !rbp_transport_wanted())
           return;
