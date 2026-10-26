@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """hid-scan.py -- flip the FLX10 jog-screen packet one bit at a time, to find what a byte does.
 
-Deck 1 gets a rekordbox "loaded, paused" state packet with ONE bit flipped;
-deck 2 gets the same packet unflipped, as the reference to compare against.
+Deck 1 gets a rekordbox "loaded, paused" state packet (or with --empty, the
+empty-deck one) with --set's fixed edits and ONE bit flipped; deck 2 gets the
+plain packet, as the reference to compare against.
 The bits are stepped through (automatically, or by hand), and the current one
 is printed, so whatever changes on deck 1's screen -- remaining time, an
 icon, the BEAT SYNC text -- can be tied to a byte and bit.
@@ -12,6 +13,7 @@ Stop rb's own sender first, or the two fight:
     echo RB_FLX10_HID=0 >> /opt/rblive4/rb.local.conf && systemctl restart rblive4
     python3 ~/rb-odroid/scripts/odroid/hid-scan.py              # 1.5 s a step
     python3 ~/rb-odroid/scripts/odroid/hid-scan.py --bytes 3,4,5,6,7,8 --step 3
+    python3 ~/rb-odroid/scripts/odroid/hid-scan.py --empty --set 2=01   # an empty deck, SLIP set
     sed -i '/^RB_FLX10_HID=0/d' /opt/rblive4/rb.local.conf && systemctl restart rblive4
 
 While it runs, type a command and Enter:
@@ -43,6 +45,11 @@ BASE[5] = 0x01                    # no SYNC / MASTER
 BASE[9], BASE[10] = 0xb4, 0x00    # no loop
 BASE[25:31] = b"\x00\x00\x80\x00\x00\x00"
 
+# rekordbox's empty-deck packet (deck 1; capture 2026-10-25)
+EMPTY = bytearray(128)
+EMPTY[:10] = bytes.fromhex("10 21 00 08 20 01 02 02 80 10")
+EMPTY[27], EMPTY[43], EMPTY[44], EMPTY[60], EMPTY[61] = 0x80, 0xff, 0xff, 0x80, 0x0d
+
 DEFAULT_BYTES = ([2, 3, 4, 5, 6, 7, 8, 9, 10, 19, 20] + list(range(32, 55))
                  + list(range(58, 80)))
 
@@ -70,7 +77,16 @@ def main():
     ap.add_argument("--bytes", help="comma list of bytes to scan (default: all but time/BPM/cue)")
     ap.add_argument("--step", type=float, default=1.5, help="seconds per step (default 1.5)")
     ap.add_argument("--start", type=int, default=0, help="first step")
+    ap.add_argument("--empty", action="store_true", help="start from the empty-deck packet")
+    ap.add_argument("--set", default="", help="fixed edits on deck 1 before the flip, e.g. 2=01,8=00")
     a = ap.parse_args()
+    global BASE
+    if a.empty:
+        BASE = bytearray(EMPTY)
+    ref = bytearray(BASE)             # deck 2: the base without --set
+    for w in [x for x in a.set.split(",") if x.strip()]:
+        k, v = w.split("=")
+        BASE[int(k)] = int(v, 16)
     nbytes = [int(x) for x in a.bytes.split(",")] if a.bytes else DEFAULT_BYTES
     steps = [(b, 1 << bit) for b in nbytes for bit in range(8)]
 
@@ -135,7 +151,7 @@ def main():
                 b, m = steps[st["i"]]
             d1 = bytearray(BASE)
             d1[b] ^= m
-            d2 = bytearray(BASE)
+            d2 = bytearray(ref)
             d2[0] = 0x20
             d2[7] = 0x01
             n = n % 5 + 1
