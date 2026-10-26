@@ -31,4 +31,9 @@ int keyshift_get(int deck);
  * next block. */
 void keyshift_reload(int deck);
 
+/* `deck`'s output silenced from the next block while `on` (after its key shift,
+ * before rbp's mixer), whether or not a shift is in play. For INST.DOUBLES of a
+ * paused deck (map_flx10.c): the copy rbp starts playing is not heard. */
+void keyshift_mute(int deck, int on);
+
 #endif /* RBPI4B_KEYSHIFT_H */

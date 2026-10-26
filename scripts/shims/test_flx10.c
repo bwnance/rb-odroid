@@ -66,6 +66,8 @@ static int ks_shift[2], ks_reloads;
 int keyshift_set(int d, int n) { ks_shift[d] = n; return 0; }
 int keyshift_get(int d) { return ks_shift[d]; }
 void keyshift_reload(int d) { ks_reloads++; ks_shift[d] = 0; }
+static int ks_muted[2], ks_mute_calls;
+void keyshift_mute(int d, int on) { ks_muted[d] = on; ks_mute_calls++; }
 static int cue[4], mcue, deleted_deck = -1, deleted_pad = -1;
 int me_get_cue(int idx) { return cue[idx]; }
 void me_set_cue(int idx, int on) { cue[idx] = on; }
@@ -1789,7 +1791,11 @@ int main(void)
           p0.loaded = p1.loaded = 1;
           map_flx10.leds->deck_display(0, &p0); map_flx10.leds->deck_display(1, &p1);
           reset(); ON(7, 71); OFF(7, 71); ms(60); map_flx10.tick();
-          ms(200); ON(7, 71); OFF(7, 71); ms(1200); map_flx10.tick();
+          ms(200); ON(7, 71); OFF(7, 71); ms(500); map_flx10.tick();
+          CHECK(!ks_muted[1], "INST.DOUBLES of a paused deck: deck 2 heard until rbp's long press nears");
+          ms(500); map_flx10.tick();
+          CHECK(ks_muted[1], "...then muted, before rbp loads and starts the copy");
+          ms(200); map_flx10.tick();
           CHECK(sent_n == 4 && is(3, K_SYNC, OP_RELEASE, 2), "doubles of a paused deck 1 (%d)", sent_n);
           ms(300); p1.playing = 1; map_flx10.leds->deck_display(1, &p1); map_flx10.tick();
           CHECK(sent_n == 6 && is(4, K_PLAY, OP_PRESS, 2), "the copy started: PLAY, paused (%d)", sent_n);
@@ -1797,6 +1803,7 @@ int main(void)
           CHECK(sent_n == 6 && place_n == 0, "...once, and not placed while still playing");
           p1.playing = 0; map_flx10.leds->deck_display(1, &p1); map_flx10.tick();
           CHECK(place_n == 1 && place_deck == 1, "stopped: put where deck 1 stands (%d)", place_n);
+          CHECK(!ks_muted[1], "...and heard again, paused and placed");
           ms(500); map_flx10.tick();
           CHECK(sent_n == 6 && place_n == 1, "...once");
           p0.playing = 1; p1.playing = 0;
@@ -1805,6 +1812,7 @@ int main(void)
           ms(200); ON(7, 71); OFF(7, 71); ms(1200); map_flx10.tick();
           ms(300); p1.playing = 1; map_flx10.leds->deck_display(1, &p1); map_flx10.tick();
           CHECK(sent_n == 4 && place_n == 1, "doubles of a playing deck: the copy plays (%d)", sent_n);
+          CHECK(!ks_muted[1], "...and is never muted");
           memset(&p0, 0, sizeof p0); memset(&p1, 0, sizeof p1);
           map_flx10.leds->deck_display(0, &p0); map_flx10.leds->deck_display(1, &p1);
           ms(500);

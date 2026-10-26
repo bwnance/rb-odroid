@@ -292,6 +292,24 @@ static void pulse(int key, int sch)
 #define DOUBLES_PAUSE_MS  3000
 static unsigned long long sync_up_at[2], doubles_pause_until[2];
 static int doubles_src_paused[2], doubles_place[2];
+/* ...and not heard at all: muted in rbp's audio path (keyshift_mute) from just
+ * before rbp's long press loads it until it is paused and placed (operator,
+ * 2026-10-26: "i don't like that moment of audio"). From DOUBLES_MUTE_LEAD_MS
+ * into the hold, not the press, so a track playing on that deck is not cut a
+ * second early; never longer than DOUBLES_MUTE_MAX_MS. */
+#define DOUBLES_MUTE_LEAD_MS 900
+#define DOUBLES_MUTE_MAX_MS  5000
+__attribute__((weak)) void keyshift_mute(int deck, int on);
+static unsigned long long doubles_mute_at[2], doubles_unmute_by[2];
+static int doubles_muted[2];
+
+static void doubles_unmute(int d)
+{
+     if (doubles_muted[d] && keyshift_mute)
+          keyshift_mute(d, 0);
+     doubles_muted[d] = 0;
+     doubles_mute_at[d] = doubles_unmute_by[d] = 0;
+}
 /* the FLX10 still sends its BEAT SYNC tap (88) when a held one (120) is let
  * go -- 0.4 s after the hold, in the key log on the unit 2026-10-26 -- which
  * toggled SYNC right after every copy: that one is dropped */
@@ -307,6 +325,11 @@ static void flx10_inst_doubles(int deck, const char *why)
      send_rx_key(K_SYNC, OP_PRESS, deck + 1, 0);
      sync_up_at[deck] = shim_now_ms() + SYNC_LONG_HOLD_MS;
      doubles_src_paused[deck] = deck_loaded[1 - deck] && !deck_playing[1 - deck];
+     if (doubles_src_paused[deck]) {
+          unsigned long long now = shim_now_ms();
+          doubles_mute_at[deck] = now + DOUBLES_MUTE_LEAD_MS;
+          doubles_unmute_by[deck] = now + DOUBLES_MUTE_MAX_MS;
+     }
      klog("knobshim2: flx10 deck%d %s: INST.DOUBLES (deck%d %s)\n", deck + 1, why,
           2 - deck, doubles_src_paused[deck] ? "paused" : "playing");
 }
@@ -314,6 +337,14 @@ static void flx10_inst_doubles(int deck, const char *why)
 static void flx10_sync_tick(unsigned long long t)
 {
      for (int d = 0; d < 2; d++) {
+          if (doubles_mute_at[d] && t >= doubles_mute_at[d]) {
+               doubles_mute_at[d] = 0;
+               doubles_muted[d] = 1;
+               if (keyshift_mute)
+                    keyshift_mute(d, 1);
+          }
+          if (doubles_unmute_by[d] && t >= doubles_unmute_by[d])
+               doubles_unmute(d);                    /* never longer than this */
           if (sync_up_at[d] && t >= sync_up_at[d]) {
                sync_up_at[d] = 0;
                send_rx_key(K_SYNC, OP_RELEASE, d + 1, 0);
@@ -323,6 +354,7 @@ static void flx10_sync_tick(unsigned long long t)
                if (t >= doubles_pause_until[d]) {
                     doubles_pause_until[d] = 0;
                     doubles_place[d] = 0;
+                    doubles_unmute(d);
                } else if (!doubles_place[d] && deck_playing[d]) {
                     pulse(K_PLAY, d + 1);
                     doubles_place[d] = 1;
@@ -334,6 +366,7 @@ static void flx10_sync_tick(unsigned long long t)
                     doubles_pause_until[d] = 0;
                     doubles_place[d] = 0;
                     flx10_doubles_place(d);
+                    doubles_unmute(d);               /* paused and placed: silent */
                }
           }
      }

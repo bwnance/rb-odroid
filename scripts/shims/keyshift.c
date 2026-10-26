@@ -196,29 +196,17 @@ static void apply(struct deck *d, Float2 *out, unsigned int frames)
     }
 }
 
-static long hooked_operate(void *mgr, uint32_t pos, Float2 *out, unsigned int frames,
-                           unsigned int mode)
+/* a deck's block shifted to its key */
+static void shift_block(void *mgr, uint32_t pos, Float2 *out, unsigned int frames)
 {
-    long r = original_operate(mgr, pos, out, frames, mode);
     unsigned int deck;
     struct deck *d;
 
-    /* first, each deck's stretched block as rbp made it: the same track at the
-     * same spot on both decks plays one copy (doublelock.h); a key shift then
-     * applies on top, per deck. The raw syscall: glibc 2.13 keeps clock_gettime
-     * in librt. */
-    if (out && frames && *(const uint32_t *)mgr < 2u) {
-        struct timespec ts;
-        if (syscall(SYS_clock_gettime, CLOCK_MONOTONIC, &ts) == 0)
-            doublelock_block(*(const uint32_t *)mgr, pos, (float *)(void *)out, frames,
-                             (unsigned long long)ts.tv_sec * 1000000ull +
-                             (unsigned long long)ts.tv_nsec / 1000ull);
-    }
     if (!out || !frames || frames > PITCH_MAX_FRAMES || !engines_built)
-        return r;
+        return;
     deck = *(const uint32_t *)mgr;                   /* the manager's first word */
     if (deck >= 2u)
-        return r;
+        return;
     d = &decks[deck];
     if (transport_reset(d, pos, frames, block_is_silent(out, frames))) {
         int semis = semis_of(d->request);
@@ -233,6 +221,30 @@ static long hooked_operate(void *mgr, uint32_t pos, Float2 *out, unsigned int fr
             publish_percent(pitch, semis);
     }
     apply(d, out, frames);
+}
+
+static volatile int deck_muted[2];           /* keyshift_mute() */
+
+static long hooked_operate(void *mgr, uint32_t pos, Float2 *out, unsigned int frames,
+                           unsigned int mode)
+{
+    long r = original_operate(mgr, pos, out, frames, mode);
+    unsigned int deck = *(const uint32_t *)mgr;
+
+    /* first, each deck's stretched block as rbp made it: the same track at the
+     * same spot on both decks plays one copy (doublelock.h); a key shift then
+     * applies on top, per deck. The raw syscall: glibc 2.13 keeps clock_gettime
+     * in librt. */
+    if (out && frames && deck < 2u) {
+        struct timespec ts;
+        if (syscall(SYS_clock_gettime, CLOCK_MONOTONIC, &ts) == 0)
+            doublelock_block(deck, pos, (float *)(void *)out, frames,
+                             (unsigned long long)ts.tv_sec * 1000000ull +
+                             (unsigned long long)ts.tv_nsec / 1000ull);
+    }
+    shift_block(mgr, pos, out, frames);
+    if (out && frames && deck < 2u && deck_muted[deck])
+        memset(out, 0, (size_t)frames * sizeof(Float2));
     return r;
 }
 
@@ -280,6 +292,12 @@ int keyshift_set(int deck, int semitones)
                                         __ATOMIC_SEQ_CST))
             return 0;
     }
+}
+
+void keyshift_mute(int deck, int on)
+{
+    if (deck >= 0 && deck < 2)
+        deck_muted[deck] = on;
 }
 
 int keyshift_get(int deck)
