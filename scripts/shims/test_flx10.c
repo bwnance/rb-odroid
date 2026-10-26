@@ -209,6 +209,10 @@ int main(void)
      CHECK(rev_sets == 1 && reversing[0] == 0, "a late reverse after the release is ended");
      for (int i = 0; i < 30 && slipmode[0]; i++) { ms(100); map_flx10.tick(); }
      CHECK(slipmode[0] == 0, "slip mode put back off once the deck plays forward");
+     slipmode[0] = 1;                       /* rbp kept slip on after all */
+     for (int i = 0; i < 5 && slipmode[0]; i++) { ms(100); map_flx10.tick(); }
+     CHECK(slipmode[0] == 0, "slip found still on after the restore: sent off again");
+     for (int i = 0; i < 20; i++) { ms(100); map_flx10.tick(); }
      map_flx10.tick();
      CHECK(dk_note_v[0][21] == 0x00, "SLIP REVERSE LED off");
      /* with slip mode already on, it is left alone */
@@ -763,6 +767,12 @@ int main(void)
           hs.slip = 1; flx10_hid_state_pkt(p, 1, &hs);
           CHECK(p[2] == 0x01, "slip mode -> [2] |= 01 (SLIP on the screen)");
           hs.slip = 0;
+          {
+               struct flx10_hid_deck e;
+               memset(&e, 0, sizeof e);
+               e.slip = 1; flx10_hid_state_pkt(p, 1, &e);
+               CHECK(p[2] == 0x01 && p[9] == 0x10, "SLIP on an empty deck too");
+          }
           hs.end_caution = 1; flx10_hid_state_pkt(p, 1, &hs);
           CHECK(p[8] == 0x00, "track-end warning flash: the jog ring off ([8] 00)");
           hs.end_caution = 0;
@@ -917,6 +927,24 @@ int main(void)
                     CHECK(!back && !jump && prev >= r - 10 && prev <= r + 20,
                           "bend down while playing: arm runs forward smoothly (back %d jumps %d, %d vs %d)",
                           back, jump, prev, r);
+               }
+               /* playing in reverse (mov -1): the arm runs back smoothly */
+               {
+                    int r = 8000, v, prev, fwd = 0, jump = 0;
+                    flx10_hid_merge(&k, r, 0, 0, 0, 0, t += 10);
+                    prev = flx10_hid_merge(&k, r, -1, 0, 0, 0, t += 10);
+                    for (int i = 0; i < 40; i++) {
+                         if (i % 3 == 0) r -= 30;       /* rbp's reading in blocks */
+                         v = flx10_hid_merge(&k, r, -1, 0, 0, 0, t += 10);
+                         fwd += v > prev;
+                         jump += i > 0 && prev - v > 25;   /* (the first block lands at once) */
+                         prev = v;
+                    }
+                    CHECK(!fwd && !jump && prev <= r + 5 && prev >= r - 40,
+                          "reverse: arm runs back without jerks (fwd %d jumps %d, %d vs %d)",
+                          fwd, jump, prev, r);
+                    v = flx10_hid_merge(&k, r, 0, 0, 0, 0, t += 10);
+                    CHECK(v <= r + 1 && v >= r - 40, "reverse then pause: no step forward (%d vs %d)", v, r);
                }
                CHECK(flx10_hid_merge(&k, 9000, 0, 0, 0, 0, t += 10) == 9000, "cue/seek while paused: the reading");
                flx10_hid_merge(&k, 9000, 1, 0, 0, 0, t += 10);

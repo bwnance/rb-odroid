@@ -607,6 +607,14 @@ __attribute__((weak)) void flx10_set_reverse(int deck, int on)
 static int rev_held[2], rev_forced_slip[2], rev_latched[2], rev_slip_restore[2];
 static unsigned long long rev_slip_off_at[2], rev_latched_at[2];
 static unsigned long long rev_watch_until[2], rev_stop_sent_at[2];
+/* slip put back off, then checked: rbp sometimes kept slip on after a SLIP
+ * REVERSE (operator, 2026-10-25) -- a setSlipMode(false) landing while the
+ * deck is still slipping back seems not to take -- so it is re-checked
+ * every SLIPREV_CHECK_MS and sent again, up to SLIPREV_CHECK_TRIES times */
+#define SLIPREV_CHECK_MS 300
+#define SLIPREV_CHECK_TRIES 5
+static unsigned long long rev_slip_check_at[2];
+static int rev_slip_tries[2];
 static int rev_led_v[2] = { -1, -1 };
 
 static void flx10_slip_reverse(int deck, int on)
@@ -616,6 +624,7 @@ static void flx10_slip_reverse(int deck, int on)
      if (on) {
           if (rev_latched[deck] || rev_held[deck])
                return;                       /* REVERSE is latched: leave it */
+          rev_slip_check_at[deck] = 0;
           if (rev_slip_off_at[deck] || rev_watch_until[deck]) {
                rev_slip_off_at[deck] = 0;     /* pressed again before the restore */
                rev_watch_until[deck] = 0;
@@ -693,6 +702,19 @@ static void flx10_rev_tick(unsigned long long t)
                if (rev_forced_slip[d]) {
                     rev_forced_slip[d] = 0;
                     flx10_set_slip(d, 0);
+                    rev_slip_check_at[d] = t + SLIPREV_CHECK_MS;
+                    rev_slip_tries[d] = 0;
+               }
+          }
+          if (rev_slip_check_at[d] && t >= rev_slip_check_at[d]) {
+               rev_slip_check_at[d] = 0;
+               if (!rev_held[d] && !rev_latched[d] && flx10_slip_mode(d) &&
+                   rev_slip_tries[d] < SLIPREV_CHECK_TRIES) {
+                    rev_slip_tries[d]++;
+                    klog("knobshim2: flx10 deck%d SLIP REVERSE: slip still on after "
+                         "the release; off again (try %d)\n", d + 1, rev_slip_tries[d]);
+                    flx10_set_slip(d, 0);
+                    rev_slip_check_at[d] = t + SLIPREV_CHECK_MS;
                }
           }
           if (rev_latched[d] && t - rev_latched_at[d] > 500 && !flx10_reversing(d))
@@ -897,6 +919,9 @@ __attribute__((weak)) int flx10_pos_now(int deck, int *pos_ms, int *moving)
      *moving = ((int (*)(void *, int))PE_ISPLAYING)(pe, deck) != 0 &&
                ((int (*)(void *, int))PE_ISINCUESTANDBY)(pe, deck) == 0 &&
                ((int (*)(void *, int))PE_ISJOGTOUCHING)(pe, deck) == 0;
+     /* -1: playing in reverse, so the sender runs the arm backward */
+     if (*moving && (((int (*)(void *, int))PE_GETREVERSE)(pe, deck) & 0xff))
+          *moving = -1;
      return 1;
 }
 
@@ -2436,7 +2461,7 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
                .loop_in_ms = di->loop_in_ms, .loop_out_ms = di->loop_out_ms,
                .loop_num = di->loop_num, .loop_den = di->loop_den,
                .on_air = di->on_air,
-               .slip = di->loaded && flx10_slip_mode(deck),
+               .slip = flx10_slip_mode(deck),
           };
           flx10_hid_update(deck, &hs);
      }
