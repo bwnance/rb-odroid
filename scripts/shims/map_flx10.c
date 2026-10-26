@@ -582,16 +582,14 @@ __attribute__((weak)) int flx10_reversing(int deck)
      return pe ? (((int (*)(void *, int))PE_GETREVERSE)(pe, deck) & 0xff) != 0 : 0;
 }
 
-/* Slip mode is set the way the SLIP button sets it -- rbp's own SLIP key,
- * a toggle, sent only when the engine's state differs. It used to be
- * DjEngineIF::setSlipMode, straight into the engine: rbp's UI keeps its own
- * slip flag, and slip set behind its back came back on after being put back
- * off, or the put-back never landed (operator's logs, 2026-10-25). The key
- * also runs on rbp's UI thread, in order with the REV key that follows. */
+/* Slip mode straight into the engine (DjEngineIF::setSlipMode), at once:
+ * the REV key sent right after reads isSlipModeOn to choose between a slip
+ * reverse and a latch, so slip has to be on BEFORE it arrives. (Sending rbp's
+ * SLIP key instead, 2026-10-25, let the REV press see slip still off: with
+ * quantize on the reverse then latched and was never undone.) */
 __attribute__((weak)) void flx10_set_slip(int deck, int on)
 {
-     if ((flx10_slip_mode(deck) != 0) != (on != 0))
-          pulse(K_SLIP, deck + 1);
+     ((void (*)(void *, int, int))DJE_SET_SLIPMODE)(NULL, deck, on != 0);
 }
 
 __attribute__((weak)) void flx10_set_reverse(int deck, int on)
@@ -2470,6 +2468,18 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
      int force, bpm10, speed10, min, sec, deg, d = deck;
 
      deck_loaded[deck] = di->loaded;
+     /* the unit lights its pads white when the jog screen's SLIP flag
+      * changes (flx10_hid.c sends it): put the panel's pads back over that,
+      * after the HID sender has sent the change and again a little later */
+     {
+          static int last_slip[2] = { -1, -1 };
+          int sl = flx10_slip_mode(deck) != 0;
+          if (last_slip[deck] >= 0 && sl != last_slip[deck]) {
+               led_pad_resend_at[deck][0] = now + 60;
+               led_pad_resend_at[deck][1] = now + 250;
+          }
+          last_slip[deck] = sl;
+     }
      deck_elapsed_ms[deck] = di->elapsed_ms;
      deck_total_ms[deck] = di->total_ms;
      deck_bpm[deck] = di->bpm_raw;

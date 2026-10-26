@@ -37,6 +37,12 @@ extern int led_loop_armed[2];
  * four times and clears it. */
 extern int led_loop_flash[2];
 
+/* Ask for a deck's pads to be sent again at these times (shim_now_ms; 0 =
+ * none): the FLX10 lights its pads white by itself when the jog screen's SLIP
+ * flag changes, and the panel's own pad state has to be put back over it
+ * (map_flx10.c sets these on a slip change). */
+extern unsigned long long led_pad_resend_at[2][2];
+
 /* "Repaint now": a map sets it (to a few ticks' worth) when the panel's pad
  * page changes, and the LED loop, which otherwise refreshes every 50 ms,
  * refreshes on its next 10 ms slice, once per count. */
