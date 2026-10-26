@@ -222,7 +222,12 @@ session; details further down):
 6. **Splash until rbp is ready**, input held until then (item below). Needs
    the operator's description of the start-up glitches first.
 7. **Booth and master outputs**, by ear.
-8. Parked: HOT CUE mode switch lag; RX3 effects matching the FLX10's.
+8. **HDMI audio mirror on / off from rbp's screen** (operator, 2026-10-26,
+   "at some point"): a row on the settings panel (settings_zone.c /
+   settings_paint.c), the way MIXER ROUTE works -- the panel writes a switch
+   file under /run/rblive4 and the audio shim reads it -- so the mirror can be
+   closed and reopened live instead of by RB_AUDIO_MIRROR_DEV and a restart.
+9. Parked: HOT CUE mode switch lag; RX3 effects matching the FLX10's.
 
 Done and confirmed 2026-10-25 (slip and pads):
 - SLIP REVERSE with quantize ON ends on release and puts slip off after. The
