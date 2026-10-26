@@ -404,6 +404,7 @@ static void led_dump_scan(void)
       * changes; state 0xff = "not seen yet" */
      static unsigned char s_state[256][4];
      static unsigned char s_rgb[256][4][3];   /* a colour change is a change too */
+     static unsigned int s_period[256][4];    /* ...and a blink-rate change */
      static int s_init = 0;
      unsigned char *ls = ledstat_ptr();
      unsigned char *arr;
@@ -425,16 +426,19 @@ static void led_dump_scan(void)
           unsigned int id = *(unsigned int *)(e + 0);
           unsigned int ch = *(unsigned int *)(e + 4);
           unsigned int st = *(unsigned int *)(e + 16);
+          unsigned int per;
           if (id >= 256 || ch >= 4 || st > 0xff)
                continue;
+          per = *(unsigned int *)(e + LED_ENTRY_OFF_PERIOD);
           if (s_state[id][ch] == (unsigned char)st &&
-              !memcmp(s_rgb[id][ch], e + 40, 3))
+              !memcmp(s_rgb[id][ch], e + 40, 3) && s_period[id][ch] == per)
                continue;
-          klog("knobshim2: leddump id=%u ch=%u state %u -> %u rgb=%u,%u,%u\n",
+          klog("knobshim2: leddump id=%u ch=%u state %u -> %u rgb=%u,%u,%u period=%u\n",
                id, ch, s_state[id][ch] == 0xff ? 0 : s_state[id][ch], st,
-               e[40], e[41], e[42]);
+               e[40], e[41], e[42], per);
           s_state[id][ch] = (unsigned char)st;
           memcpy(s_rgb[id][ch], e + 40, 3);
+          s_period[id][ch] = per;
      }
 }
 
