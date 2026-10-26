@@ -625,6 +625,9 @@ static void flx10_slip_reverse(int deck, int on)
           if (rev_latched[deck] || rev_held[deck])
                return;                       /* REVERSE is latched: leave it */
           rev_slip_check_at[deck] = 0;
+          klog("knobshim2: flx10 deck%d SLIP REVERSE press: slip=%d forced=%d "
+               "watching=%d restore_pending=%d\n", deck + 1, flx10_slip_mode(deck),
+               rev_forced_slip[deck], rev_watch_until[deck] != 0, rev_slip_off_at[deck] != 0);
           if (rev_slip_off_at[deck] || rev_watch_until[deck]) {
                rev_slip_off_at[deck] = 0;     /* pressed again before the restore */
                rev_watch_until[deck] = 0;
@@ -640,6 +643,8 @@ static void flx10_slip_reverse(int deck, int on)
           return;
      rev_held[deck] = 0;
      send_rx_key(K_REV, OP_RELEASE, sch, 0);
+     klog("knobshim2: flx10 deck%d SLIP REVERSE release: slip=%d forced=%d reversing=%d\n",
+          deck + 1, flx10_slip_mode(deck), rev_forced_slip[deck], flx10_reversing(deck));
      rev_watch_until[deck] = shim_now_ms() + SLIPREV_WATCH_MS;
      rev_stop_sent_at[deck] = 0;
 }
@@ -693,6 +698,8 @@ static void flx10_rev_tick(unsigned long long t)
                }
                if (!r && t >= rev_watch_until[d]) {
                     rev_watch_until[d] = 0;
+                    klog("knobshim2: flx10 deck%d SLIP REVERSE: watch over, slip=%d "
+                         "forced=%d\n", d + 1, flx10_slip_mode(d), rev_forced_slip[d]);
                     if (rev_forced_slip[d])
                          rev_slip_off_at[d] = t + SLIPREV_RESTORE_MS;
                }
@@ -702,6 +709,7 @@ static void flx10_rev_tick(unsigned long long t)
                if (rev_forced_slip[d]) {
                     rev_forced_slip[d] = 0;
                     flx10_set_slip(d, 0);
+                    klog("knobshim2: flx10 deck%d SLIP REVERSE: slip put back off\n", d + 1);
                     rev_slip_check_at[d] = t + SLIPREV_CHECK_MS;
                     rev_slip_tries[d] = 0;
                }
@@ -2461,7 +2469,7 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
                .loop_in_ms = di->loop_in_ms, .loop_out_ms = di->loop_out_ms,
                .loop_num = di->loop_num, .loop_den = di->loop_den,
                .on_air = di->on_air,
-               .slip = flx10_slip_mode(deck),
+               .slip = di->loaded && flx10_slip_mode(deck),
           };
           flx10_hid_update(deck, &hs);
      }

@@ -771,7 +771,7 @@ int main(void)
                struct flx10_hid_deck e;
                memset(&e, 0, sizeof e);
                e.slip = 1; flx10_hid_state_pkt(p, 1, &e);
-               CHECK(p[2] == 0x01 && p[9] == 0x10, "SLIP on an empty deck too");
+               CHECK(p[2] == 0x00 && p[9] == 0x10, "no SLIP on an empty deck (it lit the pads)");
           }
           hs.end_caution = 1; flx10_hid_state_pkt(p, 1, &hs);
           CHECK(p[8] == 0x00, "track-end warning flash: the jog ring off ([8] 00)");
@@ -928,16 +928,24 @@ int main(void)
                           "bend down while playing: arm runs forward smoothly (back %d jumps %d, %d vs %d)",
                           back, jump, prev, r);
                }
-               /* playing in reverse (mov -1): the arm runs back smoothly */
+               /* playing, then in reverse (mov -1): the arm turns round and
+                * runs back smoothly, the reading moving in blocks */
                {
-                    int r = 8000, v, prev, fwd = 0, jump = 0;
-                    flx10_hid_merge(&k, r, 0, 0, 0, 0, t += 10);
-                    prev = flx10_hid_merge(&k, r, -1, 0, 0, 0, t += 10);
-                    for (int i = 0; i < 40; i++) {
-                         if (i % 3 == 0) r -= 30;       /* rbp's reading in blocks */
+                    struct flx10_hid_track k;          /* a deck of its own */
+                    int r = 8000, v = 0, prev, fwd = 0, jump = 0;
+                    flx10_hid_track_init(&k);
+                    k.fresh = 1;
+                    for (int i = 0; i < 12; i++) {
+                         if (i % 3 == 0) r += 30;
+                         prev = flx10_hid_merge(&k, r, 1, 0, 0, 0, t += 10);
+                    }
+                    for (int i = 0; i < 45; i++) {
+                         if (i % 3 == 0) r -= 30;
                          v = flx10_hid_merge(&k, r, -1, 0, 0, 0, t += 10);
-                         fwd += v > prev;
-                         jump += i > 0 && prev - v > 25;   /* (the first block lands at once) */
+                         if (i >= 6) {               /* past the turn-round */
+                              fwd += v > prev;
+                              jump += prev - v > 25;
+                         }
                          prev = v;
                     }
                     CHECK(!fwd && !jump && prev <= r + 5 && prev >= r - 40,
@@ -945,6 +953,25 @@ int main(void)
                           fwd, jump, prev, r);
                     v = flx10_hid_merge(&k, r, 0, 0, 0, 0, t += 10);
                     CHECK(v <= r + 1 && v >= r - 40, "reverse then pause: no step forward (%d vs %d)", v, r);
+               }
+               /* the reverse flag set while the reading still runs forward
+                * (quantized reverse): the arm keeps going forward smoothly */
+               {
+                    struct flx10_hid_track k;
+                    int r = 9000, v, prev = 0, back = 0;
+                    flx10_hid_track_init(&k);
+                    k.fresh = 1;
+                    for (int i = 0; i < 12; i++) {
+                         if (i % 3 == 0) r += 30;
+                         prev = flx10_hid_merge(&k, r, 1, 0, 0, 0, t += 10);
+                    }
+                    for (int i = 0; i < 30; i++) {
+                         if (i % 3 == 0) r += 30;
+                         v = flx10_hid_merge(&k, r, -1, 0, 0, 0, t += 10);
+                         back += v < prev;
+                         prev = v;
+                    }
+                    CHECK(!back, "reverse flag ahead of the reading: no backward jitter (%d)", back);
                }
                CHECK(flx10_hid_merge(&k, 9000, 0, 0, 0, 0, t += 10) == 9000, "cue/seek while paused: the reading");
                flx10_hid_merge(&k, 9000, 1, 0, 0, 0, t += 10);

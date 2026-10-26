@@ -176,8 +176,8 @@ void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
      if (tempo < -32768) tempo = -32768;
      p[23] = (unsigned char)(tempo & 0xff);
      p[24] = (unsigned char)((tempo >> 8) & 0xff);
-     if (s->slip)
-          p[2] |= 0x01;                 /* SLIP, loaded or not */
+     /* (SLIP is not sent on an empty deck: [2] 0x01 in the empty packet lit
+      * every hot-cue pad white -- operator, 2026-10-25) */
      if (!s->loaded)
           return;
 
@@ -366,21 +366,26 @@ int flx10_hid_merge(struct flx10_hid_track *k, int reading, int mov, int jog,
           /* mov < 0: playing in reverse (REVERSE / SLIP REVERSE) -- the
            * estimate runs backward, and the guard is mirrored; the forward
            * one made the arm jerk in reverse */
-          int sgn = mov < 0 ? -1 : 1;
+          /* the direction is taken from how rbp's reading actually moves:
+           * rbp's reverse flag changes before the playhead turns round
+           * (quantized), and the arm jittered on SLIP REVERSE's press and
+           * release while flag and reading disagreed */
+          int sgn = k->vel < -0.3f ? -1 : k->vel > 0.3f ? 1 : (mov < 0 ? -1 : 1);
           long pred = k->base_ms + sgn * (long)flx10_hid_extrapolate(
-                    0, (long)(now - k->at), k->was_moving == mov, tempo_x100, 0);
+                    0, (long)(now - k->at), k->was_moving == sgn, tempo_x100, 0);
           if (pred < 0) pred = 0;
           if (total_ms > 0 && pred > total_ms) pred = total_ms;
           /* rbp's reading moves in audio blocks, so it trails the estimate a
            * little: a reading just behind is not a jump back (a seek is
            * further than NO_BACKSTEP_MS) */
-          if (k->was_moving == mov && (pred - reading) * sgn > 0 &&
+          if (k->was_moving == sgn && (pred - reading) * sgn > 0 &&
               (pred - reading) * sgn < NO_BACKSTEP_MS)
                k->base_ms = (int)pred;
           else
                k->base_ms = reading;
           k->shown = k->base_ms;
           k->hold = -1;
+          k->was_moving = sgn;
      } else {
           /* just stopped: the estimate ran a block ahead of where rbp
            * stopped; keep showing it while rbp's position stays put, so the
@@ -400,7 +405,8 @@ int flx10_hid_merge(struct flx10_hid_track *k, int reading, int mov, int jog,
           k->base_ms = reading;
      }
      k->at = now;
-     k->was_moving = jog ? 0 : mov;          /* +1 forward, -1 reverse */
+     if (jog || !mov)
+          k->was_moving = 0;                    /* (the playing branch sets +-1) */
      return k->shown;
 }
 
