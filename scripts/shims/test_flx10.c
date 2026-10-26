@@ -760,6 +760,9 @@ int main(void)
                     printf("  byte %d: %02x, capture %02x\n", i, p[i], cap_loaded[i]);
                }
           CHECK(same, "loaded deck 2 = rekordbox's packet (byte 45 aside)");
+          hs.slip = 1; flx10_hid_state_pkt(p, 1, &hs);
+          CHECK(p[2] == 0x01, "slip mode -> [2] |= 01 (SLIP on the screen)");
+          hs.slip = 0;
           hs.end_caution = 1; flx10_hid_state_pkt(p, 1, &hs);
           CHECK(p[8] == 0x00, "track-end warning flash: the jog ring off ([8] 00)");
           hs.end_caution = 0;

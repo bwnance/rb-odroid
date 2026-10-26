@@ -28,7 +28,8 @@
  * non-zero.
  *   [0]      deck 0x10/0x20/0x30/0x40          [1] 0x21
  *   [2]      0x02 paused away from the cue point; 0x00 playing, or paused on
- *            it (cue standby) -- the capture shows 0x00 after a load and a cue
+ *            it (cue standby) -- the capture shows 0x00 after a load and a cue;
+ *            +0x01 SLIP (rbp's slip mode)
  *   [3]      0x08 remaining time (elapsed without it; rekordbox's default is
  *            remaining), +0x10 while the jog is touched, +0x02 the white
  *            edges (sent for rbp's ON AIR)
@@ -179,6 +180,8 @@ void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
           return;
 
      p[2] = (!s->playing && !s->cue_standby) ? 0x02 : 0x00;
+     if (s->slip)
+          p[2] |= 0x01;                 /* SLIP on the screen (hid-scan.py) */
      if (s->jog_touch)
           p[3] |= 0x10;
      /* [3] 0x08 is REMAINING time (rekordbox's default, so every capture

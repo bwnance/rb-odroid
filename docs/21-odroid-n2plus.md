@@ -275,9 +275,8 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
 * **HID jog screens, to do** (operator, 2026-10-25) -- the capture
   (`tools/flx10-pcap-decode.py`) should show most of these. (Empty decks now
   carry the range box and tempo % too -- byte 4 and 23..24 of the empty packet.)
-  - SYNC icon lit when the deck is synced (done). The centre BEAT SYNC icon:
-    when rekordbox lights it is unknown, and so is the byte -- find it with
-    hid-loaded.py (below).
+  - SYNC icon lit when the deck is synced (done). The centre BEAT SYNC text:
+    no bit lights it in the full scan -- dropped.
   - White edges = rbp's ON AIR icons per deck: the state is sent
     (rbp_led.c, as OnAirIndicator reads it), its place in the packet is set by
     `RB_FLX10_ONAIR="byte:mask"` until it is found (below).
@@ -318,6 +317,11 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   light ring (dark without it -- a candidate for the track-end warning flash);
   [9] 0x04 is the cue marker on the screen, now cleared when there is no cue
   point.
+* **hid-scan.py full pass** (2026-10-25, every bit outside the known
+  time/BPM/tempo/loop/cue bytes, 0.1 s a step): [2] 0x01 is SLIP on the jog
+  screen (now sent from rbp's slip mode). Nothing lit the centre BEAT SYNC
+  text -- taken as not host-driven (operator's hunch; a single-bit scan cannot
+  rule out a multi-bit value, so a rekordbox capture would be the last word).
 * **Track-end warning** (2026-10-25): the jog's light ring ([8] 0x80) flashes
   with rbp's own warning -- the one that flashes the overview waveform on the
   screen. Ui_CulcRemainCaution @0x134244 keeps int

@@ -37,6 +37,7 @@ struct flx10_hid_deck {
      int jog_touch;         /* the platter is pressed */
      int time_remain;       /* rbp shows remaining time: [3] 0x08 */
      int on_air;            /* rbp's ON AIR icon for the deck: the white edges */
+     int slip;              /* rbp's slip mode: SLIP on the screen, [2] 0x01 */
      int end_caution;       /* rbp's track-end warning flash, "on" half: ring dark */
 };
 
