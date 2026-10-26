@@ -722,6 +722,7 @@ int main(void)
      CHECK(sent_n == 2 && sent[0].key == K_SELECTOR && sent[0].param == 1 && sent[1].param == -1, "browse");
      reset(); CC(7, 100, 127);
      CHECK(sent_n == 8 && sent[7].param == -1, "SHIFT+browse = 8 steps");
+     browse_mode = 3;                           /* a track list */
      reset(); ON(7, 71); map_flx10.tick(); OFF(7, 71);
      CHECK(sent_n == 1 && is(0, K_LOAD, OP_PRESS, 2), "push 71 on a track: LOAD down (%d)", sent_n);
      ms(30); map_flx10.tick();
@@ -743,7 +744,7 @@ int main(void)
      CHECK(sent_n == 1 && is(0, K_LOAD, OP_PRESS, 2),
            "push on SOURCE, slot 1 empty -> as elsewhere (%d)", sent_n);
      ms(60); map_flx10.tick();
-     usb1 = 1; browse_mode = 1;
+     usb1 = 1; browse_mode = 3;
      reset(); ON(7, 70); ms(450); map_flx10.tick();
      CHECK(sent_n == 0, "push held 0.45 s: nothing yet (%d)", sent_n);
      ms(100); map_flx10.tick();
@@ -755,21 +756,27 @@ int main(void)
      OFF(7, 70);
      CHECK(sent_n == 4 && is(3, K_SELECTOR, OP_RELEASE, 1),
            "release: selector up, no LOAD (%d)", sent_n);
-     /* LOAD pushed twice on a track: INST.DOUBLES (rbp's SYNC held past 1 s) */
+     /* in BROWSE, a push quickly after a LOAD is no double: the LOAD took rbp
+      * back to the player, and that push is the player's own */
      ms(500); reset(); ON(7, 71); OFF(7, 71); ms(60); map_flx10.tick();
-     CHECK(sent_n == 2 && is(0, K_LOAD, OP_PRESS, 2), "a push: LOAD");
-     cursor_track = 0;                      /* the LOAD took rbp back to the player */
-     ms(200); ON(7, 71); OFF(7, 71);
-     cursor_track = 1;
-     CHECK(sent_n == 3 && is(2, K_SYNC, OP_PRESS, 2),
-           "a second push within 400 ms: INST.DOUBLES, SYNC down on deck 2 (%d)", sent_n);
+     CHECK(sent_n == 2 && is(0, K_LOAD, OP_PRESS, 2), "BROWSE: a push is a LOAD");
+     browse_mode = 1;                           /* the LOAD took rbp to the player */
+     ms(150); ON(7, 71); OFF(7, 71);
+     CHECK(sent_n == 2, "a push on the player: held back (%d)", sent_n);
+     ms(450); map_flx10.tick();
+     CHECK(sent_n == 4 && is(2, K_SELECTOR, OP_PRESS, 1),
+           "...and no second: what a push on the player sends, SELECT (%d)", sent_n);
+     /* on the player, two pushes: INST.DOUBLES (rbp's SYNC held past 1 s) */
+     ms(500); reset(); ON(7, 71); OFF(7, 71); ms(150); ON(7, 71); OFF(7, 71);
+     CHECK(sent_n == 1 && is(0, K_SYNC, OP_PRESS, 2),
+           "two pushes on the player: INST.DOUBLES, SYNC down on deck 2, no SELECT (%d)", sent_n);
      ms(600); map_flx10.tick();
-     CHECK(sent_n == 3, "...held");
+     CHECK(sent_n == 1, "...held");
      ms(600); map_flx10.tick();
-     CHECK(sent_n == 4 && is(3, K_SYNC, OP_RELEASE, 2), "...up after 1.1 s (%d)", sent_n);
-     ms(200); ON(7, 71); OFF(7, 71);
-     CHECK(sent_n == 5 && is(4, K_LOAD, OP_PRESS, 2), "the next push: a LOAD again (%d)", sent_n);
-     ms(60); map_flx10.tick(); ms(500);
+     CHECK(sent_n == 2 && is(1, K_SYNC, OP_RELEASE, 2), "...up after 1.1 s (%d)", sent_n);
+     ms(500); map_flx10.tick();
+     CHECK(sent_n == 2, "...and nothing after it");
+     browse_mode = 3;
      /* SAMPLER VOL -> SCFX PARAMETER 0x50a7 on both mixer channels */
      reset(); CC(7, 3, 127); CC(7, 35, 9);
      CHECK(sent_n == 2 && sent[0].key == 0x50a7 && sent[0].ch == 1 && sent[1].ch == 2 &&
@@ -1790,28 +1797,29 @@ int main(void)
           memset(&p0, 0, sizeof p0); memset(&p1, 0, sizeof p1);
           p0.loaded = p1.loaded = 1;
           map_flx10.leds->deck_display(0, &p0); map_flx10.leds->deck_display(1, &p1);
+          browse_mode = 1;                      /* the player */
           reset(); ON(7, 71); OFF(7, 71); ms(60); map_flx10.tick();
           ms(200); ON(7, 71); OFF(7, 71); ms(500); map_flx10.tick();
           CHECK(!ks_muted[1], "INST.DOUBLES of a paused deck: deck 2 heard until rbp's long press nears");
           ms(500); map_flx10.tick();
           CHECK(ks_muted[1], "...then muted, before rbp loads and starts the copy");
           ms(200); map_flx10.tick();
-          CHECK(sent_n == 4 && is(3, K_SYNC, OP_RELEASE, 2), "doubles of a paused deck 1 (%d)", sent_n);
+          CHECK(sent_n == 2 && is(1, K_SYNC, OP_RELEASE, 2), "doubles of a paused deck 1 (%d)", sent_n);
           ms(300); p1.playing = 1; map_flx10.leds->deck_display(1, &p1); map_flx10.tick();
-          CHECK(sent_n == 6 && is(4, K_PLAY, OP_PRESS, 2), "the copy started: PLAY, paused (%d)", sent_n);
+          CHECK(sent_n == 4 && is(2, K_PLAY, OP_PRESS, 2), "the copy started: PLAY, paused (%d)", sent_n);
           place_n = 0; ms(100); map_flx10.tick();
-          CHECK(sent_n == 6 && place_n == 0, "...once, and not placed while still playing");
+          CHECK(sent_n == 4 && place_n == 0, "...once, and not placed while still playing");
           p1.playing = 0; map_flx10.leds->deck_display(1, &p1); map_flx10.tick();
           CHECK(place_n == 1 && place_deck == 1, "stopped: put where deck 1 stands (%d)", place_n);
           CHECK(!ks_muted[1], "...and heard again, paused and placed");
           ms(500); map_flx10.tick();
-          CHECK(sent_n == 6 && place_n == 1, "...once");
+          CHECK(sent_n == 4 && place_n == 1, "...once");
           p0.playing = 1; p1.playing = 0;
           map_flx10.leds->deck_display(0, &p0); map_flx10.leds->deck_display(1, &p1);
           ms(500); reset(); ON(7, 71); OFF(7, 71); ms(60); map_flx10.tick();
           ms(200); ON(7, 71); OFF(7, 71); ms(1200); map_flx10.tick();
           ms(300); p1.playing = 1; map_flx10.leds->deck_display(1, &p1); map_flx10.tick();
-          CHECK(sent_n == 4 && place_n == 1, "doubles of a playing deck: the copy plays (%d)", sent_n);
+          CHECK(sent_n == 2 && place_n == 1, "doubles of a playing deck: the copy plays (%d)", sent_n);
           CHECK(!ks_muted[1], "...and is never muted");
           memset(&p0, 0, sizeof p0); memset(&p1, 0, sizeof p1);
           map_flx10.leds->deck_display(0, &p0); map_flx10.leds->deck_display(1, &p1);

@@ -1791,9 +1791,8 @@ __attribute__((weak)) int flx10_cursor_is_track(void)
 /* ---- the browse knobs' pushes --------------------------------------------
  * Both knobs TURN with the same message (ch 7 CC 64), so they scroll one list;
  * only the pushes say which deck: 70 = deck 1, 71 = deck 2. A push is LOAD on
- * release. A second push within LOAD_DOUBLE_MS of a LOAD is INST.DOUBLES,
- * as printed on the FLX10 (operator, 2026-10-26; it used to be a second LOAD):
- * the first push's LOAD has gone, and the other deck's track replaces it.
+ * release. On the player, two pushes within LOAD_DOUBLE_MS are INST.DOUBLES,
+ * as printed on the FLX10 (operator, 2026-10-26); in BROWSE a push is a push.
  *
  * HELD browse_hold_ms, it is the RX3's own long press of the rotary selector,
  * which is rbp's FAST SCROLL (the fast-forward icon). rbp's long press for
@@ -1816,8 +1815,8 @@ static int push_fired[2];            /* the long press went out; selector held *
  * release sent in the same instant (operator, 2026-10-25). */
 #define LOAD_HOLD_MS 50
 static unsigned long long load_up_at[2];
-#define LOAD_DOUBLE_MS 400                 /* a second LOAD push within this: INST.DOUBLES */
-static unsigned long long load_at[2];       /* the last LOAD push, 0 = none to pair */
+#define LOAD_DOUBLE_MS 400                 /* two pushes on the player within this: INST.DOUBLES */
+static unsigned long long play_push_at[2];  /* a push on the player, held back; 0 = none */
 
 static void flx10_push(int deck, int on)
 {
@@ -1834,11 +1833,19 @@ static void flx10_push(int deck, int on)
           send_rx_key(K_SELECTOR, OP_RELEASE, CH_GLOBAL, 0);   /* fast scroll off */
           return;
      }
-     /* the second push of a pair, whatever the screen: the first's LOAD has
-      * taken rbp back to the player, so the cursor is on no track now */
-     if (load_at[deck] && shim_now_ms() - load_at[deck] < LOAD_DOUBLE_MS) {
-          load_at[deck] = 0;
+     /* ON THE PLAYER a push is held back LOAD_DOUBLE_MS: a second one in that
+      * time is INST.DOUBLES (as printed on the FLX10), else flx10_push_tick
+      * sends what a push on the player always sent. Only a pair begun on the
+      * player counts -- a LOAD from BROWSE takes rbp back to the player, and a
+      * quick push after it is not a double (operator, 2026-10-26: double LOAD
+      * is instant doubles from the player, not the browse window). */
+     if (play_push_at[deck]) {
+          play_push_at[deck] = 0;
           flx10_inst_doubles(deck, "LOAD twice");
+          return;
+     }
+     if (flx10_browse_mode() == BROWSE_MODE_PLAY) {
+          play_push_at[deck] = shim_now_ms();
           return;
      }
      if (flx10_browse_mode() == BROWSE_MODE_SOURCE && flx10_usb1_present()) {
@@ -1857,7 +1864,6 @@ static void flx10_push(int deck, int on)
                "0x%02x rowflags 0x%02x -> %s\n", deck + 1, mode, cur, lf, rf & 0xff,
                track ? "LOAD (held)" : "SELECT");
           if (track) {
-               load_at[deck] = shim_now_ms();
                if (load_up_at[deck])
                     send_rx_key(K_LOAD, OP_RELEASE, deck + 1, 0);
                send_rx_key(K_LOAD, OP_PRESS, deck + 1, 0);
@@ -1871,6 +1877,11 @@ static void flx10_push(int deck, int on)
 static void flx10_push_tick(unsigned long long t)
 {
      for (int d = 0; d < 2; d++) {
+          if (play_push_at[d] && t - play_push_at[d] >= LOAD_DOUBLE_MS) {
+               play_push_at[d] = 0;                 /* one push on the player */
+               klog("knobshim2: flx10 push deck%d on the player -> SELECT\n", d + 1);
+               pulse(K_SELECTOR, CH_GLOBAL);
+          }
           if (load_up_at[d] && t >= load_up_at[d]) {
                load_up_at[d] = 0;
                send_rx_key(K_LOAD, OP_RELEASE, d + 1, 0);
