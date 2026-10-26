@@ -569,7 +569,6 @@ static void flx10_mastervol(int cc, int val)
  *     with slip off. A latch rbp ends by itself (a new track) is noticed by the
  *     tick and undone the same way.
  * The engine reads are WEAK so the host test can answer for rbp. */
-#define SLIPREV_RESTORE_MS 200
 
 __attribute__((weak)) int flx10_slip_mode(int deck)
 {
@@ -607,10 +606,19 @@ __attribute__((weak)) void flx10_set_reverse(int deck, int on)
  * then shows up later (on the beat, by the operator's report).
  * A short press is then released before the deck is reversing, onKey_Reverse's
  * release sees no reverse to end, and the deck stays reversed -- what the
- * operator saw (2026-10-25). So after a release the tick watches the deck for
- * SLIPREV_WATCH_MS and ends any reverse that turns up (setReverse(false),
- * itself quantized), and slip mode is put back only once it has. */
-#define SLIPREV_WATCH_MS 2000
+ * operator saw (2026-10-25). So after a release the tick watches the deck and
+ * ends any reverse that turns up (setReverse(false), itself quantized), and
+ * slip mode is put back as soon as the reverse is over: SLIP REVERSE is
+ * "hold: slip on and reverse; release: reverse stops, slip off" (operator,
+ * 2026-10-25 -- the old fixed 2 s watch left slip on for 2 s).
+ *   reverse seen while held, or after the release: slip off once rbp's
+ *     reverse flag has read clear for SLIPREV_CLEAR_TICKS ticks (the slip
+ *     return lands with it);
+ *   never seen (a tap released before a quantized reverse began): the watch
+ *     lasts SLIPREV_PENDING_MS for the late start, then slip off. */
+#define SLIPREV_PENDING_MS 1000
+#define SLIPREV_CLEAR_TICKS 2
+static int rev_seen[2], rev_clear_n[2];
 static int rev_held[2], rev_forced_slip[2], rev_latched[2], rev_slip_restore[2];
 static unsigned long long rev_slip_off_at[2], rev_latched_at[2];
 static unsigned long long rev_watch_until[2], rev_stop_sent_at[2];
@@ -644,6 +652,7 @@ static void flx10_slip_reverse(int deck, int on)
                rev_forced_slip[deck] = 1;
           }
           rev_held[deck] = 1;
+          rev_seen[deck] = 0;
           send_rx_key(K_REV, OP_PRESS, sch, 0);
           return;
      }
@@ -653,7 +662,10 @@ static void flx10_slip_reverse(int deck, int on)
      send_rx_key(K_REV, OP_RELEASE, sch, 0);
      klog("knobshim2: flx10 deck%d SLIP REVERSE release: slip=%d forced=%d reversing=%d\n",
           deck + 1, flx10_slip_mode(deck), rev_forced_slip[deck], flx10_reversing(deck));
-     rev_watch_until[deck] = shim_now_ms() + SLIPREV_WATCH_MS;
+     if (flx10_reversing(deck))
+          rev_seen[deck] = 1;
+     rev_watch_until[deck] = shim_now_ms() + (rev_seen[deck] ? 1 : SLIPREV_PENDING_MS);
+     rev_clear_n[deck] = 0;
      rev_stop_sent_at[deck] = 0;
 }
 
@@ -693,23 +705,28 @@ static void flx10_rev_tick(unsigned long long t)
 {
      for (int d = 0; d < 2; d++) {
           int v;
+          if (rev_held[d] && flx10_reversing(d))
+               rev_seen[d] = 1;
           if (rev_watch_until[d] && !rev_held[d] && !rev_latched[d]) {
                int r = flx10_reversing(d);
-               if (r && t - rev_stop_sent_at[d] >= 100) {
-                    if (!rev_stop_sent_at[d])
-                         klog("knobshim2: flx10 deck%d SLIP REVERSE: still reversing "
-                              "after the release (quantize); ending it\n", d + 1);
-                    flx10_set_reverse(d, 0);
-                    rev_stop_sent_at[d] = t;
-                    if (rev_watch_until[d] < t + 500)
-                         rev_watch_until[d] = t + 500;   /* until it is seen ended */
-               }
-               if (!r && t >= rev_watch_until[d]) {
+               if (r) {
+                    rev_seen[d] = 1;
+                    rev_clear_n[d] = 0;
+                    if (t - rev_stop_sent_at[d] >= 100) {
+                         if (!rev_stop_sent_at[d])
+                              klog("knobshim2: flx10 deck%d SLIP REVERSE: still reversing "
+                                   "after the release (quantize); ending it\n", d + 1);
+                         flx10_set_reverse(d, 0);
+                         rev_stop_sent_at[d] = t;
+                    }
+               } else if ((rev_seen[d] && ++rev_clear_n[d] >= SLIPREV_CLEAR_TICKS) ||
+                          (!rev_seen[d] && t >= rev_watch_until[d])) {
                     rev_watch_until[d] = 0;
-                    klog("knobshim2: flx10 deck%d SLIP REVERSE: watch over, slip=%d "
-                         "forced=%d\n", d + 1, flx10_slip_mode(d), rev_forced_slip[d]);
+                    klog("knobshim2: flx10 deck%d SLIP REVERSE: reverse over (%s), slip=%d "
+                         "forced=%d\n", d + 1, rev_seen[d] ? "ended" : "never started",
+                         flx10_slip_mode(d), rev_forced_slip[d]);
                     if (rev_forced_slip[d])
-                         rev_slip_off_at[d] = t + SLIPREV_RESTORE_MS;
+                         rev_slip_off_at[d] = t;     /* now, below */
                }
           }
           if (rev_slip_off_at[d] && t >= rev_slip_off_at[d]) {

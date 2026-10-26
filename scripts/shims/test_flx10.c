@@ -199,20 +199,34 @@ int main(void)
            "SLIP REVERSE, slip off: slip on, REV press");
      map_flx10.tick();
      CHECK(dk_note_v[0][21] == 0x7F, "SLIP REVERSE LED lit while held");
+     reversing[0] = 1; ms(20); map_flx10.tick();       /* rbp reversing while held */
      reset(); OFF(1, 21);
      CHECK(sent_n == 1 && is(0, K_REV, OP_RELEASE, 1) && slipmode[0] == 1,
            "release: REV release, slip still on for the return");
-     ms(250); map_flx10.tick();
-     CHECK(slipmode[0] == 1, "slip mode kept while the deck is watched");
-     /* quantize: the reverse turns up after the release -> ended by the map */
-     reversing[0] = 1; rev_sets = 0; ms(20); map_flx10.tick();
-     CHECK(rev_sets == 1 && reversing[0] == 0, "a late reverse after the release is ended");
-     for (int i = 0; i < 30 && slipmode[0]; i++) { ms(100); map_flx10.tick(); }
-     CHECK(slipmode[0] == 0, "slip mode put back off once the deck plays forward");
+     reversing[0] = 0;                                 /* rbp ended it on the release */
+     ms(20); map_flx10.tick(); ms(20); map_flx10.tick(); ms(20); map_flx10.tick();
+     CHECK(slipmode[0] == 0, "reverse over: slip off at once (within ~60 ms)");
      slipmode[0] = 1;                       /* rbp kept slip on after all */
      for (int i = 0; i < 5 && slipmode[0]; i++) { ms(100); map_flx10.tick(); }
      CHECK(slipmode[0] == 0, "slip found still on after the restore: sent off again");
-     for (int i = 0; i < 20; i++) { ms(100); map_flx10.tick(); }
+     for (int i = 0; i < 40; i++) { ms(100); map_flx10.tick(); }
+     /* a tap released before a quantized reverse began: the late reverse is
+      * ended when it turns up, then slip goes off */
+     reset(); ON(1, 21); OFF(1, 21);
+     ms(250); map_flx10.tick();
+     CHECK(slipmode[0] == 1, "tap: slip kept while a late reverse may still come");
+     reversing[0] = 1; rev_sets = 0; ms(20); map_flx10.tick();
+     CHECK(rev_sets == 1 && reversing[0] == 0, "a late reverse after the release is ended");
+     ms(20); map_flx10.tick(); ms(20); map_flx10.tick(); ms(20); map_flx10.tick();
+     CHECK(slipmode[0] == 0, "...and slip off right after");
+     for (int i = 0; i < 40; i++) { ms(100); map_flx10.tick(); }
+     /* a tap whose reverse never comes: slip off after the pending window */
+     reset(); ON(1, 21); OFF(1, 21);
+     for (int i = 0; i < 9; i++) { ms(100); map_flx10.tick(); }
+     CHECK(slipmode[0] == 1, "tap, no reverse yet: slip kept inside the window");
+     for (int i = 0; i < 3; i++) { ms(100); map_flx10.tick(); }
+     CHECK(slipmode[0] == 0, "tap, no reverse ever: slip off after ~1 s");
+     for (int i = 0; i < 40; i++) { ms(100); map_flx10.tick(); }
      map_flx10.tick();
      CHECK(dk_note_v[0][21] == 0x00, "SLIP REVERSE LED off");
      /* with slip mode already on, it is left alone */
