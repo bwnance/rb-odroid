@@ -944,6 +944,11 @@ int main(void)
           flx10_fx_beat_text(5, -50, 1, t, sizeof t);
           CHECK(!strcmp(t, "-50%"), "PITCH reads a signed percent (got %s)", t);
      }
+     reset(); ON(5, 70); OFF(5, 70);
+     CHECK(sent_n == 2 && is(0, K_BFX, OP_PRESS, 1) && is(1, K_BFX, OP_RELEASE, 1),
+           "Beat FX ON/OFF is note 70 (rekordbox's capture) -> rbp's BFX key");
+     reset(); ON(5, 71); OFF(5, 71);
+     CHECK(sent_n == 0, "note 71 on the FX channel: nothing");
      reset(); CC(5, 2, 64);
      CHECK(sent_n == 1 && sent[0].key == K_DEPTH, "LEVEL -> DEPTH");
      reset(); ON(1, 63); CC(5, 2, 65); CC(5, 2, 63); OFF(1, 63);
@@ -1052,8 +1057,11 @@ int main(void)
                      "deck LED notes");
                CHECK(n->n_loopin == 16 && n->n_loopout == 17 && n->n_autoloop == 20,
                      "loop LED notes");
-               CHECK(n->n_vinyl == -1 && n->master_ch_first < 0 && n->fx_ch < 0 &&
+               CHECK(n->n_vinyl == -1 && n->master_ch_first < 0 &&
                      n->meter_master_ch < 0, "unanswered LEDs stay dark");
+               CHECK(n->fx_ch == 4 && n->n_fx[LED_FX_BFX_ONOFF] == 70 &&
+                     n->n_fx[LED_FX_CFX_FILTER] == -1,
+                     "Beat FX ON/OFF lit on ch 5 note 70, as rekordbox lights it");
                CHECK(n->n_quantize == 53, "QUANTIZE LED on 53");
                CHECK(n->loop_style == LED_LOOP_REKORDBOX, "rekordbox loop LEDs");
                CHECK(n->mode_banks == 1 && n->n_mode[0] == 27 && n->n_mode[1] == 109 &&

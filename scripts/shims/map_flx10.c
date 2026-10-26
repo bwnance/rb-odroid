@@ -164,7 +164,10 @@
 #define N_FX_BEATNEXT   75
 #define N_FX_AUTO      102    /* SHIFT + BEAT <: BPM back to AUTO */
 #define N_FX_TAP       107    /* SHIFT + BEAT > */
-#define N_FX_ONOFF      71
+/* 70, not the FLX4's 71 the map first copied: the operator's rekordbox capture of
+ * 2026-10-26 has the button as 94 46 and rekordbox lighting it with 94 46 7f/00, and
+ * with 71 rbp's Beat FX never came on (operator: "i can't hear FX"). */
+#define N_FX_ONOFF      70
 #define N_FX_RELEASE    67    /* SHIFT + ON/OFF: nothing */
 #define N_FX_SEL_FIRST  32    /* effect selector, 14 positions: 32..45 */
 #define N_FX_SEL_LAST   45
@@ -3415,8 +3418,15 @@ static const struct led_notes flx10_leds = {
      .master_ch_first = -1,        /* master CUE: no LED answered */
      .master_ch_count = 0,
      .n_master_cue = -1,
-     .fx_ch = -1,                  /* FX ON and SCFX: no LED answered */
-     .n_fx = { -1, -1, -1, -1, -1 },
+     .fx_ch = CH_FX,               /* Beat FX ON/OFF, on its own note (rekordbox's
+                                    * capture); the SCFX buttons answered no LED */
+     .n_fx = {
+          [LED_FX_BFX_ONOFF]   = N_FX_ONOFF,
+          [LED_FX_CFX_FILTER]  = -1,
+          [LED_FX_CFX_DUBECHO] = -1,
+          [LED_FX_CFX_NOISE]   = -1,
+          [LED_FX_CFX_SWEEP]   = -1,
+     },
      .meter_ch_first = 0,
      .n_meter_cc = 2,
      .meter_enc = METER_ENC_FLX4_LEVEL,
