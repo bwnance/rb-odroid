@@ -797,6 +797,11 @@ static const signed char bfx_type_to_pos[15] = {
 #define PE_ISVINYLMODE     0x5e260
 #define PE_ISSLIPMODEON    0x5fc60
 #define PE_GETREVERSE      0x5e010   /* PlayEngine::getReverse(ch): Player+0xe9b */
+/* PlayEngine::getFilePath(ch) -> const char *: the loaded audio file as rbp
+ * opened it (/media/usb1/sda1/Contents/...), "" when none (Player::getFilePath
+ * @0x63ab4 -> ReaderOwner::getFilePath @0x40280, whose fallback 0x4e2358 is
+ * the empty string). */
+#define PE_GETFILEPATH     0x5d59c
 /* Player+0xe9b is the reverse ASKED for: Player::setReverse @0x6a5ec writes it
  * at once, quantized or not. The reverse in EFFECT is Player+0xe9c, which
  * setReverse_core @0x68b90 copies from +0xe9b when it applies it. A quantized

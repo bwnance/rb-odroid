@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 #include <sound/asequencer.h>
 
 #include "shimutil.h"
@@ -25,6 +26,7 @@
 #include "ctrl_map.h"
 #include "pitch_state.h"
 #include "flx10_hid.h"
+#include "flx10_media.h"
 
 static int checks, failures;
 #define CHECK(cond, ...) do { checks++; if (!(cond)) { failures++;           \
@@ -77,6 +79,7 @@ int flx10_cue_ms(int d, int total_ms) { (void)d; (void)total_ms; return 1000; }
 static int timemode_n[2];
 void flx10_toggle_time_mode(int d) { timemode_n[d]++; }
 int flx10_pos_now(int d, int *pos, int *mov) { (void)d; *pos = 0; *mov = 0; return 0; }
+int flx10_track_path(int d, char *b, size_t n) { (void)d; if (n) b[0] = 0; return 0; }
 int flx10_end_caution(int d) { (void)d; return 0; }
 static int loop_primes[2];
 void flx10_loop_prime(int d) { loop_primes[d]++; }
@@ -143,6 +146,213 @@ static void build(const char *keys)
      if (keys) setenv("FLX10_KEYS", keys, 1); else unsetenv("FLX10_KEYS");
      ctrl_bindings_reset();
      map_flx10.build();
+}
+
+
+/* ---- artwork and waveforms (flx10_media.c) ----
+ * The byte-for-byte check against rekordbox's own packets was made with the
+ * operator's capture and export stick (flx10_media.h); these pin the parsing
+ * and the packets on hand-made files, the export's real artwork having no
+ * place in the repo. */
+static void be32w(unsigned char *b, unsigned v) { b[0] = v >> 24; b[1] = v >> 16; b[2] = v >> 8; b[3] = v; }
+static void le16w(unsigned char *b, unsigned v) { b[0] = v; b[1] = v >> 8; }
+static void le32w(unsigned char *b, unsigned v) { le16w(b, v); le16w(b + 2, v >> 16); }
+
+/* An ANLZ file: PMAI header, then sections {tag, header length, body}. */
+static size_t anlz_sec(unsigned char *b, size_t o, const char *tag, size_t hl,
+                       const unsigned char *hdr_tail, size_t tail_n,
+                       const unsigned char *body, size_t bl)
+{
+     memcpy(b + o, tag, 4);
+     be32w(b + o + 4, (unsigned)hl);
+     be32w(b + o + 8, (unsigned)(hl + bl));
+     memset(b + o + 12, 0, hl - 12);
+     if (tail_n)
+          memcpy(b + o + 12, hdr_tail, tail_n);
+     memcpy(b + o + hl, body, bl);
+     return o + hl + bl;
+}
+
+static size_t anlz_start(unsigned char *b)
+{
+     memcpy(b, "PMAI", 4);
+     be32w(b + 4, 28);
+     memset(b + 8, 0, 20);
+     return 28;
+}
+
+/* A short-ASCII DeviceSQL string; returns its length. */
+static size_t dstr_ascii(unsigned char *b, const char *s)
+{
+     size_t n = strlen(s);
+     b[0] = (unsigned char)(((n + 1) << 1) | 1);
+     memcpy(b + 1, s, n);
+     return n + 1;
+}
+
+static void media_tests(void)
+{
+     static unsigned char ex2[4096], dat[1024], pdb[3 * 4096];
+     unsigned char p[128];
+     size_t n2, nd;
+
+     /* packets: [0] deck, [1] type, index and count LE16, 122 bytes each */
+     {
+          unsigned char data[300];
+          for (int i = 0; i < 300; i++)
+               data[i] = (unsigned char)i;
+          CHECK(flx10_bulk_count(300) == 3 && flx10_bulk_count(122) == 1 &&
+                flx10_bulk_count(123) == 2, "packet counts");
+          flx10_bulk_pkt(p, 1, 0x38, data, 300, 3);
+          CHECK(p[0] == 0x20 && p[1] == 0x38 && p[2] == 3 && p[3] == 0 && p[4] == 3 &&
+                p[5] == 0 && p[6] == (unsigned char)244 && p[6 + 55] == (unsigned char)299 &&
+                p[6 + 56] == 0 && p[127] == 0, "last packet: header, the tail, zero padding");
+     }
+
+     /* ANLZ sections and the payloads built from them */
+     {
+          unsigned char w6[6] = { 1, 2, 3, 4, 5, 6 }, w7[9] = { 7, 8, 9, 10, 11, 12, 13, 14, 15 };
+          unsigned char t7[12] = { 0, 0, 0, 3, 0, 0, 0, 3, 0, 0x96, 0, 0 };
+          unsigned char q[16] = { 0, 1, 0x40, 0, 0, 0, 0x01, 0x6b,  0, 2, 0x40, 0, 0, 0, 0x03, 0x42 };
+          unsigned char jpg[5] = { 0xff, 0xd8, 0x01, 0xff, 0xd9 }, jpgm[7] = { 0xff, 0xd8, 2, 3, 4, 0xff, 0xd9 };
+          struct flx10_media_src src;
+          struct flx10_media m;
+          size_t ho, hl, bl;
+          long bo;
+
+          n2 = anlz_start(ex2);
+          n2 = anlz_sec(ex2, n2, "PPTH", 16, NULL, 0, (const unsigned char *)"xx", 2);
+          n2 = anlz_sec(ex2, n2, "PWV7", 24, t7, 12, w7, 9);
+          n2 = anlz_sec(ex2, n2, "PWV6", 20, NULL, 0, w6, 6);
+          be32w(ex2 + 8, (unsigned)n2);
+          nd = anlz_start(dat);
+          nd = anlz_sec(dat, nd, "PQTZ", 24, NULL, 0, q, 16);
+          bo = flx10_anlz_section(ex2, n2, "PWV6", &ho, &hl, &bl);
+          CHECK(bo > 0 && hl == 20 && bl == 6 && !memcmp(ex2 + bo, w6, 6), "ANLZ: PWV6 found");
+          CHECK(flx10_anlz_section(ex2, n2, "PSSI", &ho, &hl, &bl) < 0, "ANLZ: absent tag");
+          CHECK(flx10_anlz_section(ex2, n2 - 3, "PWV6", &ho, &hl, &bl) < 0,
+                "ANLZ: a torn file is refused, not overrun");
+
+          memset(&src, 0, sizeof src);
+          src.ex2 = ex2; src.ex2_len = n2; src.dat = dat; src.dat_len = nd;
+          src.art = jpg; src.art_len = 5; src.artm = jpgm; src.artm_len = 7;
+          src.total_ms = 186489;
+          CHECK(flx10_media_from_src(&src, &m) == 0 && m.n == 6 && m.have_art && m.have_wave,
+                "six transfers");
+          CHECK(m.it[0].type == 0x30 && m.it[0].len == 4 && m.it[0].data[0] == 3 &&
+                m.it[0].data[1] == 6 && m.it[0].data[2] == 0xe9 && m.it[0].data[3] == 1,
+                "0x30: 3:06.489 as 03 06 e9 01 (the capture's)");
+          CHECK(m.it[1].type == 0x2b && m.it[1].len == 7 && m.it[1].data[0] == 5 &&
+                m.it[1].data[1] == 0 && !memcmp(m.it[1].data + 2, jpg, 5), "0x2b: LE16 + JPEG");
+          CHECK(m.it[2].type == 0x33 && m.it[2].len == 10 && m.it[2].data[0] == 7 &&
+                m.it[2].data[2] == 0 && !memcmp(m.it[2].data + 3, jpgm, 7), "0x33: LE24 + JPEG");
+          CHECK(m.it[3].type == 0x37 && m.it[3].len == 7 && m.it[3].data[0] == 0x80 &&
+                !memcmp(m.it[3].data + 1, w6, 6), "0x37: 0x80 + PWV6");
+          CHECK(m.it[4].type == 0x2f && m.it[4].len == 10 && m.it[4].data[0] == 2 &&
+                m.it[4].data[2] == 1 && m.it[4].data[3] == 0x6b && m.it[4].data[4] == 1 &&
+                m.it[4].data[6] == 2 && m.it[4].data[7] == 0x42 && m.it[4].data[8] == 3,
+                "0x2f: count, then beat + LE24 ms (the capture's 01 6b 01 00)");
+          CHECK(m.it[5].type == 0x38 && m.it[5].len == 13 && m.it[5].data[0] == 3 &&
+                m.it[5].data[3] == 0 && !memcmp(m.it[5].data + 4, w7, 9), "0x38: LE32 count + PWV7");
+          flx10_media_free(&m);
+
+          memset(&src, 0, sizeof src);
+          src.total_ms = 1000;
+          CHECK(flx10_media_from_src(&src, &m) == 0 && m.n == 6 && !m.have_art && !m.have_wave &&
+                m.it[1].len == 2 && m.it[2].len == 3 && m.it[3].len == 3601 &&
+                m.it[4].len == 2 && m.it[5].len == 4,
+                "nothing found: empty artwork, a flat overview, no detail");
+          flx10_media_free(&m);
+     }
+
+     /* export.pdb: a tracks page and an artwork page */
+     {
+          unsigned char *t, *r;
+          char art[256], anlz[256];
+          size_t so;
+          /* header: page length, 2 tables */
+          memset(pdb, 0, sizeof pdb);
+          le32w(pdb + 4, 4096);
+          le32w(pdb + 8, 2);
+          le32w(pdb + 0x1c, 0);  le32w(pdb + 0x1c + 8, 1);  le32w(pdb + 0x1c + 12, 1);
+          le32w(pdb + 0x2c, 13); le32w(pdb + 0x2c + 8, 2);  le32w(pdb + 0x2c + 12, 2);
+          /* page 1: one track row */
+          t = pdb + 4096;
+          le32w(t + 8, 0);
+          t[0x18] = 1;
+          t[0x1b] = 0x34;
+          le16w(t + 4096 - 4, 1);          /* row 0 present */
+          le16w(t + 4096 - 6, 0);          /* at the heap's start */
+          r = t + 0x28;
+          le32w(r + 0x1c, 7);              /* artwork 7 */
+          le32w(r + 0x48, 1390);
+          so = 0x5e + 42;
+          le16w(r + 0x5e + 2 * 14, (unsigned)so);
+          so += dstr_ascii(r + so, "/PIONEER/USBANLZ/P030/0002FB38/ANLZ0000.DAT");
+          le16w(r + 0x5e + 2 * 20, (unsigned)so);
+          {                                /* UTF-16: "/Contents/é.mp3" */
+               const char *a = "/Contents/";
+               size_t k = 0, nch = strlen(a) + 1 + 4;
+               r[so] = 0x90;
+               le16w(r + so + 1, (unsigned)(4 + 2 * nch));
+               for (size_t i = 0; a[i]; i++, k++)
+                    le16w(r + so + 4 + 2 * k, (unsigned char)a[i]);
+               le16w(r + so + 4 + 2 * k++, 0xe9);
+               le16w(r + so + 4 + 2 * k++, '.');
+               le16w(r + so + 4 + 2 * k++, 'm');
+               le16w(r + so + 4 + 2 * k++, 'p');
+               le16w(r + so + 4 + 2 * k++, '3');
+          }
+          /* page 2: artwork 7 */
+          t = pdb + 2 * 4096;
+          le32w(t + 8, 13);
+          t[0x18] = 1;
+          t[0x1b] = 0x34;
+          le16w(t + 4096 - 4, 1);
+          r = t + 0x28;
+          le32w(r, 7);
+          dstr_ascii(r + 4, "/PIONEER/Artwork/00001/a7.jpg");
+
+          CHECK(flx10_pdb_find(pdb, sizeof pdb, "/Contents/\xc3\xa9.mp3", art, sizeof art,
+                               anlz, sizeof anlz) == 0 &&
+                !strcmp(anlz, "/PIONEER/USBANLZ/P030/0002FB38/ANLZ0000.DAT") &&
+                !strcmp(art, "/PIONEER/Artwork/00001/a7.jpg"),
+                "pdb: track by its UTF-16 path -> analysis and artwork paths (%s | %s)",
+                anlz, art);
+          CHECK(flx10_pdb_find(pdb, sizeof pdb, "/Contents/e.mp3", art, sizeof art,
+                               anlz, sizeof anlz) == -1, "pdb: unknown track");
+          CHECK(flx10_pdb_find(pdb, 4096 + 100, "/Contents/\xc3\xa9.mp3", art, sizeof art,
+                               anlz, sizeof anlz) == -1, "pdb: torn file, no overrun");
+     }
+
+     /* the whole load, from a little export on disk */
+     {
+          char root[64], path[512];
+          struct flx10_media m;
+          FILE *f;
+          snprintf(root, sizeof root, "/tmp/flx10-media-test-%d", (int)getpid());
+          snprintf(path, sizeof path, "mkdir -p %s/PIONEER/rekordbox %s/PIONEER/USBANLZ/P030/0002FB38 "
+                   "%s/PIONEER/Artwork/00001 %s/Contents", root, root, root, root);
+          CHECK(system(path) == 0, "test export made");
+#define PUT(rel, buf, len) do { snprintf(path, sizeof path, "%s%s", root, rel); \
+          f = fopen(path, "wb"); if (f) { fwrite(buf, 1, len, f); fclose(f); } } while (0)
+          PUT("/PIONEER/rekordbox/export.pdb", pdb, sizeof pdb);
+          PUT("/PIONEER/USBANLZ/P030/0002FB38/ANLZ0000.DAT", dat, nd);
+          PUT("/PIONEER/USBANLZ/P030/0002FB38/ANLZ0000.2EX", ex2, n2);
+          PUT("/PIONEER/Artwork/00001/a7.jpg", "\xff\xd8\xff\xd9", 4);
+          PUT("/PIONEER/Artwork/00001/a7_m.jpg", "\xff\xd8\x00\xff\xd9", 5);
+#undef PUT
+          snprintf(path, sizeof path, "%s/Contents/\xc3\xa9.mp3", root);
+          CHECK(flx10_media_load(path, 186489, &m) == 0 && m.n == 6 && m.have_art &&
+                m.have_wave && m.it[1].len == 6 && m.it[2].len == 8 && m.it[5].len == 13,
+                "load: export found above the file, every piece read");
+          flx10_media_free(&m);
+          snprintf(path, sizeof path, "%s/Contents/other.mp3", root);
+          CHECK(flx10_media_load(path, 1000, &m) == -1 && m.n == 0, "load: not in the export");
+          CHECK(flx10_media_load("/nonexistent/a.mp3", 1000, &m) == -1, "load: no export");
+          snprintf(path, sizeof path, "rm -rf %s", root);
+          if (system(path)) {}
+     }
 }
 
 int main(void)
@@ -1125,6 +1335,7 @@ int main(void)
           memset(&d0, 0, sizeof d0); memset(&d1, 0, sizeof d1);
           n->deck_display(0, &d0); n->deck_display(1, &d1);
      }
+     media_tests();
      printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);
      return failures ? 1 : 0;
 }

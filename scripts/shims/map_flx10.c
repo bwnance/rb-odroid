@@ -987,6 +987,24 @@ __attribute__((weak)) int flx10_pos_now(int deck, int *pos_ms, int *moving)
      return 1;
 }
 
+/* The audio file a deck has loaded, for the jog screens' artwork and
+ * waveforms (flx10_hid.h). rbp keeps the string in the deck's reader, which a
+ * new load replaces: copied at once, bounded. WEAK for the host test. */
+__attribute__((weak)) int flx10_track_path(int deck, char *buf, size_t n)
+{
+     void *pe = *(void **)PLAYENGINE_GLOBAL;
+     const char *p;
+
+     buf[0] = 0;
+     if (!pe || !((int (*)(void *, int))PE_ISLOADED)(pe, deck))
+          return 0;
+     p = ((const char *(*)(void *, int))PE_GETFILEPATH)(pe, deck);
+     if (!p || !p[0])
+          return 0;
+     snprintf(buf, n, "%s", p);
+     return 1;
+}
+
 /* rbp's time mode for the deck, flipped (elapsed <-> remaining): what the
  * RX3's TIME MODE shortcut sets, there being no touch screen or mouse here
  * (operator, 2026-10-25). The jog screen follows rbp's mode. WEAK for the
@@ -2520,6 +2538,7 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
           flx10_display_init(now);
           flx10_hid_set_pos_reader(flx10_pos_now);
           flx10_hid_set_caution_reader(flx10_end_caution);
+          flx10_hid_set_path_reader(flx10_track_path);
      }
      /* the jog screens draw nothing without this (flx10_hid.h); the MIDI
       * values below still go out too */

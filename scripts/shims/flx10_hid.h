@@ -17,6 +17,8 @@
 #ifndef RBPI4B_FLX10_HID_H
 #define RBPI4B_FLX10_HID_H
 
+#include <stddef.h>
+
 #define FLX10_HID_PKT 128
 
 /* One deck as the jog screen shows it. Fields decoded from the unit with
@@ -103,6 +105,11 @@ void flx10_hid_tempo_hold(struct flx10_hid_tempo_hold *h, struct flx10_hid_deck 
  * standby), returns 0 when it cannot read. Without one, the 20 Hz value from
  * flx10_hid_update is used. */
 void flx10_hid_set_pos_reader(int (*fn)(int deck, int *pos_ms, int *moving));
+
+/* Where the artwork / waveform thread reads the audio file each deck has
+ * loaded (map_flx10.c sets it): copies the path into buf, returns 0 when
+ * there is none. FLX10_MEDIA=0 turns that thread off. See flx10_media.h. */
+void flx10_hid_set_path_reader(int (*fn)(int deck, char *buf, size_t n));
 
 /* Where the sender reads rbp's track-end warning phase (map_flx10.c sets it):
  * non-zero during the warning flash's "on" half. */

@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #include "flx10_hid.h"
+#include "flx10_media.h"
 #include "shimutil.h"
 #include "syscalls.h"
 
@@ -283,6 +284,27 @@ static pthread_mutex_t hd_lock = PTHREAD_MUTEX_INITIALIZER;
 static int (*pos_reader)(int deck, int *pos_ms, int *moving);
 static int (*caution_reader)(int deck);
 
+/* Artwork and waveforms (flx10_media.h): one transfer list per deck, sent
+ * BULK_PER_TICK packets a tick after the state packets -- rekordbox sends
+ * them in bursts about 1 ms apart, ~300 a second -- so a long track's detail
+ * waveform takes a few seconds and the arm never waits for it. Built by
+ * media_thread, which owns the file reads; the sender only copies 122 bytes
+ * at a time out of it under media_lock. Not sent until BULK_AFTER_OPEN_MS
+ * after the hidraw node is opened: the unit takes them only once it has had
+ * the display connect sequence (map_flx10.c, 1 s and 4 s after it is seen),
+ * and a unit that is opened again was power cycled and has forgotten them,
+ * so they start over. */
+#define BULK_PER_TICK 4
+#define BULK_AFTER_OPEN_MS 6000
+#define MEDIA_POLL_MS 250
+static struct {
+     struct flx10_media m;
+     int item, idx;                    /* next packet: m.it[item], idx 1.. */
+} bulk[2];
+static pthread_mutex_t media_lock = PTHREAD_MUTEX_INITIALIZER;
+static int (*path_reader)(int deck, char *buf, size_t n);
+static int send_pkt(int fd, const unsigned char *p);
+
 static int moving(const struct flx10_hid_deck *s)
 {
      return s->loaded && s->playing && !s->cue_standby;
@@ -450,6 +472,107 @@ void flx10_hid_set_pos_reader(int (*fn)(int deck, int *pos_ms, int *moving))
      pos_reader = fn;
 }
 
+void flx10_hid_set_path_reader(int (*fn)(int deck, char *buf, size_t n))
+{
+     path_reader = fn;
+}
+
+/* Hands one deck's transfers to the sender (taking `m`), in place of any
+ * still going out: a new track's data replaces the old one's at once. */
+static void media_set(int d, struct flx10_media *m)
+{
+     pthread_mutex_lock(&media_lock);
+     flx10_media_free(&bulk[d].m);
+     bulk[d].m = *m;
+     bulk[d].item = 0;
+     bulk[d].idx = 1;
+     pthread_mutex_unlock(&media_lock);
+     memset(m, 0, sizeof *m);
+}
+
+/* Up to `budget` transfer packets, round-robin over the decks. Returns 0
+ * when a write failed. */
+static int bulk_send(int fd, int budget)
+{
+     static int rr;
+     unsigned char p[FLX10_HID_PKT];
+
+     while (budget > 0) {
+          int sent = 0;
+          for (int k = 0; k < 2 && budget > 0; k++) {
+               int d = (rr + k) % 2, have = 0;
+               pthread_mutex_lock(&media_lock);
+               if (bulk[d].item < bulk[d].m.n) {
+                    struct flx10_media_item *it = &bulk[d].m.it[bulk[d].item];
+                    flx10_bulk_pkt(p, d, it->type, it->data, it->len, bulk[d].idx);
+                    if (++bulk[d].idx > flx10_bulk_count(it->len)) {
+                         bulk[d].item++;
+                         bulk[d].idx = 1;
+                    }
+                    have = 1;
+               }
+               pthread_mutex_unlock(&media_lock);
+               if (!have)
+                    continue;
+               if (!send_pkt(fd, p))
+                    return 0;
+               budget--;
+               sent = 1;
+          }
+          rr = (rr + 1) % 2;
+          if (!sent)
+               break;
+     }
+     return 1;
+}
+
+/* Watches what each deck has loaded and builds its transfers when it
+ * changes. The file reads happen here, off the 100 Hz sender. */
+static void *media_thread(void *arg)
+{
+     static char last[2][1024], cur[1024];
+     (void)arg;
+
+     for (;;) {
+          usleep(MEDIA_POLL_MS * 1000);
+          if (!path_reader)
+               continue;
+          for (int d = 0; d < 2; d++) {
+               struct flx10_media m;
+               int loaded, total;
+
+               pthread_mutex_lock(&hd_lock);
+               loaded = hd[d].s.loaded;
+               total = hd[d].s.total_ms;
+               pthread_mutex_unlock(&hd_lock);
+               if (!loaded || !path_reader(d, cur, sizeof cur) || !cur[0]) {
+                    last[d][0] = 0;
+                    continue;
+               }
+               if (total <= 0 || !strcmp(cur, last[d]))
+                    continue;                  /* (no length from rbp yet) */
+               snprintf(last[d], sizeof last[d], "%s", cur);
+               if (flx10_media_load(cur, total, &m) == 0) {
+                    klog("knobshim2: FLX10 HID: deck%d %s: artwork %s, waveform %s\n",
+                         d + 1, cur, m.have_art ? "yes" : "none",
+                         m.have_wave ? "yes" : "none");
+               } else {
+                    /* not on a rekordbox export: blanks, so the screen does
+                     * not keep the previous track's */
+                    struct flx10_media_src none;
+                    memset(&none, 0, sizeof none);
+                    none.total_ms = total;
+                    klog("knobshim2: FLX10 HID: deck%d %s is not in a rekordbox "
+                         "export: no artwork or waveform\n", d + 1, cur);
+                    if (flx10_media_from_src(&none, &m))
+                         continue;
+               }
+               media_set(d, &m);
+          }
+     }
+     return NULL;
+}
+
 void flx10_hid_jog_activity(int deck, int dir)
 {
      if (deck >= 0 && deck < 4) {
@@ -504,7 +627,7 @@ static int send_pkt(int fd, const unsigned char *p)
 static void *hid_thread(void *arg)
 {
      int fd = -1, n = 0;
-     unsigned long long next_look = 0;
+     unsigned long long next_look = 0, bulk_from = 0;
      unsigned char p[FLX10_HID_PKT];
      char path[300];
      (void)arg;
@@ -526,6 +649,13 @@ static void *hid_thread(void *arg)
                }
                klog("knobshim2: FLX10 HID: sending deck state to %s every %d ms\n",
                     path, HID_PERIOD_US / 1000);
+               bulk_from = shim_now_ms() + BULK_AFTER_OPEN_MS;
+               pthread_mutex_lock(&media_lock);
+               for (int d = 0; d < 2; d++) {   /* from the start again */
+                    bulk[d].item = 0;
+                    bulk[d].idx = 1;
+               }
+               pthread_mutex_unlock(&media_lock);
           }
           n = n % 5 + 1;
           flx10_hid_heartbeat_pkt(p, n);
@@ -569,6 +699,8 @@ static void *hid_thread(void *arg)
                flx10_hid_state_pkt(p, d, &s);
                ok = send_pkt(fd, p);
           }
+          if (ok && shim_now_ms() >= bulk_from)
+               ok = bulk_send(fd, BULK_PER_TICK);
           if (!ok) {
                klog("knobshim2: FLX10 HID: write to %s failed (%s); looking for "
                     "the unit again\n", path, strerror(errno));
@@ -601,6 +733,12 @@ static void hid_start(void)
           pthread_detach(t);
      else
           klog("knobshim2: FLX10 HID: cannot start its thread\n");
+     if (!env_on("FLX10_MEDIA", 1))
+          klog("knobshim2: FLX10 HID: no artwork or waveforms (FLX10_MEDIA=0)\n");
+     else if (pthread_create(&t, NULL, media_thread, NULL) == 0)
+          pthread_detach(t);
+     else
+          klog("knobshim2: FLX10 HID: cannot start the artwork/waveform thread\n");
 }
 
 void flx10_hid_update(int deck, const struct flx10_hid_deck *s)
