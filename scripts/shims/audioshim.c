@@ -285,6 +285,7 @@ static struct {
     long mirror_reopen_ms;     /* AUDIO_MIRROR_REOPEN_MS: ceiling on the retry wait */
     double mirror_boost_db;    /* AUDIO_MIRROR_BOOST_DB: the level lift, as written */
     double mirror_boost;       /* and as a multiplier (mirror_boost_gain()) */
+    char mirror_file[128];     /* AUDIO_MIRROR_FILE: the live on/off switch's path */
     long mute_frames;          /* STARTUP_MUTE_MS at 44100 */
     long fade_frames;          /* STARTUP_FADE_MS at 44100 */
     int  sched_rt;             /* SCHED_RT: 1 = keep rbp off RT (default) */
@@ -968,6 +969,7 @@ static unsigned long long g_mirror_absent_ms;  /* 0 = never lost */
 static unsigned long g_mirror_backoff_ms = MIRROR_REOPEN_MIN_MS;
 static int g_mirror_open_fails;        /* walks that opened nothing; quiets at 3 */
 static int g_mirror_tried;             /* the startup attempt has been made */
+static int g_mirror_off;               /* the live switch says off: closed, not retried */
 static int g_mirror_written_once;      /* "UP" has been earned and logged */
 static int g_mirror_pack_failed;       /* the pack refusal has been logged */
 static unsigned long g_mirror_prefill; /* frames of silence at each stream start */
@@ -1271,6 +1273,13 @@ static void parse_card_id(const char *dev)
  * a unit nobody has switched behaves exactly as its conf says. */
 #define AUDIO_MAP_FILE_DEFAULT  "/run/rblive4/audio.map"
 
+/* And the HDMI mirror's on/off, the settings panel's HDMI AUDIO row: "off" closes the mirror
+ * and anything else (or no file) leaves it to AUDIO_MIRROR_DEV, so a unit nobody has switched
+ * mirrors exactly as its conf says. Re-read while the unit plays (mirror_switch_tick). */
+#define MIRROR_FILE_DEFAULT     "/run/rblive4/mirror.mode"
+
+static int read_switch_word(const char *path, char *out, size_t outsz);
+
 static void load_config(void)
 {
     const char *s;
@@ -1443,8 +1452,18 @@ static void load_config(void)
      * even when nothing ever opens. alog() truncates at 512 bytes, which a list
      * could reach, and a silently shortened device list is the kind of thing this
      * port keeps having to chase. */
+    snprintf(g_cfg.mirror_file, sizeof g_cfg.mirror_file, "%s",
+             env_str("AUDIO_MIRROR_FILE", MIRROR_FILE_DEFAULT));
+    {
+        char word[16];
+        g_mirror_off = read_switch_word(g_cfg.mirror_file, word, sizeof word) &&
+                       strcmp(word, "off") == 0;
+    }
     if (g_mirror_ncands > 0) {
         int i;
+        if (g_mirror_off)
+            alog("audioshim: mirror switched OFF by %s -- not opened until it says "
+                 "otherwise\n", g_cfg.mirror_file);
         alog("audioshim: mirror dev=\"%s\" fmt=%s boost=%.2fdB (x%.4f) "
              "reopen=%ldms candidates=%d dropped=%d\n", g_cfg.mirror_dev,
              g_cfg.mirror_fmt_name, g_cfg.mirror_boost_db, g_cfg.mirror_boost,
@@ -2404,7 +2423,7 @@ static void mirror_open(void)
     int i, err = -ENODEV;
     int quiet;
 
-    if (g_mirror != NULL || g_mirror_ncands == 0)
+    if (g_mirror != NULL || g_mirror_ncands == 0 || g_mirror_off)
         return;
 
     /* Three failed walks are logged in full; after that the per-candidate lines
@@ -3757,6 +3776,38 @@ static void mixer_route_tick(void)
     }
 }
 
+/* The HDMI mirror's live on/off (MIRROR_FILE_DEFAULT above). Off closes the handle -- not
+ * mirror_lost(): nothing failed, so nothing is counted -- and on opens it at once rather than
+ * after a backoff (mirror_reopen_due() is never due for a mirror that was never lost). */
+static void mirror_switch_tick(void)
+{
+    static unsigned long blocks;
+    char word[16];
+    int off;
+
+    blocks++;
+    if (g_mirror_ncands == 0 || (blocks % MIXER_MODE_EVERY_BLOCKS) != 0)
+        return;
+    off = read_switch_word(g_cfg.mirror_file, word, sizeof word) &&
+          strcmp(word, "off") == 0;
+    if (off == g_mirror_off)
+        return;
+    g_mirror_off = off;
+    if (off && g_mirror != NULL) {
+        snd_pcm_t *h = g_mirror;
+        g_mirror = NULL;
+        g_mirror_dev[0] = '\0';
+        if (real_snd_pcm_close)
+            real_snd_pcm_close(h);
+    }
+    adecide("audioshim: mirror switched %s (%s)\n", off ? "OFF" : "ON", g_cfg.mirror_file);
+    if (!off) {
+        g_mirror_backoff_ms = MIRROR_REOPEN_MIN_MS;
+        g_mirror_open_fails = 0;
+        mirror_open();                     /* a failure here is the backoff's from now on */
+    }
+}
+
 /* ---- the live pair map ---------------------------------------------------- */
 
 /* MOVING A STREAM, WITHOUT A RESTART, and it is the same switch the route rides.
@@ -4206,6 +4257,7 @@ static snd_pcm_sframes_t flush_master(const int32_t *src, snd_pcm_uframes_t size
      * cannot serve that purpose, because it is a channel pair on the missing card.
      * mirror_retry() comes after the write so that a mirror which has just gone
      * down is not immediately reopened with a block that predates the loss. */
+    mirror_switch_tick();
     mirror_write(g_mirror_out, (unsigned)size);
     mirror_retry();
 

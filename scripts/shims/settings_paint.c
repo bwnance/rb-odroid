@@ -199,7 +199,7 @@ static void sp_row(const struct menu_view *v, const struct settings_state *S, in
 
     /* The row's own inclusive rect, drawn as the half-open rect the fill loops want. */
     {
-        int ry0 = SB_ROW_TOP(row - 1);
+        int ry0 = SB_ROW_TOP(settings_row_slot(row) - 1);
 
         sp_rect(v, SB_ROW_X0, ry0, SB_ROW_X1 + 1, ry0 + SB_ROW_H, &fx0, &fy0, &fx1, &fy1);
     }
@@ -276,7 +276,7 @@ int settings_paint_ok(const struct menu_view *v)
     /* And every row has to hold its own label whole AND its WIDEST VALUE whole -- the
      * widest and not the one in force, so that a row whose value grew could never take the
      * whole panel off the glass. */
-    for (i = 1; i <= SB_ROWS; i++) {
+    for (i = 1; i <= SB_ROWS; i++) {     /* hidden rows too: the layout can change */
         const char *lab = settings_row_label(i);
         const char *val = settings_row_widest_value(i);
         int lx0 = sp_fx(v, SB_ROW_X0), lx1 = sp_fx(v, SB_VALUE_X0);
@@ -340,7 +340,10 @@ void settings_paint(const struct menu_view *v, const struct settings_state *S,
 
     /* The rows. `live` is asked here, per row, so a row that has just gone inoperable is
      * dim on the next paint and not on some later one. */
-    for (i = 1; i <= SB_ROWS; i++)
-        sp_row(v, S, i, settings_row_live(i, S),
-               i == pressed_row || i == flash_row);
+    for (i = 1; i <= settings_shown(); i++) {
+        int row = settings_slot_row(i);
+
+        sp_row(v, S, row, settings_row_live(row, S),
+               row == pressed_row || row == flash_row);
+    }
 }

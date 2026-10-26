@@ -68,7 +68,10 @@
 
 /* ------------------------------------------------------------------ geometry */
 
-#define SB_ROWS       8
+/* EVERY ROW THE PANEL KNOWS, and so the most it can show: nine is 615 px, which fits the
+ * 800 px bed. Which of them it DOES show is the layout (settings_show_djm() below), and the
+ * box is as tall as the rows shown -- so SB_H and SB_Y0 are asked of the layout, not fixed. */
+#define SB_ROWS       9
 
 /* The rows, 1-based and in the order they are drawn. THE NUMBER IS ALSO THE ANSWER: a
  * tap reports the row it acted on, so there is no second enum to drift out of step with
@@ -92,9 +95,14 @@
 #define ST_ROW_MIXER    1
 #define ST_ROW_USB1     2
 #define ST_ROW_USB2     3
-#define ST_ROW_SHARE    4
-#define ST_ROW_ENCODE   5
-#define ST_ROW_POINTER  6
+/* HDMI AUDIO, added 2026-10-26 at the operator's ask -- *"put that setting for hdmi audio into
+ * the settings menu"*: the mirror of the master on the board's own HDMI card (audioshim.c),
+ * switched live through /run/rblive4/mirror.mode. ON/OFF, always operable; the shim decides
+ * whether there is a card to mirror to, as it does at start. */
+#define ST_ROW_MIRROR   4
+#define ST_ROW_SHARE    5
+#define ST_ROW_ENCODE   6
+#define ST_ROW_POINTER  7
 /* THE TWO DECK PAIRS, added 2026-10-15 with the live pair map. The operator asked *"what about
  * configuring which channel pairs get audio?"*, and in EXTERNAL mixer mode the deck pairs ARE
  * the answer to it: rbp's mix is not sent at all, so master/headphones/booth are not in the path
@@ -107,8 +115,8 @@
  * unlike the mixer row, whose readout would claim a route the unit is not taking, this row reads
  * a SETTING -- where deck 1 goes when external is in force -- and a setting can be made before
  * it is used. */
-#define ST_ROW_DECK1    7
-#define ST_ROW_DECK2    8
+#define ST_ROW_DECK1    8
+#define ST_ROW_DECK2    9
 
 #define SB_TITLE      "SETTINGS"
 
@@ -118,11 +126,15 @@
  * 640 leaves 458 px of row for the label and 160 px for the value, against 129 and 107 --
  * test_settings.c pins both numbers rather than trusting this comment. */
 #define SB_W        640
-#define SB_H        553         /* 2*3 + 40 + 1 + 2*8 + 8*56 + 7*6, exactly */
+/* The box for `n` rows: 2*3 + 40 + 1 + 2*8 + n*56 + (n-1)*6 -- 553 for the eight it had
+ * until 2026-10-26, 615 for all nine, 429 for the six a unit without a DJM shows. */
+#define SB_BOX_H(n) (2 * SB_BORDER + SB_TITLE_H + SB_RULE + 2 * SB_PAD \
+                     + (n) * SB_ROW_H + ((n) - 1) * SB_ROW_GAP)
+#define SB_H        SB_BOX_H(settings_shown())
 #define SB_X0       ((MZ_LOGICAL_W - SB_W) / 2)          /* 320 */
-#define SB_Y0       ((MZ_LOGICAL_H - SB_H) / 2)          /* 185 */
+#define SB_Y0       ((MZ_LOGICAL_H - SB_H) / 2)          /* centred, whatever the rows */
 #define SB_X1       (SB_X0 + SB_W - 1)                   /* 959 */
-#define SB_Y1       (SB_Y0 + SB_H - 1)                   /* 613 */
+#define SB_Y1       (SB_Y0 + SB_H - 1)
 
 /* The box's margin, inside it on all four sides -- PR_BORDER's number and its job, and
  * the box's own edge is the black bed -- the restyle of 2026-10-06 that took the frame off
@@ -141,7 +153,7 @@
 #define SB_TITLE_Y1 (SB_TITLE_Y0 + SB_TITLE_H - 1)
 #define SB_RULE_Y   (SB_TITLE_Y1 + 1)
 
-/* Row i (0-based) top -- the arithmetic in one place, so the painter, the hit test and
+/* Row i (0-based, the POSITION on the panel and not the row's number) top -- the arithmetic in one place, so the painter, the hit test and
  * the test cannot disagree about where a row is. */
 #define SB_ROW_TOP(i) (SB_RULE_Y + 1 + SB_PAD + (i) * (SB_ROW_H + SB_ROW_GAP))
 
@@ -248,7 +260,24 @@ struct settings_state {
     int audio_channels;     /* 0 = not known, and then every candidate pair is offered */
     int deck_a[2];
     int deck_b[2];
+    int mirror_off;         /* mirror.mode says `off`; zero -- no file -- is the mirror ON */
 };
+
+/* ---------------------------------------------------------------- the layout */
+
+/* WHICH ROWS THE PANEL SHOWS, in the order it shows them. Two groups can be hidden: the three
+ * DJM rows -- MIXER ROUTE and the two DECK PAIRs, which only mean something with an external
+ * digital mixer on the bus (operator, 2026-10-26: *"i don't use a djm and i won't, but i don't
+ * want to disable that completely"*) -- and the three VNC rows, SHARE, ENCODE and POINTER
+ * INJECT, which only mean something on a unit running the viewer (operator, the same day:
+ * *"also conditionally set the vnc settings rows"*). Hidden rows keep their numbers, so
+ * nothing that names a row changes, and the box shrinks to the rows left. Every row is the
+ * default, so a caller that never asks gets them all. pointsrc.c asks once, at load, from
+ * RB_SETTINGS_DJM and RB_SETTINGS_VNC -- before anything sizes a buffer from SB_H. */
+void settings_show_rows(int djm, int vnc);
+int settings_shown(void);           /* how many rows the panel shows */
+int settings_slot_row(int slot);    /* the row at position 1..settings_shown(), or 0 */
+int settings_row_slot(int row);     /* the position row `row` is drawn at, or 0 if hidden */
 
 /* ---------------------------------------------------------------- the state */
 
@@ -264,11 +293,12 @@ void settings_close(void);
 int settings_is_open(void);
 
 /* THE CONTROLLER'S SELECTION -- the panel worked from a browse knob, with no finger
- * (settings_remote.h): the focused row, clamped to 1..SB_ROWS, is the highlight
+ * (settings_remote.h): a POSITION, clamped to 1..settings_shown(), so the knob walks the
+ * rows shown and never a hidden one. The row there (settings_slot_row()) is the highlight
  * whenever no press is in flight (settings_pressed()), and moving it restarts the
  * panel's clock as a touch would. 0 until something focuses; settings_open() and
  * settings_close() clear it, so a panel a finger raised shows no selection. */
-void settings_focus(int row, unsigned long long now_ms);
+void settings_focus(int slot, unsigned long long now_ms);
 int settings_focused(void);
 
 /* The wall-clock milliseconds at which the panel closes itself. Only meaningful while

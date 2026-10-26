@@ -1124,6 +1124,9 @@ static const char *settings_row_path(int row)
     case ST_ROW_SHARE:   return env_str("VNC_LIVE_FILE", "/run/rblive4/vnc.live");
     case ST_ROW_ENCODE:  return env_str("VNC_MODE_FILE", "/run/rblive4/vnc.mode");
     case ST_ROW_POINTER: return env_str("VNC_INPUT_FILE", "/run/rblive4/vnc.input");
+    /* THE HDMI MIRROR'S ON/OFF -- audioshim's mirror_switch_tick() reads it while the unit
+     * plays; "off" closes the mirror and anything else, or no file, leaves it on. */
+    case ST_ROW_MIRROR:  return env_str("AUDIO_MIRROR_FILE", "/run/rblive4/mirror.mode");
     /* THE TWO DECK ROWS WRITE THE LIVE PAIR MAP -- audioshim's own switch, read by
      * pairs_tick() while the unit plays. The word they write is a whole AUDIO_MAP line
      * ("deck1=4,5;deck2=2,3"), which is why the row's answer is composed there and written
@@ -1132,6 +1135,15 @@ static const char *settings_row_path(int row)
     case ST_ROW_DECK2:   return env_str("AUDIO_MAP_FILE", "/run/rblive4/audio.map");
     default:             return 0;
     }
+}
+
+/* WHICH ROWS THE PANEL SHOWS (settings_show_rows()): the three DJM rows only with
+ * RB_SETTINGS_DJM=1, the three VNC rows only with RB_SETTINGS_VNC=1. Asked at load, so it is settled before menu_draw.c sizes the panel's
+ * image from SB_H -- the layout is fixed for the process, like every other RB_ setting. */
+__attribute__((constructor)) static void settings_layout_init(void)
+{
+    settings_show_rows(atoi(env_str("SETTINGS_DJM", "0")) != 0,
+                       atoi(env_str("SETTINGS_VNC", "0")) != 0);
 }
 
 /* THE DECK PAIRS AND THE CARD'S WIDTH, out of /run/rblive4/audio.state -- audioshim's own
@@ -1210,6 +1222,8 @@ static void settings_state_fill(struct settings_state *S)
                         strcmp(w, "hwjpeg") == 0;
     S->pointer_on     = switch_word_read(settings_row_path(ST_ROW_POINTER), w, sizeof w) &&
                         strcmp(w, "on") == 0;
+    S->mirror_off     = switch_word_read(settings_row_path(ST_ROW_MIRROR), w, sizeof w) &&
+                        strcmp(w, "off") == 0;
 
     settings_read_astate(S);
 }
@@ -3145,10 +3159,13 @@ static void settings_raise(const char *why)
     settings_open(shim_now_ms());
     settings_state_fill(&S);
     pointsrc_log("pointsrc: %s -> the settings panel", why);
-    for (i = 1; i <= SB_ROWS; i++)
+    for (i = 1; i <= settings_shown(); i++) {
+        int row = settings_slot_row(i);
+
         pointsrc_log("pointsrc: settings row %d '%s' reads '%s'%s",
-                     i, settings_row_label(i), settings_row_text(i, &S),
-                     settings_row_live(i, &S) ? "" : " (not operable)");
+                     row, settings_row_label(row), settings_row_text(row, &S),
+                     settings_row_live(row, &S) ? "" : " (not operable)");
+    }
 }
 
 /* ONE REPORT TO THE OPEN PANEL -- a finger's, or the controller's at the selected row's
@@ -3262,8 +3279,8 @@ static void sr_do(int cmd)
     case SR_PRESS:
         if (settings_is_open() && f && !sr_press_row) {
             settings_focus(f, now);
-            sr_centre(f, &x, &y);
-            sr_press_row = f;
+            sr_press_row = settings_slot_row(f);
+            sr_centre(sr_press_row, &x, &y);
             settings_take(1, x, y);
         }
         break;

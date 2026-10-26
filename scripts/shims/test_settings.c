@@ -111,7 +111,8 @@ static void test_geometry(void)
           "SB_H is %d, and its own arithmetic gives %d", SB_H,
           2 * SB_BORDER + SB_TITLE_H + SB_RULE + 2 * SB_PAD
           + SB_ROWS * SB_ROW_H + (SB_ROWS - 1) * SB_ROW_GAP);
-    CHECK(SB_H == 553, "SB_H moved to %d", SB_H);
+    CHECK(SB_BOX_H(8) == 553 && SB_H == SB_BOX_H(9) && SB_H == 615,
+          "SB_H moved to %d (eight rows: %d)", SB_H, SB_BOX_H(8));
     CHECK(SB_X0 == (MZ_LOGICAL_W - SB_W) / 2 && SB_Y0 == (MZ_LOGICAL_H - SB_H) / 2,
           "the box is not centred");
     CHECK(SB_X1 == SB_X0 + SB_W - 1 && SB_Y1 == SB_Y0 + SB_H - 1,
@@ -209,8 +210,8 @@ static void test_geometry(void)
 static void test_labels_and_values(void)
 {
     static const char *const want_label[SB_ROWS] = {
-        "MIXER ROUTE", "USB1 STOP", "USB2 STOP", "SHARE", "ENCODE", "POINTER INJECT",
-        "DECK 1 PAIR", "DECK 2 PAIR"
+        "MIXER ROUTE", "USB1 STOP", "USB2 STOP", "HDMI AUDIO", "SHARE", "ENCODE",
+        "POINTER INJECT", "DECK 1 PAIR", "DECK 2 PAIR"
     };
     int i, k;
 
@@ -314,6 +315,21 @@ static void test_labels_and_values(void)
         CHECK(menu_text_width(settings_row_widest_value(ST_ROW_USB1))
               <= SB_VALUE_W - SP_VALUE_RIGHT,
               "the USB rows' yardstick is not a value the column can hold");
+    }
+
+    /* HDMI AUDIO: on with no file, which is the zeroed state; off only when the file says. */
+    {
+        struct settings_state t;
+
+        memset(&t, 0, sizeof t);
+        CHECK(strcmp(settings_row_text(ST_ROW_MIRROR, &t), "ON") == 0, "mirror default");
+        CHECK(settings_row_live(ST_ROW_MIRROR, &t), "the mirror row is dim");
+        CHECK(strcmp(settings_next_value(ST_ROW_MIRROR, &t), "off") == 0,
+              "a tap on ON does not ask for off");
+        t.mirror_off = 1;
+        CHECK(strcmp(settings_row_text(ST_ROW_MIRROR, &t), "OFF") == 0, "mirror off");
+        CHECK(strcmp(settings_next_value(ST_ROW_MIRROR, &t), "on") == 0,
+              "a tap on OFF does not ask for on");
     }
 
     /* The three viewer rows, on and off. */
@@ -494,7 +510,7 @@ static void test_gesture_value_only(void)
     /* A press that begins outside every row dismisses -- the title, the rule, the bed, the
      * glass. This is the way out that took CANCEL's place. */
     {
-        static const struct { int x, y; const char *what; } outs[] = {
+        const struct { int x, y; const char *what; } outs[] = {
             { SB_X0 + 30, SB_Y0 + 10, "the title band" },
             { SB_X0 + 30, SB_RULE_Y,  "the rule" },
             { SB_X0 + 3,  SB_Y1 - 3,  "the margin" },
@@ -830,7 +846,7 @@ static void test_clock(void)
 #define PAD_PX 8
 #define PW (SB_W + 2 * PAD_PX)
 #define PH (SB_H + 2 * PAD_PX)
-#define PBUF (PW * PH * 2)
+#define PBUF (PW * (SB_BOX_H(SB_ROWS) + 2 * PAD_PX) * 2)   /* the tallest box */
 
 static unsigned char page_a[PBUF], page_b[PBUF];
 
@@ -1258,6 +1274,70 @@ static void test_deck_pairs(void)
     }
 }
 
+/* THE DJM ROWS HIDDEN (RB_SETTINGS_DJM unset): six rows, in number order, the box shrunk to
+ * them and still centred, a hidden row with no rect and no answer, and the controller's
+ * selection walking only the rows shown. Then every row again, as the other tests had it. */
+static void test_layout(void)
+{
+    static const int want[] = { ST_ROW_USB1, ST_ROW_USB2, ST_ROW_MIRROR, ST_ROW_SHARE,
+                                ST_ROW_ENCODE, ST_ROW_POINTER };
+    int i, x0, y0, x1, y1, act;
+
+    settings_show_rows(0, 1);
+    CHECK(settings_shown() == 6, "%d rows shown without the DJM ones", settings_shown());
+    for (i = 0; i < 6; i++) {
+        CHECK(settings_slot_row(i + 1) == want[i], "position %d holds row %d", i + 1,
+              settings_slot_row(i + 1));
+        CHECK(settings_row_slot(want[i]) == i + 1, "row %d is not at position %d",
+              want[i], i + 1);
+    }
+    CHECK(settings_slot_row(0) == 0 && settings_slot_row(7) == 0, "a position past the rows");
+    CHECK(SB_H == SB_BOX_H(6) && SB_H == 429 && SB_Y0 == (MZ_LOGICAL_H - 429) / 2,
+          "the six-row box is %d tall at %d", SB_H, SB_Y0);
+    settings_box_rect(&x0, &y0, &x1, &y1);
+    CHECK(y0 == SB_Y0 && y1 == SB_Y1 && y1 - y0 + 1 == 429, "the box rect is not six rows");
+    settings_row_rect(ST_ROW_USB1, &x0, &y0, &x1, &y1);
+    CHECK(y0 == SB_ROW_TOP(0), "USB1 STOP is not the first row");
+    settings_row_rect(ST_ROW_POINTER, &x0, &y0, &x1, &y1);
+    CHECK(y1 == SB_Y1 - SB_BORDER - SB_PAD, "the last row does not end at the box's margin");
+    {
+        static const int hidden[] = { ST_ROW_MIXER, ST_ROW_DECK1, ST_ROW_DECK2 };
+        for (i = 0; i < 3; i++) {
+            settings_row_rect(hidden[i], &x0, &y0, &x1, &y1);
+            CHECK(x1 < x0 && settings_row_slot(hidden[i]) == 0,
+                  "hidden row %d still has a rect", hidden[i]);
+        }
+    }
+    begin(1000);
+    act = ST_ACT_NONE;
+    tap(val_x(), SB_ROW_TOP(2) + SB_ROW_H / 2, &act);
+    CHECK(act == ST_ROW_MIRROR, "a tap on the third row answered %d, not HDMI AUDIO", act);
+    begin(1000);
+    settings_focus(99, 1000);
+    CHECK(settings_focused() == 6 && settings_pressed() == ST_ROW_POINTER,
+          "the selection runs past the rows shown (%d, row %d)", settings_focused(),
+          settings_pressed());
+    settings_focus(1, 1000);
+    CHECK(settings_pressed() == ST_ROW_USB1, "the first selection is row %d", settings_pressed());
+    settings_close();
+
+    /* ...and the VNC rows hidden too, which is the ODROID's own panel: three rows. */
+    settings_show_rows(0, 0);
+    CHECK(settings_shown() == 3 && settings_slot_row(1) == ST_ROW_USB1 &&
+          settings_slot_row(2) == ST_ROW_USB2 && settings_slot_row(3) == ST_ROW_MIRROR &&
+          SB_H == SB_BOX_H(3), "without the DJM and VNC rows: %d rows", settings_shown());
+    settings_show_rows(1, 0);
+    CHECK(settings_shown() == 6 && settings_slot_row(1) == ST_ROW_MIXER &&
+          settings_slot_row(5) == ST_ROW_DECK1 && settings_row_slot(ST_ROW_SHARE) == 0,
+          "the DJM rows without the VNC ones are not in number order");
+
+    settings_show_rows(1, 1);
+    CHECK(settings_shown() == SB_ROWS && SB_H == 615, "the DJM rows did not come back");
+    for (i = 1; i <= SB_ROWS; i++)
+        CHECK(settings_slot_row(i) == i, "with every row shown, position %d holds row %d",
+              i, settings_slot_row(i));
+}
+
 int main(void)
 {
     test_geometry();
@@ -1294,6 +1374,8 @@ int main(void)
         settings_focus(2, 1000);
         CHECK(settings_focused() == 0, "a shut panel takes no focus");
     }
+
+    test_layout();
 
     printf("ok: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

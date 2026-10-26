@@ -222,12 +222,23 @@ session; details further down):
 6. **Splash until rbp is ready**, input held until then (item below). Needs
    the operator's description of the start-up glitches first.
 7. **Booth and master outputs**, by ear.
-8. **HDMI audio mirror on / off from rbp's screen** (operator, 2026-10-26,
-   "at some point"): a row on the settings panel (settings_zone.c /
-   settings_paint.c), the way MIXER ROUTE works -- the panel writes a switch
-   file under /run/rblive4 and the audio shim reads it -- so the mirror can be
-   closed and reopened live instead of by RB_AUDIO_MIRROR_DEV and a restart.
-9. Parked: HOT CUE mode switch lag; RX3 effects matching the FLX10's.
+8. **The FLX10's FX screen** stays on what the connect sequence sent: in
+   rekordbox's host mode the unit draws it only from SysEx 0a (the effect's
+   name, ASCII packed 8 bits a character into the 7-bit bytes from bit 1),
+   0b (the beat / parameter) and 0c (state). Decoding from the operator's
+   capture_fx (2026-10-26).
+9. **MASTER, BOOTH and HEADPHONES levels at start**: not read until moved.
+10. Parked: HOT CUE mode switch lag; RX3 effects matching the FLX10's.
+
+Done 2026-10-26 (settings panel):
+- HDMI AUDIO row: ON/OFF, written to /run/rblive4/mirror.mode
+  (RB_AUDIO_MIRROR_FILE); audioshim's mirror_switch_tick closes the mirror on
+  `off` and reopens it at once on anything else. Absent means on, and /run
+  means a reboot brings it back.
+- The DJM rows (MIXER ROUTE, DECK 1/2 PAIR) show only with RB_SETTINGS_DJM=1,
+  the VNC rows (SHARE, ENCODE, POINTER INJECT) only with RB_SETTINGS_VNC=1;
+  the box is as tall as the rows shown. Hidden is not disabled: the switch
+  files and RB_MIXER_MODE work as before.
 
 Done and confirmed 2026-10-25 (slip and pads):
 - SLIP REVERSE with quantize ON ends on release and puts slip off after. The

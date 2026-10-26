@@ -320,6 +320,7 @@ struct menu_map {
     int    settings_painted_share;   /* ...and the three viewer switches */
     int    settings_painted_encode;
     int    settings_painted_pointer;
+    int    settings_painted_mirror;  /* ...and the HDMI mirror's switch */
 
     /* THE BEAT FX PICKER'S PLANE -- a drm_band of its own at the picker's size, the
      * drawers' arrangement and for their reason: fx_paint.h's contract is that the
@@ -1047,7 +1048,8 @@ static int menu_settings_changed(int row, unsigned usb, unsigned mixer, unsigned
            g.settings_painted_decks != (int)decks ||
            g.settings_painted_share != S->share_on ||
            g.settings_painted_encode != S->encode_hw ||
-           g.settings_painted_pointer != S->pointer_on;
+           g.settings_painted_pointer != S->pointer_on ||
+           g.settings_painted_mirror != S->mirror_off;
 }
 
 /* Build the panel OFF THE LOCK and publish it by swapping the two pointers under it --
@@ -1101,6 +1103,7 @@ static void menu_settings_build(void)
     g.settings_painted_share   = S.share_on;
     g.settings_painted_encode  = S.encode_hw;
     g.settings_painted_pointer = S.pointer_on;
+    g.settings_painted_mirror  = S.mirror_off;
     g.settings_valid = 1;
     g.settings_pending = 1;
     pthread_mutex_unlock(&g_lock);
@@ -1183,6 +1186,7 @@ static void menu_settings_repaint(void)
     g.settings_painted_share   = S.share_on;
     g.settings_painted_encode  = S.encode_hw;
     g.settings_painted_pointer = S.pointer_on;
+    g.settings_painted_mirror  = S.mirror_off;
 }
 
 static void menu_settings_page_paint(void);

@@ -24,8 +24,8 @@
  * rather than as a failure, which is why test_settings.c walks every character of every
  * one of these against menu_font.h. */
 static const char *const row_labels[SB_ROWS] = {
-    "MIXER ROUTE", "USB1 STOP", "USB2 STOP", "SHARE", "ENCODE", "POINTER INJECT",
-    "DECK 1 PAIR", "DECK 2 PAIR"
+    "MIXER ROUTE", "USB1 STOP", "USB2 STOP", "HDMI AUDIO", "SHARE", "ENCODE",
+    "POINTER INJECT", "DECK 1 PAIR", "DECK 2 PAIR"
 };
 
 /* ---------------------------------------------------------------------------
@@ -73,12 +73,13 @@ static const char *const val_mixer[]   = { "INTERNAL", "EXTERNAL" };
 static const char *const val_share[]   = { "OFF", "ON" };
 static const char *const val_encode[]  = { "RAW", "HWJPEG" };
 static const char *const val_pointer[] = { "OFF", "ON" };
+static const char *const val_mirror[]  = { "ON", "OFF" };   /* on is the default */
 
 /* NULL for a row that does not read from a table -- the two USB rows, whose value is the
  * stick's name out of the state, and the two deck rows, whose value is a channel pair
  * formatted out of the state. Every function below has to allow for that. */
 static const char *const *const row_values[SB_ROWS] = {
-    val_mixer, NULL, NULL, val_share, val_encode, val_pointer, NULL, NULL
+    val_mixer, NULL, NULL, val_mirror, val_share, val_encode, val_pointer, NULL, NULL
 };
 
 /* THE YARDSTICK each row's value column is measured against, which is NOT always its widest
@@ -90,7 +91,7 @@ static const char *const *const row_values[SB_ROWS] = {
  * measured against "EMPTY" -- what they read with nothing in the slot -- and a name that does
  * not fit is trimmed. */
 static const char *const row_yardstick[SB_ROWS] = {
-    "INTERNAL", ST_USB_EMPTY, ST_USB_EMPTY, "OFF", "HWJPEG", "OFF",
+    "INTERNAL", ST_USB_EMPTY, ST_USB_EMPTY, "OFF", "OFF", "HWJPEG", "OFF",
     ST_PAIR_WIDEST, ST_PAIR_WIDEST
 };
 
@@ -107,14 +108,15 @@ static const char *const next_mixer[]   = { "external", "internal" };
 static const char *const next_share[]   = { "on", "off" };
 static const char *const next_encode[]  = { "hwjpeg", "raw" };
 static const char *const next_pointer[] = { "on", "off" };
+static const char *const next_mirror[]  = { "off", "on" };
 
-/* SIX ENTRIES, ONE PER ROW, and getting this wrong is silent in the worst way: the table is
+/* ONE ENTRY PER ROW, and getting this wrong is silent in the worst way: the table is
  * indexed by row number, so a missing entry slides every row after it onto its neighbour's
  * word -- "SHARE -> hwjpeg" -- and the last row reads PAST THE ARRAY. That is exactly what
  * happened when the second USB row was added and this table was not, and test_settings.c's
  * per-row value checks are what caught it. */
 static const char *const *const row_next[SB_ROWS] = {
-    next_mixer, NULL, NULL, next_share, next_encode, next_pointer, NULL, NULL
+    next_mixer, NULL, NULL, next_mirror, next_share, next_encode, next_pointer, NULL, NULL
 };
 
 /* ---------------------------------------------------------------------------
@@ -281,7 +283,7 @@ static int press_row;            /* the row the press began on, 1..SB_ROWS, or 0
 static int press_value;          /* ...and whether it began on that row's VALUE */
 static int cur_value;            /* the value rect under the finger right now, or 0 */
 static unsigned long long deadline_ms;
-static int focus_row;            /* the controller's selection, 1..SB_ROWS, or 0 */
+static int focus_row;            /* the controller's selection, a POSITION, or 0 */
 /* THE HOLD, and it belongs to the two USB rows alone. `hold_row` is the one piece of state
  * that outlives a press report, and it is set only by a
  * press on a USB row rbp says is live: "there is a hold" and "there is a live device under a
@@ -381,6 +383,7 @@ static int row_value_index(int row, const struct settings_state *S)
     case ST_ROW_SHARE:   return (S && S->share_on)   ? 1 : 0;
     case ST_ROW_ENCODE:  return (S && S->encode_hw)  ? 1 : 0;
     case ST_ROW_POINTER: return (S && S->pointer_on) ? 1 : 0;
+    case ST_ROW_MIRROR:  return (S && S->mirror_off) ? 1 : 0;
     default:             return -1;        /* the USB rows: no table (settings_row_text) */
     }
 }
@@ -457,6 +460,7 @@ int settings_row_live(int row, const struct settings_state *S)
     case ST_ROW_SHARE:
     case ST_ROW_ENCODE:
     case ST_ROW_POINTER:
+    case ST_ROW_MIRROR:
         return 1;
     case ST_ROW_DECK1:
     case ST_ROW_DECK2:
@@ -492,6 +496,52 @@ const char *settings_next_value(int row, const struct settings_state *S)
     return row_next[row - 1][i];
 }
 
+/* ---------------------------------------------------------------- the layout */
+
+/* The rows shown, top to bottom, by number. Every row until something says otherwise. */
+static int shown[SB_ROWS] = { 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+static int n_shown = SB_ROWS;
+
+static int row_is_djm(int row)
+{
+    return row == ST_ROW_MIXER || row == ST_ROW_DECK1 || row == ST_ROW_DECK2;
+}
+
+static int row_is_vnc(int row)
+{
+    return row == ST_ROW_SHARE || row == ST_ROW_ENCODE || row == ST_ROW_POINTER;
+}
+
+void settings_show_rows(int djm, int vnc)
+{
+    int row;
+
+    n_shown = 0;
+    for (row = 1; row <= SB_ROWS; row++)
+        if ((djm || !row_is_djm(row)) && (vnc || !row_is_vnc(row)))
+            shown[n_shown++] = row;
+}
+
+int settings_shown(void)
+{
+    return n_shown;
+}
+
+int settings_slot_row(int slot)
+{
+    return slot >= 1 && slot <= n_shown ? shown[slot - 1] : 0;
+}
+
+int settings_row_slot(int row)
+{
+    int i;
+
+    for (i = 0; i < n_shown; i++)
+        if (shown[i] == row)
+            return i + 1;
+    return 0;
+}
+
 /* ---------------------------------------------------------------- geometry */
 
 int settings_row_at(int x, int y)
@@ -500,11 +550,11 @@ int settings_row_at(int x, int y)
 
     if (x < SB_ROW_X0 || x > SB_ROW_X1)
         return 0;
-    for (i = 0; i < SB_ROWS; i++) {
+    for (i = 0; i < n_shown; i++) {
         int y0 = SB_ROW_TOP(i), y1 = y0 + SB_ROW_H - 1;
 
         if (y >= y0 && y <= y1)
-            return i + 1;
+            return shown[i];
     }
     return 0;
 }
@@ -522,7 +572,9 @@ int settings_value_at(int x, int y)
 
 void settings_row_rect(int row, int *x0, int *y0, int *x1, int *y1)
 {
-    if (row < 1 || row > SB_ROWS) {
+    int slot = settings_row_slot(row);     /* 0: out of range, or hidden */
+
+    if (!slot) {
         if (x0) *x0 = 0;
         if (y0) *y0 = 0;
         if (x1) *x1 = -1;
@@ -530,14 +582,16 @@ void settings_row_rect(int row, int *x0, int *y0, int *x1, int *y1)
         return;
     }
     if (x0) *x0 = SB_ROW_X0;
-    if (y0) *y0 = SB_ROW_TOP(row - 1);
+    if (y0) *y0 = SB_ROW_TOP(slot - 1);
     if (x1) *x1 = SB_ROW_X1;
-    if (y1) *y1 = SB_ROW_TOP(row - 1) + SB_ROW_H - 1;
+    if (y1) *y1 = SB_ROW_TOP(slot - 1) + SB_ROW_H - 1;
 }
 
 void settings_value_rect(int row, int *x0, int *y0, int *x1, int *y1)
 {
-    if (row < 1 || row > SB_ROWS) {
+    int slot = settings_row_slot(row);     /* 0: out of range, or hidden */
+
+    if (!slot) {
         if (x0) *x0 = 0;
         if (y0) *y0 = 0;
         if (x1) *x1 = -1;
@@ -545,9 +599,9 @@ void settings_value_rect(int row, int *x0, int *y0, int *x1, int *y1)
         return;
     }
     if (x0) *x0 = SB_VALUE_X0;
-    if (y0) *y0 = SB_ROW_TOP(row - 1);
+    if (y0) *y0 = SB_ROW_TOP(slot - 1);
     if (x1) *x1 = SB_VALUE_X1;
-    if (y1) *y1 = SB_ROW_TOP(row - 1) + SB_ROW_H - 1;
+    if (y1) *y1 = SB_ROW_TOP(slot - 1) + SB_ROW_H - 1;
 }
 
 void settings_box_rect(int *x0, int *y0, int *x1, int *y1)
@@ -587,11 +641,11 @@ void settings_close(void)
     focus_row = 0;
 }
 
-void settings_focus(int row, unsigned long long now_ms)
+void settings_focus(int slot, unsigned long long now_ms)
 {
     if (!open_state)
         return;
-    focus_row = row < 1 ? 1 : row > SB_ROWS ? SB_ROWS : row;
+    focus_row = slot < 1 ? 1 : slot > n_shown ? n_shown : slot;
     deadline_ms = now_ms + SB_TIMEOUT_MS;
 }
 
@@ -629,7 +683,7 @@ int settings_pressed(void)
     /* IT IS 0 FOR THE ROW WHOSE HOLD IS RUNNING, and that is the only
      * way the blink has somewhere to blink to: a steady finger highlight and the lit half of
      * the flash are the same pair of pixels, so a row that was both would show nothing. */
-    return hold_row ? 0 : cur_value ? cur_value : focus_row;
+    return hold_row ? 0 : cur_value ? cur_value : settings_slot_row(focus_row);
 }
 
 unsigned long long settings_deadline(void)
