@@ -1094,6 +1094,7 @@ static int deck_bpm[2], deck_tempo[2], deck_range[2], deck_sync[2], deck_master[
 static int deck_mt[2];                     /* MASTER TEMPO on (struct deck_info's mt) */
 static int deck_speed[2];                  /* the speed it plays at, % x100 (flx10_shown_tempo) */
 static char deck_key[2][16];               /* rbp's key text for the deck, "" = none */
+static int deck_playing[2], deck_on_air[2];  /* struct deck_info's playing / on_air */
 
 /* BEAT SYNC turned on: the tempo range set first to the smallest that holds
  * the tempo the sync needs (operator, 2026-10-25) -- a 100 BPM track synced
@@ -2702,6 +2703,34 @@ static void flx10_sb_tick(unsigned long long t)
 static void flx10_splash_tick(void);
 static void flx10_keysync_tick(void);
 
+/* MASTER follows the faders (operator, 2026-10-26: the master stayed on a deck
+ * mixed out with its fader). rbp has an on-air hand-over of its own --
+ * SyncMaster::updateMaster @0x84634 -- but only for a deck whose entry at
+ * [SyncMaster+0x38][deck*8+4] carries 0x10, and neither deck's does on this
+ * unit (read live 2026-10-26: 0x1 and 0x0, rbp's mixer otherwise seeing the
+ * faders right) -- watched, rbp moved deck 1's master to deck 2 at once and
+ * never deck 2's to deck 1. So the other way round is done here, as rbp does
+ * its own: the moment the master deck goes off air -- its channel fader or the
+ * crossfader, as rbp's ON AIR shows it -- while the other deck plays on air,
+ * MASTER is pressed on the other deck (operator, 2026-10-26: a 1 s wait was
+ * too slow, and 1 > 2 is instant). Once, then MASTER_RESEND_MS for rbp to
+ * take it. */
+#define MASTER_RESEND_MS 300
+static void flx10_master_tick(unsigned long long t)
+{
+     static unsigned long long sent_at;
+     int m = deck_master[0] ? 0 : deck_master[1] ? 1 : -1, o = 1 - m;
+
+     if (m < 0 || deck_on_air[m] || !deck_loaded[o] || !deck_playing[o] ||
+         !deck_on_air[o] || deck_master[o])
+          return;
+     if (sent_at && t - sent_at < MASTER_RESEND_MS)
+          return;
+     sent_at = t ? t : 1;
+     pulse(K_MASTER, o + 1);
+     klog("knobshim2: flx10 deck%d off air: MASTER to deck%d\n", m + 1, o + 1);
+}
+
 static void flx10_tick(void)
 {
      unsigned long long t = shim_now_ms();
@@ -2717,6 +2746,7 @@ static void flx10_tick(void)
      flx10_fxscreen_tick(t);
      flx10_splash_tick();
      flx10_keysync_tick();
+     flx10_master_tick(t);
 }
 
 static void flx10_unit_setting(int ch, int is_cc, int num, int val);
@@ -3325,6 +3355,8 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
      deck_mt[deck] = di->mt;
      deck_speed[deck] = flx10_shown_tempo(di);
      snprintf(deck_key[deck], sizeof deck_key[deck], "%s", di->key);
+     deck_playing[deck] = di->playing;
+     deck_on_air[deck] = di->on_air;
      if (deck == 0) {
           flx10_display_init(now);
           flx10_hid_set_pos_reader(flx10_pos_now);

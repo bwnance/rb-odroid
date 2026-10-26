@@ -1706,6 +1706,31 @@ int main(void)
           CHECK(dk_note_v[1][101] == 0, "no master: nothing to match, dark");
      }
 
+     /* MASTER follows the faders */
+     {
+          struct deck_info a, b;
+          void (*dd)(int, const struct deck_info *) = map_flx10.leds->deck_display;
+
+          memset(&a, 0, sizeof a);
+          a.loaded = a.playing = a.master = a.on_air = 1; a.total_ms = 200000;
+          b = a; b.master = 0; b.total_ms = 180000;
+          dd(0, &a); dd(1, &b); reset();
+          map_flx10.tick(); ms(1500); map_flx10.tick();
+          CHECK(sent_n == 0, "both on air: the master stays");
+          a.on_air = 0; b.playing = 0; dd(0, &a); dd(1, &b); ms(1500); map_flx10.tick();
+          CHECK(sent_n == 0, "the other deck not playing: the master stays");
+          b.playing = 1; dd(1, &b); map_flx10.tick();
+          CHECK(sent_n == 2 && is(0, K_MASTER, OP_PRESS, 2) && is(1, K_MASTER, OP_RELEASE, 2),
+                "the master off air, deck 2 playing on air: MASTER on deck 2 at once (%d)", sent_n);
+          ms(100); map_flx10.tick();
+          CHECK(sent_n == 2, "...once, while rbp takes it");
+          a.master = 0; b.master = 1; dd(0, &a); dd(1, &b); ms(2000); map_flx10.tick();
+          CHECK(sent_n == 2, "deck 2 is master: nothing more");
+          a.on_air = 1; b.on_air = 0; dd(0, &a); dd(1, &b);
+          map_flx10.tick();
+          CHECK(sent_n == 4 && is(2, K_MASTER, OP_PRESS, 1), "and back to deck 1 the same way");
+     }
+
      printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);
      return failures ? 1 : 0;
 }
