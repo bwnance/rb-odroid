@@ -83,6 +83,7 @@
 #include <pthread.h>
 
 #include "rbp_load.h"
+#include "rbp_key.h"
 
 /* rbp's own load-by-music-id entry point. See the header for why this is a fixed
  * address and what would invalidate it. */
@@ -93,6 +94,15 @@
 #define RBP_LOAD_POLL_MS  200
 #define RBP_LOAD_HI_DEF   0x00010200u   /* PlNo 0, DevKind 2, BrowseKind 1 */
 #define RBP_LOAD_KIND     3             /* what request_DuplicateLoad passes */
+
+/* The memory pool the load handler checks first, as rbp holds its ID. The
+ * handler calls CmnFunc_get_mpf_blkcnt(*here, 0x102a), which loops forever --
+ * "CmnFunc_Error( ... UniNo=0x0000102a, Val=0xffffffee )" every 300 ms --
+ * when ref_mpf @0x187f0c refuses the ID (-18 outside 1..32). Until rbp has
+ * made the pool the ID is 0, so a load sent then never returns and this
+ * thread is gone for the run (2026-10-26: a command left in /tmp/rb_load was
+ * replayed ~15 s into every start). */
+#define RBP_LOAD_MPF_ID   0x03268b0cu
 
 /* The MusicID as rbp holds it: a 24-bit source descriptor and the track's id.
  * `hi` is written as three bytes by CmnFunc_SetMusicID_Hi, so only its low
@@ -170,9 +180,24 @@ void *rbp_load_thread(void *arg)
     char last[128];
     (void)arg;
 
+    /* Only in rbp: the shim is preloaded into whatever rbp starts too, and
+     * RBP_LOAD_FN means nothing there. */
+    if (!is_rbp_process())
+        return NULL;
+
+    /* A line already there is from an earlier run: noted, not replayed. */
     last[0] = '\0';
-    rl_log("rbp_load: watching %s every %d ms -- a line is \"<deck> <trackid> [hi]\"",
-           RBP_LOAD_CMD, RBP_LOAD_POLL_MS);
+    {
+        int fd = open(RBP_LOAD_CMD, O_RDONLY);
+        if (fd >= 0) {
+            ssize_t n = read(fd, last, sizeof(last) - 1);
+            close(fd);
+            last[n > 0 ? n : 0] = '\0';
+        }
+    }
+    rl_log("rbp_load: watching %s every %d ms -- a line is \"<deck> <trackid> [hi]\"%s",
+           RBP_LOAD_CMD, RBP_LOAD_POLL_MS,
+           last[0] ? " (the line already there is not replayed)" : "");
 
     for (;;) {
         int fd;
@@ -195,6 +220,16 @@ void *rbp_load_thread(void *arg)
 
         if (strcmp(buf, last) == 0)
             continue;                    /* the same command is not a new one */
+        {
+            unsigned mpf = *(volatile unsigned *)RBP_LOAD_MPF_ID;
+            static int said;
+            if (mpf < 1 || mpf > 32) {   /* rbp not ready: kept until it is */
+                if (!said++)
+                    rl_log("rbp_load: rbp's load pool is not up yet -- waiting");
+                continue;
+            }
+            said = 0;
+        }
         strncpy(last, buf, sizeof(last) - 1);
         last[sizeof(last) - 1] = '\0';
 

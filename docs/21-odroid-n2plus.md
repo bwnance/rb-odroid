@@ -194,13 +194,8 @@ session; details further down):
    libjpeg and scales to 240x240 through the i.MX GPU (libg2d); with no such
    GPU g2d_open failed and it returned -2. fbshim.so now exports the seven
    g2d calls rbp imports, in software (g2d_sw.c). Confirmed on the unit.
-   **Still open, separately:** rbp.log carries `CmnFunc_Error( ... UniNo=
-   0x0000102a, Val=0xffffffee )` about 3 times a second from ~15 s after
-   every start, idle or not, artwork working or not. 0x102a is a browse
-   message (SendMessage_ToBrowseComm in BrowseListManage @0x10069c); -18
-   reads as the porting layer's "invalid ID". Once (2026-10-26) rbp also
-   stopped drawing its HDMI waveforms until a restart -- the stick's files
-   were intact.
+   Separately, once (2026-10-26) rbp stopped drawing its HDMI waveforms
+   until a restart -- the stick's files were intact; not seen again.
 4. **Hot cues on the jog waveform -- done** (2026-10-26, capture_hotcues):
    they are in 0x30, not 0x2d (flx10_media.h): 8 slots of type, colour and
    IN time, built from the EXT's PCO2 at a load, byte for byte rekordbox's
@@ -212,9 +207,14 @@ session; details further down):
    (rbp_abi.h K_SHIFT) -- the direct calls took only on a playing deck and
    left the cue drawn until the next input -- and under SHIFT the HOT CUE /
    GATE CUE pads show their colours dimmed (ctrl_map.h pad_shift_mirror).
-5. **/tmp/rb_load did nothing after a restart** (2026-10-26): rbp_load
-   logged "watching" and then never acted on a changed line; strace found no
-   thread opening the file. Loads by hand work.
+5. **rbp.log's `CmnFunc_Error( ... UniNo=0x0000102a, Val=0xffffffee )`,
+   ~3 a second from ~15 s after every start -- fixed** (2026-10-26), and
+   with it /tmp/rb_load "doing nothing after a restart". rbp_load.c replayed
+   the command left in /tmp/rb_load at every start, before rbp had made the
+   memory pool its load handler checks; CmnFunc_get_mpf_blkcnt then loops on
+   ref_mpf's -18 every 300 ms for good, and the watcher thread with it. A
+   line already there is now not replayed, a load waits for the pool, and
+   the watcher runs only in rbp.
 6. **Splash until rbp is ready**, input held until then (item below). Needs
    the operator's description of the start-up glitches first.
 7. **Booth and master outputs**, by ear.
