@@ -2468,18 +2468,6 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
      int force, bpm10, speed10, min, sec, deg, d = deck;
 
      deck_loaded[deck] = di->loaded;
-     /* the unit lights its pads white when the jog screen's SLIP flag
-      * changes (flx10_hid.c sends it): put the panel's pads back over that,
-      * after the HID sender has sent the change and again a little later */
-     {
-          static int last_slip[2] = { -1, -1 };
-          int sl = flx10_slip_mode(deck) != 0;
-          if (last_slip[deck] >= 0 && sl != last_slip[deck]) {
-               led_pad_resend_at[deck][0] = now + 60;
-               led_pad_resend_at[deck][1] = now + 250;
-          }
-          last_slip[deck] = sl;
-     }
      deck_elapsed_ms[deck] = di->elapsed_ms;
      deck_total_ms[deck] = di->total_ms;
      deck_bpm[deck] = di->bpm_raw;

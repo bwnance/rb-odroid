@@ -38,7 +38,6 @@ int g_fader_seen[3];
 static int looping[2];
 int aloop_is_looping(int deck) { return looping[deck]; }
 int led_loop_flash[2];
-unsigned long long led_pad_resend_at[2][2];
 /* the last value sent on ch 16 per note / CC number, -1 = never */
 static int jd_note_v[128], jd_cc_v[128], note70_n;
 static int dk_note_v[2][128];                 /* last note value on deck ch 1/2 */
