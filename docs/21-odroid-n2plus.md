@@ -178,10 +178,23 @@ session; details further down):
    previous one's; a power cycle brings them back (sent again 6 s after the
    unit is found). Not sent, meaning unknown: 0x2d (cue list?), 0x39,
    0x3b, 0x3c, 0x3e (played part?). `RB_FLX10_MEDIA=0` turns it off.
-3. **Splash until rbp is ready**, input held until then (item below). Needs
+3. **Album art on rbp's browse screen** (operator, 2026-10-26): every track
+   shows rbp's default blank artwork in the browser (on the HDMI screen; the
+   jog screens show the real art). rbp has its own artwork path for that
+   (RequestArtworkData @0xd3f84 posts to its DB task; a JpegMgrTask thread
+   decodes), so the files are there but something on its way to the screen
+   is not.
+4. **Hot cues on the jog waveform**: rekordbox's 0x2d transfer is probably
+   the cue list (both captured tracks had no cues: ten identical entries).
+   Needs a short rekordbox capture of a track with hot cues (and a memory
+   cue) at known times.
+5. **/tmp/rb_load did nothing after a restart** (2026-10-26): rbp_load
+   logged "watching" and then never acted on a changed line; strace found no
+   thread opening the file. Loads by hand work.
+6. **Splash until rbp is ready**, input held until then (item below). Needs
    the operator's description of the start-up glitches first.
-4. **Booth and master outputs**, by ear.
-5. Parked: HOT CUE mode switch lag; RX3 effects matching the FLX10's.
+7. **Booth and master outputs**, by ear.
+8. Parked: HOT CUE mode switch lag; RX3 effects matching the FLX10's.
 
 Done and confirmed 2026-10-25 (slip and pads):
 - SLIP REVERSE with quantize ON ends on release and puts slip off after. The
