@@ -241,7 +241,23 @@ session; details further down):
    it to plain ASCII -- returning shape()'s character count, which the toolkit
    dropped and rbp's matchers use as the length. RB_SEARCH_FOLD=0 is off.
    Installs on the unit; untested until something types into rbp's search.
-9. Parked: HOT CUE mode switch lag.
+9. **rx3-toolkit's other track-finding mods -- not ported, for the operator to
+   decide** (2026-10-26). Key Match (yellow / orange / red key icons in BROWSE
+   for Energy Boost +2, +7 and +4 matches to the MASTER, beside rbp's own
+   green) and Browse Columns (a third BROWSE column -- BPM, key, artist or
+   length -- and tap-a-heading sorting) both sit on the toolkit's core browse
+   and image services: ~1,500 lines, a dozen detours into rbp's BROWSE row
+   builder (GetRightBrowseOne2One @0x1c8048), icon composition (0x194578,
+   0x295904, 0x193c14), NS_GetImageInfoByID's image table, the text renderer
+   (NS_PALRender_DrawText @0x1d23e4) and the DB tasks. Both are off by
+   default in the toolkit and not validated on a real RX3; Browse Columns
+   slows BROWSE scrolling there (its issue #15), and its sort is a touch
+   gesture. Every guard matches this binary (the research agent's check), so
+   porting is possible -- but it was left until it can be watched on the
+   glass: a fault there shows the first time BROWSE is used, not at start.
+   Suggested order: Key Match first (no touch needed), then Browse Columns'
+   third column without the sort.
+10. Parked: HOT CUE mode switch lag.
 
 Done 2026-10-26 (start-up splash, rbp's TRANS picture):
 - For RB_SPLASH_MS (5000) after rbp's first frame the screen shows a picture on
