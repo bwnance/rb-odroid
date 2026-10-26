@@ -305,7 +305,18 @@ session; details further down):
    rbp are two-deck: PlayEngine's player vector holds two (SyncMaster counts 2
    on the unit), MixerEngine two channels, the UI two lanes and two deck
    panels. The first question decides the size of it: whether that two is a
-   count rbp reads at start (so the shim could raise it) or built in. If the
+   count rbp reads at start (so the shim could raise it) or built in.
+   Answered for the engine (read 2026-10-26): it is READ. djengine::DjEngineIF::
+   NUM_PLAYERS (2, @0x417358 in .rodata) is loaded from memory by the only two
+   places that use it, PlayEngine::PlayEngine() -- a loop of createPlayer(),
+   each appended to a growable vector -- and MixerEngine::MixerEngine(); the
+   sync state and the per-deck getters check against the vector's size. So a 4
+   written there before the engines are built should make four players and
+   four mixer channels. What is two above the engine is the RX3's UI (two deck
+   panels and lanes, ENUM_DECK, the StatWatcher's two deck pointers), many
+   two-deck immediates, and the output routing. Next: RB_NUM_PLAYERS=4 as an
+   experiment -- does rbp start, can decks 3/4 load and be heard -- with the
+   operator there. If the
    engine can host four, the rest is routing and display: the FLX10's own jog
    screens already show each deck's waveform and artwork (flx10_hid.c), and
    rbp's two lanes could follow the selected decks as rekordbox's 2-lane view
