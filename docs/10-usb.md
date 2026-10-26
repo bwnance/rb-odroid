@@ -167,7 +167,7 @@ glyph.
 |---|---|
 | watcher | `$RB_DEPLOY_ROOT/usb-watch.sh` |
 | host mount points | `$RB_MEDIA_MOUNT/sda1` (default `$RB_DEPLOY_ROOT/media/usb1/sda1`) and `$RB_MEDIA_MOUNT2/sda1` (default `…/media/usb2/sda1`) |
-| rbp's view | `$RB_CHROOT` + `$RB_CHROOT_MEDIA` = `/opt/rblive4/rbx3-run/media/usb1/sda1`, and `$RB_CHROOT` + `$RB_CHROOT_MEDIA2` = `…/media/usb2/sda1` |
+| rbp's view | `$RB_CHROOT` + `$RB_CHROOT_MEDIA` = `/opt/rbp/rbx3-run/media/usb1/sda1`, and `$RB_CHROOT` + `$RB_CHROOT_MEDIA2` = `…/media/usb2/sda1` |
 | FIFOs | `/tmp/udev_usb1` and `/tmp/udev_usb2` (created by `fix-dev.sh`) |
 | device-name files | `/tmp/udev_usb1.label` and `/tmp/udev_usb2.label`, written by the watcher at attach and removed at detach |
 | log | `$RB_LOG_DIR/usbwatch.log` |
@@ -189,9 +189,9 @@ used here.
 ## Run
 
 ```sh
-sh /opt/rblive4/usb-watch.sh start    # one-shot; start-rb.sh does this automatically
-sh /opt/rblive4/usb-watch.sh status   # each slot's device and label, candidates, both mounts, rbp pid, log tail
-sh /opt/rblive4/usb-watch.sh stop
+sh /opt/rbp/usb-watch.sh start    # one-shot; start-rb.sh does this automatically
+sh /opt/rbp/usb-watch.sh status   # each slot's device and label, candidates, both mounts, rbp pid, log tail
+sh /opt/rbp/usb-watch.sh stop
 ```
 
 `status` is read-only and safe to run unprivileged; the other three require

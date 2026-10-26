@@ -164,7 +164,7 @@ it says so; [docs/README](docs/README.md) explains the convention.
   velocity→colour encoding with it, land with those numbers.
 * DJ FX parameter / layer encoders, StopTime and some shift actions are not
   mapped.
-* Autostart **is** provided: `install.sh` installs and enables `rblive4.service`
+* Autostart **is** provided: `install.sh` installs and enables `rbp.service`
   (`RB_AUTOSTART=1`, the shipped default), so the player comes up on boot.
   `RB_AUTOSTART=0` installs the unit but leaves it disabled
   ([docs/11](docs/11-runtime-launcher.md)).
@@ -183,7 +183,7 @@ it says so; [docs/README](docs/README.md) explains the convention.
                               │  rbp-audio
                               ▼
    Raspberry Pi 4B  ──  soft-float glibc-2.13 chroot  ──  rbp
-        │                    ( /opt/rblive4/rbx3-run )
+        │                    ( /opt/rbp/rbx3-run )
         │
         ├── display  : rebuilt DirectFB fbdev module (the present path)
         ├── pointing : fbshim.so    (evdev pointer → RX3 tsc2007 protocol;
@@ -299,9 +299,9 @@ scp work/rbpi4b-pi4.tgz pi@<host>:/tmp/
 scp -r scripts/device    pi@<host>:/tmp/
 ssh pi@<host> 'sudo sh /tmp/device/install.sh /tmp/rbpi4b-pi4.tgz'
 
-# 4. launch -- usually already up: install.sh enables rblive4.service
+# 4. launch -- usually already up: install.sh enables rbp.service
 #    (RB_AUTOSTART=1), so this is a RESTART, or the manual path at RB_AUTOSTART=0
-ssh pi@<host> 'sudo sh /opt/rblive4/start-rb.sh'
+ssh pi@<host> 'sudo sh /opt/rbp/start-rb.sh'
 ```
 
 ## What is *not* in this repo

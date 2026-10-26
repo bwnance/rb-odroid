@@ -3,9 +3,9 @@
 #
 # Run as root on the Pi:
 #
-#   sh /opt/rblive4/uninstall.sh --dry-run     # print the whole plan, change nothing
-#   sh /opt/rblive4/uninstall.sh               # do it (asks once when run on a tty)
-#   sh /opt/rblive4/uninstall.sh --yes         # do it without asking (scripted)
+#   sh /opt/rbp/uninstall.sh --dry-run     # print the whole plan, change nothing
+#   sh /opt/rbp/uninstall.sh               # do it (asks once when run on a tty)
+#   sh /opt/rbp/uninstall.sh --yes         # do it without asking (scripted)
 #
 # The inverse of install.sh, and it has to be run in one particular ORDER, which
 # is the whole reason it is a script and not a list of commands in a document:
@@ -36,12 +36,12 @@
 #     --purge removes it with everything else.
 #
 # RB_DEPLOY_ROOT overrides the tree:
-#   sudo RB_DEPLOY_ROOT=/srv/rblive4 sh uninstall.sh
+#   sudo RB_DEPLOY_ROOT=/srv/rbp sh uninstall.sh
 
 set -eu
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-DEPLOY="${RB_DEPLOY_ROOT:-/opt/rblive4}"
+DEPLOY="${RB_DEPLOY_ROOT:-/opt/rbp}"
 KEEP_COPY="${RB_UNINSTALL_KEEP:-/root/rbpi4b-rb.local.conf}"
 
 DRY_RUN=0
@@ -62,7 +62,7 @@ usage: uninstall.sh [--dry-run] [--yes] [--purge] [--help]
   --purge      also delete rb.local.conf instead of copying it to /root
 
 Environment:
-  RB_DEPLOY_ROOT     the tree to remove            (default /opt/rblive4)
+  RB_DEPLOY_ROOT     the tree to remove            (default /opt/rbp)
   RB_UNINSTALL_KEEP  where rb.local.conf is copied (default /root/rbpi4b-rb.local.conf)
 EOF
 }
@@ -128,9 +128,9 @@ MOUNTS_NOW=$(_mounts_under | wc -l | tr -d ' ')
 echo
 say "this will remove rbpi4b from this unit:"
 echo "    deploy root   $DEPLOY   ($MOUNTS_NOW mount(s) under it will be unmounted first)"
-echo "    units         rblive4.service, healthwatch.service, rblive4-vnc.service, rblive4-boot.service (stopped and disabled), the FLX10 udev rule"
-echo "    unit files    /etc/systemd/system/{rblive4,healthwatch,rblive4-vnc,rblive4-boot}.service"
-echo "    state         /var/lib/rblive4"
+echo "    units         rbp.service, healthwatch.service, rbp-vnc.service, rbp-boot.service (stopped and disabled), the FLX10 udev rule"
+echo "    unit files    /etc/systemd/system/{rbp,healthwatch,rbp-vnc,rbp-boot}.service"
+echo "    state         /var/lib/rbp"
 echo "    journal drop-in  /etc/systemd/journald.conf.d/persistent.conf"
 echo "    boot changes  reverted by boot-trim.sh revert (services, cloudinit, apt, unit, bootfiles)"
 if [ "$PURGE" = 1 ]; then
@@ -167,22 +167,22 @@ fi
 
 say "stopping the units"
 x_systemctl stop healthwatch.service
-x_systemctl stop rblive4.service
+x_systemctl stop rbp.service
 # The viewer is independent of the player, so it is stopped too rather than being
 # left serving a screen nobody asked for after the tree it lives in is gone.
-x_systemctl stop rblive4-vnc.service
+x_systemctl stop rbp-vnc.service
 # The boot screen is stopped with the player it is a screen for. Left running it
 # would only sit on fb0 until its own exit path (it exits when a frame it did not
 # draw appears, which after this script finds nothing).
-x_systemctl stop rblive4-boot.service
+x_systemctl stop rbp-boot.service
 x_systemctl disable healthwatch.service
-x_systemctl disable rblive4.service
-x_systemctl disable rblive4-vnc.service
-x_systemctl disable rblive4-boot.service
+x_systemctl disable rbp.service
+x_systemctl disable rbp-vnc.service
+x_systemctl disable rbp-boot.service
 
 # --- 2. boot trim, BEFORE anything is deleted --------------------------------
 #
-# boot-trim.sh keeps its state in /var/lib/rblive4 and its backup files beside
+# boot-trim.sh keeps its state in /var/lib/rbp and its backup files beside
 # the files it edited, so it can undo precisely. It knows how to restore the
 # services it disabled and the /boot/firmware edits it made; this script does
 # not, and must not guess. If it is already gone the revert is impossible --
@@ -198,9 +198,9 @@ else
     warn "$DEPLOY/boot-trim.sh is missing, so the boot-time changes could not be
   reverted automatically. /boot/firmware may still carry the trimmed cmdline and
   config, and the services the trim disabled are still disabled. The backups are
-  named <file>.rblive4.bak -- restore them by hand:
+  named <file>.rbp.bak -- restore them by hand:
     for f in /boot/firmware/cmdline.txt /boot/firmware/config.txt; do
-        [ -f \"\$f.rblive4.bak\" ] && cp \"\$f.rblive4.bak\" \"\$f\"
+        [ -f \"\$f.rbp.bak\" ] && cp \"\$f.rbp.bak\" \"\$f\"
     done"
 fi
 
@@ -245,7 +245,7 @@ if [ "$DRY_RUN" != 1 ]; then
         die "mounts are STILL present under $DEPLOY, so nothing has been deleted.
   Something is holding them open. The usual cause is rbp or a helper still
   running, or a shell sitting inside the chroot. Check for both and retry:
-    systemctl status rblive4
+    systemctl status rbp
     mount | grep $DEPLOY
   To proceed without this check is exactly how the host's /dev was wiped once
   before. This script will not do it."
@@ -276,17 +276,17 @@ fi
 # --- 5. unit files and the journal drop-in -----------------------------------
 
 say "removing the unit files"
-x_rm /etc/systemd/system/rblive4.service
+x_rm /etc/systemd/system/rbp.service
 x_rm /etc/systemd/system/healthwatch.service
-x_rm /etc/systemd/system/rblive4-vnc.service
-x_rm /etc/systemd/system/rblive4-boot.service
+x_rm /etc/systemd/system/rbp-vnc.service
+x_rm /etc/systemd/system/rbp-boot.service
 # The boot screen's rendezvous directory, created at sysinit by this drop-in.
 # Removing the file stops it being made; the directory itself is in /run (tmpfs)
 # and goes on the next reboot, so it is not deleted here.
-x_rm /etc/tmpfiles.d/rblive4.conf
+x_rm /etc/tmpfiles.d/rbp.conf
 x_rm /etc/udev/rules.d/99-flx10-unlock.rules
 # boot-trim's `revert unit` drop-in, if a revert left it behind.
-x_rm /etc/systemd/system/rblive4.service.d
+x_rm /etc/systemd/system/rbp.service.d
 x_systemctl daemon-reload
 x_systemctl reset-failed
 
@@ -299,14 +299,14 @@ x_systemctl reset-failed
 # line above, so --dry-run reaches the same verdict as a real run.
 # The logrotate drop-in, on the same terms as the journal one below: ours is the file that is
 # byte-identical to the copy we ship, and anything else is left alone.
-LR=/etc/logrotate.d/rblive4
-LR_OURS="$HERE/logrotate-rblive4.conf"
-if [ ! -f "$LR_OURS" ] && [ -f "$DEPLOY/logrotate-rblive4.conf" ]; then
-    LR_OURS="$DEPLOY/logrotate-rblive4.conf"
+LR=/etc/logrotate.d/rbp
+LR_OURS="$HERE/logrotate-rbp.conf"
+if [ ! -f "$LR_OURS" ] && [ -f "$DEPLOY/logrotate-rbp.conf" ]; then
+    LR_OURS="$DEPLOY/logrotate-rbp.conf"
 fi
 if [ -f "$LR" ]; then
     if [ -f "$LR_OURS" ] && cmp -s "$LR_OURS" "$LR"; then
-        say "removing /etc/logrotate.d/rblive4"
+        say "removing /etc/logrotate.d/rbp"
         x_rm "$LR"
     else
         warn "$LR is not the file we ship (or there is no copy to compare against), so it is
@@ -352,8 +352,8 @@ fi
 
 # boot-trim's record of what it applied. Nothing else reads it, and a stale one
 # on a machine that no longer has the trim is misleading.
-say "removing /var/lib/rblive4"
-x_rm /var/lib/rblive4
+say "removing /var/lib/rbp"
+x_rm /var/lib/rbp
 
 # --- 7. the deploy root, now that nothing is mounted in it ------------------
 
@@ -385,9 +385,9 @@ echo
 say "done."
 echo
 cat <<EOF
-  Removed:  $DEPLOY, /var/lib/rblive4, the units and their unit files.
+  Removed:  $DEPLOY, /var/lib/rbp, the units and their unit files.
   Reverted: the boot trim (its own backup files were used and are consumed by
-            the revert -- /boot/firmware/<file>.rblive4.bak).
+            the revert -- /boot/firmware/<file>.rbp.bak).
   Kept:     $KEEP_COPY
 EOF
 if [ "$PURGE" = 1 ]; then
@@ -398,7 +398,7 @@ cat <<'EOF'
 Two things a teardown cannot undo, both worth checking by hand:
 
   * /boot/firmware/cmdline.txt and config.txt. `boot-trim.sh revert bootfiles`
-    restores them from their .rblive4.bak copies, and refuses if a file has been
+    restores them from their .rbp.bak copies, and refuses if a file has been
     edited since -- which is the right behaviour and means a refusal left the
     file trimmed. Read them:
       grep -n 'rbpi4b\|video=' /boot/firmware/cmdline.txt /boot/firmware/config.txt

@@ -182,14 +182,14 @@ def make_fake(root, frames=40, pid=4242, depth=(0x03, 0x40), live="on"):
             f.write(FAKE_SH)
         os.chmod(p, 0o755)
 
-    with open(os.path.join(units, "rblive4.active"), "w") as f:
+    with open(os.path.join(units, "rbp.active"), "w") as f:
         f.write("active\n")
-    with open(os.path.join(units, "rblive4.enabled"), "w") as f:
+    with open(os.path.join(units, "rbp.enabled"), "w") as f:
         f.write("enabled\n")
-    with open(os.path.join(units, "rblive4-vnc.active"), "w") as f:
+    with open(os.path.join(units, "rbp-vnc.active"), "w") as f:
         f.write("inactive\n")
-    for u, since in (("rblive4", "4000000"), ("rblive4-vnc", "5000000"),
-                     ("rblive4-boot", "3000000")):
+    for u, since in (("rbp", "4000000"), ("rbp-vnc", "5000000"),
+                     ("rbp-boot", "3000000")):
         with open(os.path.join(units, u + ".since"), "w") as f:
             f.write(since + "\n")
 
@@ -331,8 +331,8 @@ def test_pure(m):
         check(m.frame_count() == 0, "a truncated log starts over rather than going negative")
 
         # ONE PATH FOR WRITING AND READING, and every switch the row needs is FETCHED. Both halves
-        # were bugs on 2026-10-12 and both were silent: the page WROTE /run/rblive4/mixer.mode (where
-        # the player reads it) and READ /run/rblive4/vnc.mixer_mode (which nothing creates), so the
+        # were bugs on 2026-10-12 and both were silent: the page WROTE /run/rbp/mixer.mode (where
+        # the player reads it) and READ /run/rbp/vnc.mixer_mode (which nothing creates), so the
         # row showed its boot default while the player ran the other value -- "config sys internal is
         # that right?". The fetched list was hand-written beside the table and the new switch was in
         # one and not the other.
@@ -378,7 +378,7 @@ def test_page(env, port):
     check("frames counted since the last poll" in body,
           "the frame count is shown, labelled as what it is")
     check("frame rate" in body, "and the rate, which is the number anyone reads")
-    check("rblive4-vnc" in body and "inactive" in body, "service states are shown")
+    check("rbp-vnc" in body and "inactive" in body, "service states are shown")
     check("pre-warmed rbp files" in body, "the launcher's own stage log is shown")
     check("launching rbp" in body, "the last boot-screen stage is shown")
     check("50.1" in body, "the SoC temperature is shown")
@@ -892,14 +892,14 @@ def test_restart(env, port):
     check("restart the player?" in body, "which says what it will do")
     check("fifteen seconds" in body, "including that the screen goes dark")
     log = open(calls).read() if os.path.exists(calls) else ""
-    check("restart rblive4" not in log, "and nothing has been restarted yet")
+    check("restart rbp" not in log, "and nothing has been restarted yet")
 
     print("\n== and only then restarts ==")
     s, _b, _h = post(port, "/restart", {"step": "go"})
     check(s == 303, "confirming restarts and redirects")
     log = open(calls).read() if os.path.exists(calls) else ""
-    check("systemctl start rblive4-boot" in log and "restart rblive4" in log
-          and log.index("rblive4-boot") < log.index("restart rblive4"),
+    check("systemctl start rbp-boot" in log and "restart rbp" in log
+          and log.index("rbp-boot") < log.index("restart rbp"),
           "the boot screen is started FIRST, in that order, so the restart is narrated "
           "like a boot")
     check("/root/pdj" not in log and "rbp -a" not in log,
@@ -911,7 +911,7 @@ def test_restart(env, port):
     _s, page = get(port, "/")
     check("restart happened" in page and "wait" in page,
           "and the page says why: a restart just happened")
-    check(open(calls).read().count("restart rblive4") == 1,
+    check(open(calls).read().count("restart rbp") == 1,
           "and systemd was NOT asked a second time")
 
 
@@ -928,22 +928,22 @@ def test_services(env, port):
         os.unlink(calls)
     units_dir = env["FAKE_UNITS"]
     # One running and one stopped, so the two labels can be told apart.
-    for u, state in (("rblive4-vnc", "active"), ("healthwatch", "active"),
-                     ("rblive4-boot", "inactive"), ("rblive4-conf", "inactive")):
+    for u, state in (("rbp-vnc", "active"), ("healthwatch", "active"),
+                     ("rbp-boot", "inactive"), ("rbp-conf", "inactive")):
         with open(os.path.join(units_dir, u + ".active"), "w") as f:
             f.write(state)
 
     _s, page = get(port, "/")
     services = page.split("section id=services")[1].split("</section>")[0]
-    for u in ("rblive4-boot", "healthwatch", "rblive4-conf", "rblive4-vnc",
-              "rblive4-webvnc"):
+    for u in ("rbp-boot", "healthwatch", "rbp-conf", "rbp-vnc",
+              "rbp-webvnc"):
         check(('name=unit value="%s"' % u) in services,
               "a row button posts the unit name: %s" % u)
-    wrow = [r for r in services.split("<tr>") if ">rblive4-webvnc</td>" in r][0]
+    wrow = [r for r in services.split("<tr>") if ">rbp-webvnc</td>" in r][0]
     check("action=/boot" in wrow,
           "and the web client's bridge has a row of its own -- it was the one service with no "
           "row at all")
-    prow = [r for r in services.split("<tr>") if ">rblive4</td>" in r][0]
+    prow = [r for r in services.split("<tr>") if ">rbp</td>" in r][0]
     check("action=/service" not in prow,
           "and the PLAYER has no /service form at all -- it keeps its own guarded path")
     check("action=/restart" in prow, "its row posts to the two-step confirm instead")
@@ -954,7 +954,7 @@ def test_services(env, port):
     log = open(calls).read() if os.path.exists(calls) else ""
     check("sshd" not in log,
           "and nothing ran systemctl for it -- an arbitrary unit name never reaches argv")
-    for evil in ("../../etc/passwd; reboot", "rblive4; reboot", "rblive4-vnc ", ""):
+    for evil in ("../../etc/passwd; reboot", "rbp; reboot", "rbp-vnc ", ""):
         s, _b, _h = post(port, "/service", {"unit": evil})
         check(s == 400, "refused: %r" % evil)
     log = open(calls).read() if os.path.exists(calls) else ""
@@ -962,22 +962,22 @@ def test_services(env, port):
           "and none of them reached a process")
 
     print("\n== a running unit is restarted, a stopped one is started ==")
-    s, _b, _h = post(port, "/service", {"unit": "rblive4-vnc"})
+    s, _b, _h = post(port, "/service", {"unit": "rbp-vnc"})
     check(s == 303, "the running viewer redirects")
-    s, _b, _h = post(port, "/service", {"unit": "rblive4-boot"})
+    s, _b, _h = post(port, "/service", {"unit": "rbp-boot"})
     check(s == 303, "the stopped boot screen redirects")
     log = open(calls).read()
-    check("systemctl restart rblive4-vnc" in log, "the running one was RESTARTED")
-    check("systemctl start rblive4-boot" in log, "the stopped one was STARTED")
+    check("systemctl restart rbp-vnc" in log, "the running one was RESTARTED")
+    check("systemctl start rbp-boot" in log, "the stopped one was STARTED")
     check("/root/pdj" not in log and "rbp -a" not in log,
           "and no command line names the player path (the cmdline-kill trap)")
     _s, page = get(port, "/")
-    check("rblive4-boot start requested" in page,
+    check("rbp-boot start requested" in page,
           "and the page flashes which service it acted on and which verb it chose")
 
     print("\n== the startup column carries the enable/disable ==")
-    for u, st in (("rblive4-vnc", "disabled"), ("healthwatch", "enabled"),
-                  ("rblive4", "enabled"), ("rblive4-conf", "enabled")):
+    for u, st in (("rbp-vnc", "disabled"), ("healthwatch", "enabled"),
+                  ("rbp", "enabled"), ("rbp-conf", "enabled")):
         with open(os.path.join(units_dir, u + ".enabled"), "w") as f:
             f.write(st)
     _s, page = get(port, "/")
@@ -985,7 +985,7 @@ def test_services(env, port):
     check("startup</th>" in services and "actions</th>" in services,
           "the two control columns are headed startup and actions")
     check("action=/boot" in services, "its cell carries the control")
-    vrow = [r for r in services.split("<tr>") if ">rblive4-vnc</td>" in r][0]
+    vrow = [r for r in services.split("<tr>") if ">rbp-vnc</td>" in r][0]
     hrow = [r for r in services.split("<tr>") if ">healthwatch</td>" in r][0]
     check('value=on' in vrow and 'value=off' in vrow
           and '>enabled</button>' in vrow and '>disabled</button>' in vrow,
@@ -996,7 +996,7 @@ def test_services(env, port):
           "and an enabled unit has ENABLED pressed instead -- one pressed, one not")
 
     print("\n== two units can be enabled but never disabled ==")
-    for u in ("rblive4", "rblive4-conf"):
+    for u in ("rbp", "rbp-conf"):
         row = [r for r in services.split("<tr>") if (">%s</td>" % u) in r][0]
         check("action=/boot" in row, "the %s row shows the pair like every other" % u)
         offbtn = [b for b in row.split("<button") if "value=off" in b][0]
@@ -1006,11 +1006,11 @@ def test_services(env, port):
         check("disabled" not in onbtn, "while its ENABLED button is live")
         check("class=info" in row and "class=tip" in row,
               "and the reason still rides on an (i)")
-    s, _b, _h = post(port, "/boot", {"unit": "rblive4", "action": "off"})
+    s, _b, _h = post(port, "/boot", {"unit": "rbp", "action": "off"})
     check(s == 400, "a request to disable the player is refused even so")
-    check("disable rblive4" not in (open(calls).read() if os.path.exists(calls) else ""),
+    check("disable rbp" not in (open(calls).read() if os.path.exists(calls) else ""),
           "and systemd was never asked")
-    s, _b, _h = post(port, "/boot", {"unit": "rblive4", "action": "on"})
+    s, _b, _h = post(port, "/boot", {"unit": "rbp", "action": "on"})
     check(s == 303, "but ENABLING one of them is allowed -- that direction cannot lock "
                     "anyone out")
 
@@ -1018,36 +1018,36 @@ def test_services(env, port):
     if os.path.exists(calls):
         os.unlink(calls)
     conf = os.path.join(env["RB_DEPLOY_ROOT"], "rb.local.conf")
-    s, _b, _h = post(port, "/boot", {"unit": "rblive4-vnc", "action": "on"})
+    s, _b, _h = post(port, "/boot", {"unit": "rbp-vnc", "action": "on"})
     check(s == 303, "enabling the viewer redirects")
     log = open(calls).read() if os.path.exists(calls) else ""
-    check("systemctl enable rblive4-vnc" in log, "and systemd was asked to enable it")
+    check("systemctl enable rbp-vnc" in log, "and systemd was asked to enable it")
     check("RB_VNC=1" in open(conf).read(),
           "and RB_VNC was recorded too -- install.sh re-applies this, so a bare enable would "
           "be undone by the next install")
-    check("--now" not in log and "restart rblive4" not in log,
+    check("--now" not in log and "restart rbp" not in log,
           "WITHOUT starting or stopping anything: enable writes the symlink and stops there")
-    s, _b, _h = post(port, "/boot", {"unit": "rblive4-webvnc", "action": "off"})
+    s, _b, _h = post(port, "/boot", {"unit": "rbp-webvnc", "action": "off"})
     check(s == 303, "the web client can be disabled from its own row")
-    check("systemctl disable rblive4-webvnc" in open(calls).read(),
+    check("systemctl disable rbp-webvnc" in open(calls).read(),
           "which asks systemd to disable it")
     check("RB_VNC_WEB=0" in open(conf).read(),
           "and writes its install-time mirror, so an install cannot quietly undo it")
-    s, _b, _h = post(port, "/boot", {"unit": "rblive4-vnc", "action": "wibble"})
+    s, _b, _h = post(port, "/boot", {"unit": "rbp-vnc", "action": "wibble"})
     check(s == 400, "an action that is neither is 400")
     s, _b, _h = post(port, "/boot", {"unit": "sshd", "action": "on"})
     check(s == 400, "and a unit that is not on the page is 400")
 
     print("\n== this page's own unit is answered, never waited for ==")
-    with open(os.path.join(units_dir, "rblive4-conf.active"), "w") as f:
+    with open(os.path.join(units_dir, "rbp-conf.active"), "w") as f:
         f.write("active")
-    s, _b, _h = post(port, "/service", {"unit": "rblive4-conf"})
+    s, _b, _h = post(port, "/service", {"unit": "rbp-conf"})
     check(s == 303, "restarting this page's own service still answers the request")
     for _ in range(60):                 # it is fired detached, so give it a moment
-        if "restart rblive4-conf" in open(calls).read():
+        if "restart rbp-conf" in open(calls).read():
             break
         time.sleep(0.05)
-    check("restart rblive4-conf" in open(calls).read(),
+    check("restart rbp-conf" in open(calls).read(),
           "and it did ask systemd -- just without waiting to be killed by it")
 
 
@@ -1094,10 +1094,10 @@ def test_set(env, port):
     print("\n== and nothing was restarted to do it ==")
     log = open(env["FAKE_LOG"]).read() if os.path.exists(env["FAKE_LOG"]) else ""
     check("--now" not in log, "a save enables and disables nothing")
-    check("restart rblive4" not in log, "and restarts nothing")
+    check("restart rbp" not in log, "and restarts nothing")
 
     print("\n== the marker is discharged by the unit starting again ==")
-    with open(os.path.join(env["FAKE_UNITS"], "rblive4-vnc.since"), "w") as f:
+    with open(os.path.join(env["FAKE_UNITS"], "rbp-vnc.since"), "w") as f:
         f.write("9000000\n")            # ActiveEnterTimestampMonotonic moved: it restarted
     _s, page = get(port, "/")
     check("saved, not applied yet" not in page,

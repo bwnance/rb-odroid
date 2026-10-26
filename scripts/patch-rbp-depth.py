@@ -4,7 +4,7 @@
 Stock rbp hardcodes one DirectFB layer format in DS_HW_Core_Layer_Create, and on
 this port that single word is the difference between the deck-1 bottom strip's
 right vertical drawn whole and drawn at 1/4 and 1/8 coverage
-(rblive4-deck-strip-frame-right-edge). It is also the only display word where
+(rbp-deck-strip-frame-right-edge). It is also the only display word where
 `.239` and the rx3-handoff port differ.
 
     0x00200801  DSPF_RGB16   the RX3's own framebuffer, and what stock asks for

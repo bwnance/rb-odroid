@@ -151,7 +151,7 @@ fi
 for unit in "$DEV"/*.service; do
     [ -f "$unit" ] || continue
     for prog in $(grep -E '^Exec(Start|StartPre|Stop|StopPost|Reload)=' "$unit" |
-                  grep -o '/opt/rblive4/[A-Za-z0-9_.-]*' | sed 's|.*/||' | sort -u); do
+                  grep -o '/opt/rbp/[A-Za-z0-9_.-]*' | sed 's|.*/||' | sort -u); do
         printf '%s\n' "$copy" | grep -qx "$prog" && continue
         if [ -f "$DEV/$prog" ]; then
             fail "$(basename "$unit") runs $prog, which exists but is not in"

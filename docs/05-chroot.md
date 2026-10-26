@@ -1,6 +1,6 @@
 # 05 — Soft-float chroot on the Pi
 
-`rbp` runs from `/opt/rblive4/rbx3-run`, a soft-float glibc-2.13 RX3 userland.
+`rbp` runs from `/opt/rbp/rbx3-run`, a soft-float glibc-2.13 RX3 userland.
 The kernel executes soft-float EABI ELF natively — it needs 32-bit EL0 support,
 not a 32-bit kernel — which is the whole reason this works: the chroot carries
 its own 32-bit `ld.so` and its own 32-bit binaries, so **nothing in the port
@@ -58,7 +58,7 @@ RX3=/path/to/extracted DFB=$PWD/work/dfb scripts/build-chroot.sh
 Pi OS's `tar` is GNU tar, so the busybox `-z` problem the previous target had
 does not apply here. [`install.sh`](../scripts/device/install.sh) is the
 one-time (and idempotent) entry point — it untars the deploy root to
-`/opt/rblive4`, puts the device scripts beside it, and runs `fix-dev.sh`:
+`/opt/rbp`, puts the device scripts beside it, and runs `fix-dev.sh`:
 
 ```sh
 scp -r work/rbpi4b-pi4.tgz scripts/device pi@<host>:/tmp/
@@ -75,9 +75,9 @@ the stubs inside the chroot are the *host's* nodes because `/dev` is bind-
 mounted, so nothing survives a restart.
 
 Because the chroot has no `/data` of its own, the paths differ from the
-previous target at every level: deploy root `/opt/rblive4`, chroot
-`/opt/rblive4/rbx3-run`, logs `/opt/rblive4/log`, host-side media mount
-`/opt/rblive4/media/usb1/sda1`. The one path that did **not** change is the
+previous target at every level: deploy root `/opt/rbp`, chroot
+`/opt/rbp/rbx3-run`, logs `/opt/rbp/log`, host-side media mount
+`/opt/rbp/media/usb1/sda1`. The one path that did **not** change is the
 chroot-internal media mount `/media/usb1/sda1` — it is baked into the patched
 binary.
 
@@ -88,4 +88,4 @@ binary.
 * `var/log/wtmp` may have an ACL that denies even root on a Windows/WSL mount;
   the script uses `tar --ignore-failed-read` and recreates it empty.
 * Symlinks survive (git-bash/WSL store real reparse points).
-* Verify with `chroot /opt/rblive4/rbx3-run /bin/sh -c 'echo ok'`.
+* Verify with `chroot /opt/rbp/rbx3-run /bin/sh -c 'echo ok'`.

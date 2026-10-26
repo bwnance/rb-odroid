@@ -2,7 +2,7 @@
 
 [`scripts/device/start-rb.sh`](../scripts/device/start-rb.sh) runs on the Pi, as
 root, over SSH, and is the normal way to bring up the player. It deploys to
-`$RB_DEPLOY_ROOT/start-rb.sh` (`/opt/rblive4/start-rb.sh`) with `lib.sh`,
+`$RB_DEPLOY_ROOT/start-rb.sh` (`/opt/rbp/start-rb.sh`) with `lib.sh`,
 `fix-dev.sh`, `usb-watch.sh` and `display-watch.sh` beside it.
 
 It is **not** something to launch from the console you intend to keep using: the
@@ -88,7 +88,7 @@ line is what keeps the console off the screen at all
     stop, and **rbp's exit status is never captured**. Reading `start-rb: rbp
     exited` therefore says only *that* it left, never *why*: a deliberate stop and
     a player that died on its own print the same thing, and the journal is the only
-    place they differ (`Stopped rblive4.service` versus **`Scheduled restart job,
+    place they differ (`Stopped rbp.service` versus **`Scheduled restart job,
     restart counter is at N`**). rbp has left on its own seven times between
     2026-09-27 and 2026-10-05, and the reason is the one thing nothing on the box
     recorded until the exit witness was armed — `crashcatch.so`, first in
@@ -242,7 +242,7 @@ Always clear the DeviceSQL locks when restarting rbp, or the USB library shows
 the generic "USB1" label instead of the volume name and track count:
 
 ```sh
-sh /opt/rblive4/start-rb.sh          # idempotent: it kills the previous instance first
+sh /opt/rbp/start-rb.sh          # idempotent: it kills the previous instance first
 ```
 
 There is no "restore stock" step on the Pi — nothing else uses the display or
@@ -255,7 +255,7 @@ systemctl unmask udisks2
 systemctl start lightdm        # if it was installed
 ```
 
-On the unit the usual way is `systemctl restart rblive4` — see below. Ctrl-C now
+On the unit the usual way is `systemctl restart rbp` — see below. Ctrl-C now
 genuinely cleans up: `start-rb.sh` installs its `cleanup()` as a SIGTERM/SIGINT
 handler, so the shell that dies does not orphan rbp, `edb_streamd`, the watchers
 and the media mounts behind it. Before that it did, and a "stopped" unit with a
@@ -263,7 +263,7 @@ live player on screen then fought the next start.
 
 ## Autostart
 
-The unit **is** shipped: [`scripts/device/rblive4.service`](../scripts/device/rblive4.service),
+The unit **is** shipped: [`scripts/device/rbp.service`](../scripts/device/rbp.service),
 installed and enabled by `install.sh`, so the player comes up on its own after a
 reboot. `RB_AUTOSTART=0` (in `rb.conf`, or in `rb.local.conf` to override it per
 machine) installs the unit but leaves it disabled — that is the setting for a
@@ -301,7 +301,7 @@ Four properties of the unit are load-bearing rather than decorative:
   property of the boot rather than of the change, and once cloud-init is off it
   measures 4.4–5.7 s.
   [13](13-raspberrypi4.md#boot-time) carries the series. What does not depend on
-  the configuration is *what starts when*: rblive4 starts at `basic` + ~0.05 s
+  the configuration is *what starts when*: rbp starts at `basic` + ~0.05 s
   rather than `multi-user` + ~0.005 s in every boot since, and that is why three
   trimmed boots reached `rbp-ready` within 0.234 s of each other.
 
@@ -315,9 +315,9 @@ Four properties of the unit are load-bearing rather than decorative:
   does not pull a unit in.
 
   `Conflicts=` is symmetric, which is what makes the earlier start need
-  `install.sh`'s persisted disables: whichever of `rblive4` and
+  `install.sh`'s persisted disables: whichever of `rbp` and
   `display-manager` starts *second* stops the first, and before this change
-  `rblive4` always started second. The `systemctl disable` of each display
+  `rbp` always started second. The `systemctl disable` of each display
   manager and of `getty@tty1` that `boot-trim.sh apply services` writes is
   therefore load-bearing on a target that has one installed and enabled, and
   inert on this unit, where none of the three exists.
@@ -332,7 +332,7 @@ single `vc4drmfb` — so that gap is silent, and on the blank cold boot ([13](13
 the same black screen is a *symptom* with no other on-glass sign.
 
 [`scripts/device/bootscreen.py`](../scripts/device/bootscreen.py), run by
-[`rblive4-boot.service`](../scripts/device/rblive4-boot.service), fills it: a title
+[`rbp-boot.service`](../scripts/device/rbp-boot.service), fills it: a title
 with the boot uptime, a scrolling list of the launcher's stage messages, and a 1 Hz
 heartbeat, drawn from the moment `vc4drmfb` appears until rbp paints its first
 frame — at which point the screen exits and leaves rbp's own picture. If rbp never
@@ -342,7 +342,7 @@ The heartbeat is not decoration — a static picture cannot be told apart from a
 frozen one, and this whole file exists to be *read off the glass*
 ([`tools/fbscreen.py`](../tools/fbscreen.py) states the same rule for its loop).
 
-The stages come from **`/run/rblive4/boot.log`**, which [`rb_bootmsg()`](../scripts/device/lib.sh)
+The stages come from **`/run/rbp/boot.log`**, which [`rb_bootmsg()`](../scripts/device/lib.sh)
 appends to at each step of `start-rb.sh`. It is a **regular file, never a FIFO**,
 and that is the whole reason `rb_bootmsg` is a function: opening a reader-less FIFO
 for write *blocks in `open()`* until a reader appears (the hazard `usb-watch.sh`'s
@@ -377,10 +377,10 @@ Three things in the daemon are load-bearing, and each was a wrong first draft:
 
 The unit is deliberately unable to break the boot. `Type=simple` completes its job
 at `fork()` — before `execve()` — so the python process's whole lifetime is off
-rblive4's critical path; `Before=rblive4.service` only pins the *order* between the
+rbp's critical path; `Before=rbp.service` only pins the *order* between the
 two forks, which is what guarantees the screen has opened fb0 before the player
 exists (and it governs the boot transaction only: a mid-session `Restart=always`
-restart of rblive4 does not bring the screen back). There is no
+restart of rbp does not bring the screen back). There is no
 `Requires=`/`BindsTo=` anywhere, so a fault here cannot take the player down, and
 every exit path in the script is `exit 0`. `Restart=no` is correct and
 `Restart=always` would be a bug: the screen's *normal* termination is exit 0 when

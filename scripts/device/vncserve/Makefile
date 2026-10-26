@@ -3,7 +3,7 @@
 # vncserve IS BUILT ON THE UNIT, BY THE UNIT'S OWN gcc.
 #
 # This is not a preference, it is the only route. The shims are cross-compiled
-# soft-float armel in the rblive4-build image; the unit's userland is hard-float
+# soft-float armel in the rbp-build image; the unit's userland is hard-float
 # armhf. The image has no arm-linux-gnueabihf-gcc and no hard-float libc.a, so it
 # cannot produce this binary at all -- and `make all` would still exit 0, which is
 # why install.sh compiles it here and aborts loudly if that fails.

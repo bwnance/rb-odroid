@@ -4,7 +4,7 @@
  * THE OPERATOR ASKED FOR THIS AFTER THE BLANK-BOOT DEFECT, and the shape of the ask
  * is the shape of the reason: "pause the VNC service for now, have it something you
  * can enable on the :5902 page instead". vncserve starts at 6.9 s on this unit --
- * before rblive4 (10.3 s) and before rbp itself (15.0 s) -- and it was the only thing
+ * before rbp (10.3 s) and before rbp itself (15.0 s) -- and it was the only thing
  * in the boot that touched the display from outside the player, so it is the first
  * thing to take out of the boot path when a boot comes up blank. But it is also the
  * thing that serves the control page, so a switch that *stops the program* would take
@@ -19,8 +19,8 @@
  * It is a file and not a command-line flag for the reason vnc_mode.h gives: the
  * person who turns it on is looking at a web page in a browser, and the choice has to
  * survive the page being reloaded, the browser being closed, and this process being
- * restarted. /run/rblive4/vnc.live is the project's own idiom for that -- /tmp/udev_usb1
- * and /run/rblive4/vnc.mode are the same shape -- and /run is right because the
+ * restarted. /run/rbp/vnc.live is the project's own idiom for that -- /tmp/udev_usb1
+ * and /run/rbp/vnc.mode are the same shape -- and /run is right because the
  * setting describes the running system, not the installed one. A reboot going back to
  * the rb.conf default (OFF) is deliberate: an unattended boot must not start serving
  * the operator's screen because somebody left a switch on last week.
@@ -34,7 +34,7 @@
 #define VNC_LIVE_OFF 0
 #define VNC_LIVE_ON  1
 
-#define VNC_LIVE_PATH "/run/rblive4/vnc.live"
+#define VNC_LIVE_PATH "/run/rbp/vnc.live"
 
 struct vnc_live {
     const char *path;

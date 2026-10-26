@@ -255,7 +255,7 @@ const char *na_sys_verdict_name(enum na_sys_verdict v);
  *
  * This decides one line of /proc/self/maps. A line describes one mapping:
  *
- *   002d1000-0050b000 r-xp 002c9000 b3:02 381935   /opt/rblive4/…/root/pdj/rbp
+ *   002d1000-0050b000 r-xp 002c9000 b3:02 381935   /opt/rbp/…/root/pdj/rbp
  *
  * and the answer is yes only when `addr` falls inside it, the mapping carries
  * the EXECUTE bit, and the file backing it is named `want`. That is exactly the

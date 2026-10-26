@@ -37,15 +37,15 @@ fi
 echo "   at $(git log --oneline -1)"
 step build sh scripts/odroid/build-on-odroid.sh chroot
 step install sh scripts/device/install.sh "$TARBALL"
-step restart systemctl restart rblive4
+step restart systemctl restart rbp
 
 # rbp takes a few seconds to come up and open the audio card.
 sleep 8
-if systemctl is-active --quiet rblive4; then
-    echo "== rblive4 is running"
-    sed -n 's/^\(dev\|card\|map\)=/   \1=/p' /run/rblive4/audio.state 2>/dev/null | head -3
+if systemctl is-active --quiet rbp; then
+    echo "== rbp is running"
+    sed -n 's/^\(dev\|card\|map\)=/   \1=/p' /run/rbp/audio.state 2>/dev/null | head -3
 else
-    echo "== rblive4 is NOT running:"
-    systemctl status rblive4 --no-pager 2>&1 | tail -10 | sed 's/^/   /'
+    echo "== rbp is NOT running:"
+    systemctl status rbp --no-pager 2>&1 | tail -10 | sed 's/^/   /'
     exit 1
 fi

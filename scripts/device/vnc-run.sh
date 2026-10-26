@@ -10,7 +10,7 @@
 # WHY IT IS SEPARATE FROM start-rb.sh AND NOT PART OF IT. Two reasons, and the
 # first is the one that matters:
 #
-#   * A crash in the viewer must not take the player with it. Under rblive4.service
+#   * A crash in the viewer must not take the player with it. Under rbp.service
 #     a failed vncserve would be a failed rbp, and the operator's decks would go
 #     silent because a status page threw. They are separate units so that they fail
 #     separately.
@@ -22,7 +22,7 @@
 # vnc_capture opens /dev/fb0 and /dev/dri/card1 and composites whatever planes are
 # lit; with no player that is a console-black screen with the drawers in it, which is
 # a perfectly honest thing to serve and a useful thing to see while diagnosing why rbp
-# is not up. So there is no ordering dependency on rblive4.service.
+# is not up. So there is no ordering dependency on rbp.service.
 #
 # Run as root. The DRM planes and /dev/fb0 are root-owned and opening the input
 # nodes (when RB_VNC_INPUT is on) needs root besides.
@@ -53,14 +53,14 @@ fi
 : "${RB_VNC_FPS:=4}"
 : "${RB_VNC_PASSWORD:=}"
 : "${RB_VNC_MODE:=raw}"
-: "${RB_VNC_MODE_FILE:=/run/rblive4/vnc.mode}"
+: "${RB_VNC_MODE_FILE:=/run/rbp/vnc.mode}"
 # The LIVE forms of the three settings that are otherwise startup-only: the capture ceiling,
 # and the encoder's node and quality. The page writes these and the server reads them every
 # turn, so a change lands on the next frame rather than at the next restart -- which is what
 # lets the operator judge a quality on the preview with their own eyes.
-: "${RB_VNC_FPS_FILE:=/run/rblive4/vnc.fps}"
-: "${RB_VNC_JPEG_DEV_FILE:=/run/rblive4/vnc.jpeg_dev}"
-: "${RB_VNC_JPEG_Q_FILE:=/run/rblive4/vnc.jpeg_quality}"
+: "${RB_VNC_FPS_FILE:=/run/rbp/vnc.fps}"
+: "${RB_VNC_JPEG_DEV_FILE:=/run/rbp/vnc.jpeg_dev}"
+: "${RB_VNC_JPEG_Q_FILE:=/run/rbp/vnc.jpeg_quality}"
 # The deflate level for the compressing encodings (Tight 7 and zlib 6 -- one code
 # path, see vncserve.c). 1 is zlib's own default and measured at 8% of one core for
 # a live Screen Sharing client; 0 disables compression and sends everything Raw,
@@ -72,14 +72,14 @@ fi
 : "${RB_VNC_ZLIB_LEVEL:=1}"
 
 # The pointer. This is the position the server STARTS in; from then on the switch is
-# /run/rblive4/vnc.input, which the page's on/off button writes and the server
+# /run/rbp/vnc.input, which the page's on/off button writes and the server
 # re-reads every turn. rb.conf documents the setting and this is what makes it real:
 # rb_load_conf sets a shell variable and does not export it, so a value the launcher
 # does not pass is a line that looks like a setting and reaches nothing -- and the
 # failure is quiet in the worst way, because OFF is a perfectly working viewer whose
 # clicks do nothing.
 : "${RB_VNC_INPUT:=0}"
-: "${RB_VNC_INPUT_FILE:=/run/rblive4/vnc.input}"
+: "${RB_VNC_INPUT_FILE:=/run/rbp/vnc.input}"
 
 # WHETHER THE SCREEN IS SERVED AT ALL, and this one defaults OFF on purpose.
 #
@@ -94,7 +94,7 @@ fi
 # blank on a cold boot, the honest default is the one that leaves the boot exactly as
 # it was before this program existed; the page's button puts it back in one press.
 : "${RB_VNC_LIVE:=off}"
-: "${RB_VNC_LIVE_FILE:=/run/rblive4/vnc.live}"
+: "${RB_VNC_LIVE_FILE:=/run/rbp/vnc.live}"
 
 # The control files' directory has to exist before the server starts, or the very
 # first mode change is written into a directory that is not there and the switch

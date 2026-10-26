@@ -605,7 +605,7 @@ controllers_cli: controllers_cli.c controllers.c controllers.h usb_devices.c usb
 #
 #   make -C scripts/shims pcmprobe
 #   qemu-arm -L $(RX3) scripts/shims/pcmprobe
-#   chroot /opt/rblive4/rbx3-run /tmp/pcmprobe hw:CARD=DDJFLX4,DEV=0
+#   chroot /opt/rbp/rbx3-run /tmp/pcmprobe hw:CARD=DDJFLX4,DEV=0
 #
 # It exists because one of the shim's hand-rolled SND_PCM_FORMAT_* values was
 # wrong and surfaced only as a nameless -EINVAL from the card. See tools/pcmprobe.c.

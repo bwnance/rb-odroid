@@ -2,7 +2,7 @@
 """confscreen.py -- the unit's status page, and (next) its configuration page.
 
 WHY THIS IS NOT PART OF THE VIEWER. The control page that exists today is served by
-`vncserve`, and `rblive4-vnc.service` is enabled only when `RB_VNC=1` -- so on a unit with
+`vncserve`, and `rbp-vnc.service` is enabled only when `RB_VNC=1` -- so on a unit with
 VNC off there is no page at all, and the page cannot be the thing you use to turn VNC on.
 There is a second reason, and it is the sharper one: that page's `/session`, `/input` and
 `/mode` routes are state-changing GETs with no authentication (vnc_http.c:460,481,507), so
@@ -51,9 +51,9 @@ except Exception:
 
 # --- where everything is -----------------------------------------------------------
 # Device defaults, every one of them overridable so the test can run this off the unit.
-DEPLOY_ROOT = os.environ.get("RB_DEPLOY_ROOT", "/opt/rblive4")
+DEPLOY_ROOT = os.environ.get("RB_DEPLOY_ROOT", "/opt/rbp")
 CONF_FILE = os.environ.get("RB_CONF_FILE", os.path.join(DEPLOY_ROOT, "rb.conf"))
-RUN_DIR = os.environ.get("RB_RUN_DIR", "/run/rblive4")
+RUN_DIR = os.environ.get("RB_RUN_DIR", "/run/rbp")
 LOG_DIR = os.environ.get("RB_LOG_DIR", os.path.join(DEPLOY_ROOT, "log"))
 PROC = os.environ.get("RB_PROC", "/proc")
 SYSFS = os.environ.get("RB_SYSFS", "/sys")
@@ -73,17 +73,17 @@ BIND = os.environ.get("RB_CONF_BIND", "0.0.0.0")
 
 # --- the write path's own places ---------------------------------------------------
 LOCAL_CONF = os.environ.get("RB_LOCAL_CONF", os.path.join(DEPLOY_ROOT, "rb.local.conf"))
-VIEWER_UNIT = os.environ.get("RB_VNC_UNIT", "rblive4-vnc")
-PLAYER_UNIT = os.environ.get("RB_PLAYER_UNIT", "rblive4")
-BOOT_UNIT = os.environ.get("RB_BOOT_UNIT", "rblive4-boot")
+VIEWER_UNIT = os.environ.get("RB_VNC_UNIT", "rbp-vnc")
+PLAYER_UNIT = os.environ.get("RB_PLAYER_UNIT", "rbp")
+BOOT_UNIT = os.environ.get("RB_BOOT_UNIT", "rbp-boot")
 # This page's own unit. Named here because two places have to treat it specially: it must
 # never be waited for (see service_action) and the services table must not offer to stop the
 # thing serving the page.
-CONF_UNIT = os.environ.get("RB_CONF_UNIT", "rblive4-conf")
+CONF_UNIT = os.environ.get("RB_CONF_UNIT", "rbp-conf")
 # The web client's bridge. It is a unit like any other and belongs in the same table -- it was
 # missing from it, which made it the one service on the unit that could be neither started nor
 # enabled from the page that exists to do exactly that.
-WEBVNC_UNIT = os.environ.get("RB_WEBVNC_UNIT", "rblive4-webvnc")
+WEBVNC_UNIT = os.environ.get("RB_WEBVNC_UNIT", "rbp-webvnc")
 RESTART_LOCK = os.environ.get("RB_CONF_RESTART_LOCK",
                               os.path.join(RUN_DIR, "conf-restart.lock"))
 # Whether THIS PAGE embeds the preview image. The page's own preference and not a switch the
@@ -93,7 +93,7 @@ RESTART_LOCK = os.environ.get("RB_CONF_RESTART_LOCK",
 PREVIEW_FILE = os.environ.get("RB_CONF_PREVIEW_FILE",
                               os.path.join(RUN_DIR, "conf.preview"))
 # Two restarts inside this many seconds are refused. Measured on `.239`: two overlapping
-# `systemctl restart rblive4` invocations -- mine and the operator's landing together --
+# `systemctl restart rbp` invocations -- mine and the operator's landing together --
 # wedge rbp outright, and one clean restart immediately after paints normally.
 RESTART_COOLDOWN_S = int(os.environ.get("RB_CONF_RESTART_COOLDOWN_S", "20"))
 
@@ -390,8 +390,8 @@ def switch_path(name):
     """The file a live switch is written to AND read from. ONE function, because it is one fact.
 
     It was two, and they disagreed: set_switch() resolved the name through SWITCH_FILES while
-    switch_state() simply prefixed "vnc." -- so the page WROTE /run/rblive4/mixer.mode (which is
-    where the player reads it, and it worked) and READ /run/rblive4/vnc.mixer_mode (which nothing
+    switch_state() simply prefixed "vnc." -- so the page WROTE /run/rbp/mixer.mode (which is
+    where the player reads it, and it worked) and READ /run/rbp/vnc.mixer_mode (which nothing
     has ever created). The row then showed the boot default as the state in force while the shim ran
     the other one, and the operator asked, rightly, "config sys internal is that right?". The `vnc.`
     prefix is the VIEWER's -- the names are the switch file's, as LIVE_SWITCHES says -- and the
@@ -400,7 +400,7 @@ def switch_path(name):
 
 
 def switch_state(name):
-    """One of the live `/run/rblive4/vnc.*` switch files, as the viewer reads them."""
+    """One of the live `/run/rbp/vnc.*` switch files, as the viewer reads them."""
     return _text(switch_path(name)).strip() or "(absent)"
 
 
@@ -541,7 +541,7 @@ def _run_rc(argv, timeout=25):
 
 
 def set_switch(name, value):
-    """One of the live /run/rblive4/vnc.* files the viewer re-reads every turn. Written the
+    """One of the live /run/rbp/vnc.* files the viewer re-reads every turn. Written the
     way vnc_live.c writes it -- a word and a newline -- and created when it is not there
     yet, which it will not be on a unit whose viewer has never run."""
     path = switch_path(name)
@@ -592,7 +592,7 @@ def _sw_int(lo, hi):
 # in the viewer settings table that is not an on/off pair is backed by an entry here, so a
 # control cannot exist without a validator -- and adding one means adding both, in one place,
 # rather than three near-identical handlers that drift apart. The names are the switch file's:
-# set_switch writes /run/rblive4/vnc.<name>, which is what vncserve reads each turn.
+# set_switch writes /run/rbp/vnc.<name>, which is what vncserve reads each turn.
 LIVE_SWITCHES = {
     "fps": _sw_int(1, 30),
     "jpeg_dev": lambda v: v if v in ("/dev/video11", "/dev/video31") else None,
@@ -655,7 +655,7 @@ def restart_player():
     """Ask systemd for exactly ONE restart of the player, and refuse a second one too soon.
 
     The lock and the cooldown are not politeness. Two overlapping `systemctl restart
-    rblive4` invocations wedge rbp on this unit -- measured, with the survivor coming up
+    rbp` invocations wedge rbp on this unit -- measured, with the survivor coming up
     blank and staying blank -- and the two that did it were seconds apart, which is why the
     cooldown is longer than the call it guards.
 
@@ -685,8 +685,8 @@ def restart_player():
         if last and waited < RESTART_COOLDOWN_S:
             return False, ("a restart happened %d s ago; wait %d s and try again"
                            % (waited, RESTART_COOLDOWN_S - waited))
-        # The boot screen FIRST. `systemctl restart rblive4` does not pull in
-        # rblive4-boot.service (Before= with nothing requiring it), so without this the
+        # The boot screen FIRST. `systemctl restart rbp` does not pull in
+        # rbp-boot.service (Before= with nothing requiring it), so without this the
         # restart blanks the screen and shows nothing at all for ~15 s. Best effort: a unit
         # that is not installed is not a reason to refuse the restart.
         if conf_values(("RB_BOOTSCREEN",)).get("RB_BOOTSCREEN", "1") != "0":
@@ -716,9 +716,9 @@ def service_action(unit):
     THE PLAYER KEEPS ITS OWN PATH, and that is not tidiness. `restart_player()` holds the
     lock, enforces the cooldown, and starts the boot screen first; routing the player row
     through the generic branch below would drop all three, and two overlapping restarts of
-    rblive4 are measured to wedge rbp on this unit. So the player never takes that branch.
+    rbp are measured to wedge rbp on this unit. So the player never takes that branch.
 
-    THIS PAGE'S OWN UNIT IS FIRED AND NOT WAITED FOR. `systemctl restart rblive4-conf` kills
+    THIS PAGE'S OWN UNIT IS FIRED AND NOT WAITED FOR. `systemctl restart rbp-conf` kills
     the process answering this request, so waiting on it would mean the browser never gets a
     reply and the operator sees a failed button that in fact worked. Spawned detached, with
     the redirect already on its way out.
@@ -753,7 +753,7 @@ def boot_set(unit, on):
     THIS IS THE `setting` COLUMN'S QUESTION, and it is not /service's. `systemctl is-enabled`
     asks whether a symlink will start the unit at boot; it says nothing about whether the unit
     is running. A unit can be running and not set to return -- which is precisely the state
-    rblive4-vnc was in, and why this control exists.
+    rbp-vnc was in, and why this control exists.
 
     IT STARTS AND STOPS NOTHING. `enable` only writes the symlink; the unit keeps doing
     whatever it was doing. That separation is deliberate: the two questions are answered by
@@ -1169,7 +1169,7 @@ def _info(text, key=""):
 # Cached because this page is polled, and a subprocess per poll is a subprocess forever. The
 # TTL is short enough that a mixer plugged in shows up while the operator is still looking.
 MIXER_TTL_S = 5.0
-CONTROLLERS_CLI = os.environ.get("CONF_CONTROLLERS_CLI", "/opt/rblive4/controllers_cli")
+CONTROLLERS_CLI = os.environ.get("CONF_CONTROLLERS_CLI", "/opt/rbp/controllers_cli")
 _mixer_cache = [0.0, None]
 
 
@@ -1380,7 +1380,7 @@ def render(conf, pid, frames, rate, facts, services, switches, depth, req_host="
     # THE HEADINGS NAME WHAT THE READER IS ASKING, not the systemd verb behind it. "Status" is
     # `systemctl is-active` -- is it running NOW -- and "startup" is `systemctl is-enabled` --
     # will it come back at boot. The two differ, and that difference is the whole reason
-    # the columns are separate: a unit can be running and not set to return (rblive4-vnc was,
+    # the columns are separate: a unit can be running and not set to return (rbp-vnc was,
     # after the button that used to set this was retired).
     a("<h2>services</h2><table><tr><th>unit</th><th>Status</th><th>startup</th>"
       "<th>actions</th></tr>")
@@ -1685,7 +1685,7 @@ def render(conf, pid, frames, rate, facts, services, switches, depth, req_host="
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "rblive4-conf"
+    server_version = "rbp-conf"
     sys_version = ""
 
     def log_message(self, *a):

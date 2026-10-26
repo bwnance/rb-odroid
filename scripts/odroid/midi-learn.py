@@ -9,11 +9,11 @@ card's raw MIDI device directly.
 
 The player must NOT be holding the port: stop it first.
 
-    systemctl stop rblive4
+    systemctl stop rbp
     python3 scripts/odroid/midi-learn.py                 # all prompts
     python3 scripts/odroid/midi-learn.py --only mixer    # one group
     python3 scripts/odroid/midi-learn.py --list          # what it will ask
-    systemctl start rblive4
+    systemctl start rbp
 
 FREE MODE (--free) is for controls the guided list does not know about -- the
 FLX10 has more than the FLX4 the list was modelled on. You type a name, then use
@@ -451,7 +451,7 @@ def main():
         midi = Midi(path)
     except OSError as e:
         print("cannot open %s: %s" % (path, e))
-        print("if it is busy, the player holds it: systemctl stop rblive4")
+        print("if it is busy, the player holds it: systemctl stop rbp")
         return 1
 
     def save():

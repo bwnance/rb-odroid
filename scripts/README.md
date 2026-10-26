@@ -16,7 +16,7 @@ scripts/
 Runs on a Linux/WSL host. Stages the RX3 rootfs + gui + patched rbp + the shims
 + the DirectFB 1.4.16 stack + `directfbrc` + touch calibration + `rb.conf`, fixes
 exec bits, and tars the result for the Pi's `install.sh` to untar into
-`/opt/rblive4`. Override asset paths with `RX3=` / `DFB=` / `OUT=`.
+`/opt/rbp`. Override asset paths with `RX3=` / `DFB=` / `OUT=`.
 
 See [docs/05](../docs/05-chroot.md).
 

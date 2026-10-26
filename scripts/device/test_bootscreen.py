@@ -256,7 +256,7 @@ def test_stays_up_drawing_nothing(tmp):
     env = make_fake(os.path.join(tmp, "l-stay"))
     os.makedirs(env["RB_RUN_DIR"], exist_ok=True)
     with open(env["RB_BOOT_LOG"], "w") as f:
-        f.write("7.07  launching rbp (log: /opt/rblive4/log/rbp.log)\n")
+        f.write("7.07  launching rbp (log: /opt/rbp/log/rbp.log)\n")
     env["RB_DRAW_S"] = "1.0"
     p = start_daemon(env)
     try:

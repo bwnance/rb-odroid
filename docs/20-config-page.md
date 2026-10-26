@@ -1,12 +1,12 @@
 # 20 — the status page, and the configuration screen
 
-`confscreen.py`, served by `rblive4-conf.service`, is the unit's page on the LAN. It is
+`confscreen.py`, served by `rbp-conf.service`, is the unit's page on the LAN. It is
 reachable at **`http://<unit>:5904/`** by default (`RB_CONF_HTTP_PORT`).
 
 ## Why it is a service of its own
 
 The page that already existed — the one `vncserve` serves — **cannot be the page you use to
-turn VNC on**. `rblive4-vnc.service` is enabled only when `RB_VNC=1` (`install.sh`), so on a
+turn VNC on**. `rbp-vnc.service` is enabled only when `RB_VNC=1` (`install.sh`), so on a
 unit with VNC off there is no `vncserve` and therefore no page at all. That is the
 chicken-and-egg this service exists to break, and it is also why the page is **not** gated on
 `RB_VNC` or on `RB_AUTOSTART`: it has to be up on a unit whose player is disabled and whose
@@ -52,7 +52,7 @@ It shows one section at a time, navigated from the left:
 
 | section | what it is, and where it comes from |
 |---|---|
-| **status** | three headings in one tab — *player*, *device info* and *boot info*. The pid (found by walking `/proc/*/cmdline` for the loader plus an argv ending `/rbp`, skipping `edb_streamd`), how long it has been **running** (field 22 of `/proc/<pid>/stat` ÷ `SC_CLK_TCK`), the frame count, and the frame **rate** — and, under a *device info* heading in the same tab, the machine it runs on: uptime, load, memory, SoC temperature, `get_throttled` decoded into words, free space, the last health line — and, under a *boot info* heading, the last start: the tail of `/run/rblive4/boot.log` and the last `boot.stage`, the same stage stream the boot screen paints |
+| **status** | three headings in one tab — *player*, *device info* and *boot info*. The pid (found by walking `/proc/*/cmdline` for the loader plus an argv ending `/rbp`, skipping `edb_streamd`), how long it has been **running** (field 22 of `/proc/<pid>/stat` ÷ `SC_CLK_TCK`), the frame count, and the frame **rate** — and, under a *device info* heading in the same tab, the machine it runs on: uptime, load, memory, SoC temperature, `get_throttled` decoded into words, free space, the last health line — and, under a *boot info* heading, the last start: the tail of `/run/rbp/boot.log` and the last `boot.stage`, the same stage stream the boot screen paints |
 | **services** | one row per unit, in four columns: the unit, its **Status** (`is-active`), its **startup** (`is-enabled`) as a two-button pair with the state in force drawn as pressed, and its **actions** (start/restart) — because this is where you look when something is wrong |
 | **viewer settings** | the three live switch files (`vnc.live`, `vnc.mode`, `vnc.input`), a **preview** row, and **frame rate** / **JPEG encoder** / **JPEG quality** — each pair drawn with the value in force as pressed, or a number box where the value is a number. The last three are live too: the server reads them every turn, so a change lands on the **next frame** rather than at a restart, which is what lets a quality be judged on the preview with your own eyes. Then whether the RFB and viewer-page ports answer. `preview` is this page's own preference — off until asked for, because the stream costs the viewer a frame per tick while it is open — and the image appears under the table when it is on and there is something to show |
 | **vnc settings** | the viewer's own knobs, **editable** |
@@ -93,15 +93,15 @@ rotating it) and the page went from instant to *never*: three handler threads in
 reads, `read(0x5, …, 0x2000)` flat out, the whole page timing out while its service still said
 `active`. It now counts only what has been appended since it last looked — which is all a RATE
 needs, and the rate is the only thing the page reads — so the first poll of a process counts nothing
-and a rotated log starts over rather than going negative. `/etc/logrotate.d/rblive4` (installed by
-`install.sh` from `scripts/device/logrotate-rblive4.conf`) then bounds the files themselves; the
+and a rotated log starts over rather than going negative. `/etc/logrotate.d/rbp` (installed by
+`install.sh` from `scripts/device/logrotate-rbp.conf`) then bounds the files themselves; the
 header there says why `copytruncate` is not optional and why nothing in it may silence that line.
 
 **The live switches are read from inside the chroot, and that cost a day.** They live in
-`/run/rblive4`, which the config page writes from outside rbp's chroot while the shims read it from
+`/run/rbp`, which the config page writes from outside rbp's chroot while the shims read it from
 inside — and `fix-dev.sh` bound `/dev`, `/proc`, `/sys` and `/tmp` into the chroot but not `/run`. So
 `mixer.mode` said `external` for two days while `audioshim` reported the file "not present" and never
-changed route, with the page reporting success the whole time. `fix-dev.sh` binds `/run/rblive4` now;
+changed route, with the page reporting success the whole time. `fix-dev.sh` binds `/run/rbp` now;
 `/proc/<rbp pid>/root/<path>` is the one command that shows what a chrooted process actually sees.
 
 **A save changes one line and restarts nothing.** `confedit` validates the value by type, refuses
@@ -110,9 +110,9 @@ one-generation `.prev`, and copies every other byte of the operator's file throu
 by comparing the file before and after a save round-trip. Restarting is a *separate, explicit* action on
 the services screen, because a save that blanked the screen would be a trap.
 
-What a save does instead is record which **unit owes a restart** (`/run/rblive4/conf.dirty.<unit>`,
+What a save does instead is record which **unit owes a restart** (`/run/rbp/conf.dirty.<unit>`,
 stamped with that unit's `ActiveEnterTimestampMonotonic`), and the settings group says *saved, not
-applied yet: restart rblive4-vnc* until that unit next starts — at which point the stamp no longer
+applied yet: restart rbp-vnc* until that unit next starts — at which point the stamp no longer
 matches, and the debt is discharged by itself. Both stamps are monotonic and on this boot, and the marker
 is in `/run` (tmpfs), so a reboot clears both together and cannot leave a stale debt behind.
 
@@ -124,9 +124,9 @@ refresh.
 
 The button answers with a question — a **real page**, not a script dialog, and it works with the script
 blocked — because this is the one control that acts on something the operator can *see*. Confirming it
-starts `rblive4-boot` **first** and then restarts `rblive4`, so the screen is narrated rather than
+starts `rbp-boot` **first** and then restarts `rbp`, so the screen is narrated rather than
 simply blank for fifteen seconds. It is serialised by an `flock` **and a 20-second cooldown**, because
-two overlapping `systemctl restart rblive4` invocations **wedge rbp on this unit** — measured, and the
+two overlapping `systemctl restart rbp` invocations **wedge rbp on this unit** — measured, and the
 reason this button was not built with the others; a second press is refused with the reason shown on
 the page, at the button. Nothing it runs names the player path, because `start-rb.sh`'s `cleanup()`
 kills by cmdline match.
@@ -142,9 +142,9 @@ so the control states the value rather than only the value a press would give; t
 is why `actions` is a separate column.
 
 **Two units can be enabled but never disabled**, and their `disabled` button is *itself disabled* —
-greyed and unpressable — with the reason on the page's usual (i) beside it. `rblive4`, because it is
+greyed and unpressable — with the reason on the page's usual (i) beside it. `rbp`, because it is
 the appliance: disabling it at boot from a browser could leave a unit that never starts rbp, which is
-the rule `RB_AUTOSTART` is read-only for. And `rblive4-conf`, because disabling the page at boot takes
+the rule `RB_AUTOSTART` is read-only for. And `rbp-conf`, because disabling the page at boot takes
 away the page you would use to turn it back on. Only the *disable* direction is refused, deliberately:
 enabling is always permitted, so a unit that somehow came up disabled is recoverable from here.
 `test_confscreen.py` pins the greying, the refusal, and that enabling still works.
@@ -158,14 +158,14 @@ which it will be rather than making the operator know that.
 only place a form field could become an argument. It never does: the name is looked up in `UNITS`, a
 tuple of literals, and anything else is refused with a 400 *before* a process is spawned. The tuple is
 therefore the security boundary, not a list of things to display — `../../etc/passwd; reboot` and
-`rblive4; reboot` are both just names that are not in it. There is no shell on any path; every branch
+`rbp; reboot` are both just names that are not in it. There is no shell on any path; every branch
 passes a constant argv.
 
 **The player is not in the generic branch.** Its row posts to the two-step confirm above instead, and
-`service_action()` routes `rblive4` through `restart_player()` — so it keeps the lock, the cooldown, and
+`service_action()` routes `rbp` through `restart_player()` — so it keeps the lock, the cooldown, and
 the boot-screen-first step. Folding it into the generic path would have dropped all three.
 
-**This page's own unit is fired and not waited for.** `systemctl restart rblive4-conf` kills the process
+**This page's own unit is fired and not waited for.** `systemctl restart rbp-conf` kills the process
 answering the request, so waiting on it would mean the browser never gets a reply and the operator sees a
 failed button that in fact worked. It is spawned detached, and the redirect is already on its way out.
 
@@ -200,7 +200,7 @@ not offer to change either.
 
 | knob | default | what it does |
 |---|---|---|
-| `RB_CONF` | `1` | whether `install.sh` enables `rblive4-conf.service` |
+| `RB_CONF` | `1` | whether `install.sh` enables `rbp-conf.service` |
 | `RB_CONF_HTTP_PORT` | `5904` | the page's port |
 | `RB_CONF_BIND` | `0.0.0.0` | what it binds |
 

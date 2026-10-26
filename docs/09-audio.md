@@ -1088,7 +1088,7 @@ behaviour, and also what a hand-run shim with no environment at all gets.
 ### The route IS live, through a switch file
 
 `RB_MIXER_MODE` is the **start-up** value; what the unit does *now* is
-`RB_MIXER_MODE_FILE` — `/run/rblive4/mixer.mode`, one word and a newline, the same shape as
+`RB_MIXER_MODE_FILE` — `/run/rbp/mixer.mode`, one word and a newline, the same shape as
 the viewer's switch files. `audioshim.c`'s `mixer_route_tick()` re-reads it on the audio
 callback every ~512 blocks (**~0.7 s** at 64 frames) and re-walks the USB bus every eighth
 of those (**~6 s**, because that walk is a dozen sysfs reads); a **missing file means "keep
@@ -1108,15 +1108,15 @@ about the route; the panel's readout deliberately shows the route *in effect* ra
 the file's word, so a file left saying `external` with the mixer unplugged reads
 `INTERNAL` and is dim, which is what the unit is actually doing.
 
-## What the shim decided: `/run/rblive4/audio.state`
+## What the shim decided: `/run/rbp/audio.state`
 
-`/run/rblive4` is bound into the chroot, so `audioshim` can write it and the **host** can
+`/run/rbp` is bound into the chroot, so `audioshim` can write it and the **host** can
 read it. Over ssh, this is the whole answer to the question the 2026-10-14 A9 evening
 could not ask — *which card was chosen, by which rung, against which map, and had it
 failed*:
 
 ```
-$ cat /run/rblive4/audio.state
+$ cat /run/rbp/audio.state
 dev=plughw:CARD=euphonia,DEV=0
 why=a recognised mixer is on the bus (its recorded card id)
 card=euphonia
@@ -1154,10 +1154,10 @@ function: the **rung and the route are both remembered** across writes (`why`/`r
 `NULL` means "unchanged", not "unknown", so a later writer cannot blank the fields the file
 exists for — every `resolve_pairs()` passes both, and a live map change re-runs it, which is
 how `route=` came to read `unknown` the first time this was tested), and the check for the
-file is `[ -f /run/rblive4/audio.state ]` — with the owner gate it appears when the player
+file is `[ -f /run/rbp/audio.state ]` — with the owner gate it appears when the player
 first flushes, not before.
 
-## The map is live too: `RB_AUDIO_MAP_FILE` → `/run/rblive4/audio.map`
+## The map is live too: `RB_AUDIO_MAP_FILE` → `/run/rbp/audio.map`
 
 `AUDIO_MAP` is an **environment variable**, so its value is frozen when the player launches.
 That is why the pair map was the one audio setting with no way in from the glass or the page,
@@ -1166,8 +1166,8 @@ property of *where the value comes from*, so no amount of shim code changes it. 
 source is what changes it:
 
 ```
-$ printf 'deck1=6,7;deck2=8,9\n' > /run/rblive4/audio.map
-audioshim: the live pair map changed (/run/rblive4/audio.map): deck1=6,7 deck2=8,9
+$ printf 'deck1=6,7;deck2=8,9\n' > /run/rbp/audio.map
+audioshim: the live pair map changed (/run/rbp/audio.map): deck1=6,7 deck2=8,9
 audioshim: resolved 8 channel(s): master=0,1 headphones=2,3 booth=-1,-1 monitor=-1,-1
 ```
 
@@ -1176,7 +1176,7 @@ cadence as the route (**~0.7 s**), and it **overrides only the streams it names*
 
 | layer | source |
 |---|---|
-| 1 (wins) | `/run/rblive4/audio.map` — the operator's current intent |
+| 1 (wins) | `/run/rbp/audio.map` — the operator's current intent |
 | 2 | `RB_AUDIO_PAIRS_MEMORY`'s entry for the attached mixer |
 | 3 | `RB_AUDIO_MAP` — the configured default |
 

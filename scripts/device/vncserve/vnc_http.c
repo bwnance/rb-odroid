@@ -25,7 +25,7 @@
 
 #define VNC_HTTP_CONNS  6
 #define VNC_HTTP_REQ    4096
-#define VNC_HTTP_BOUND  "rblive4"
+#define VNC_HTTP_BOUND  "rbp"
 
 struct hconn {
     int fd;

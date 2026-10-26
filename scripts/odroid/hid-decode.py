@@ -24,7 +24,7 @@ spec = importlib.util.spec_from_file_location("hidloaded", os.path.join(HERE, "h
 hl = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(hl)
 
-CONF = os.path.join(os.environ.get("RB_DEPLOY_ROOT", "/opt/rblive4"), "rb.local.conf")
+CONF = os.path.join(os.environ.get("RB_DEPLOY_ROOT", "/opt/rbp"), "rb.local.conf")
 LINE = "RB_FLX10_HID=0"
 OUT = os.path.expanduser("~/flx10-hid.txt")
 
@@ -176,7 +176,7 @@ def conf_set(on):
 
 def restart_rb():
     print("restarting rb ...", flush=True)
-    subprocess.run(["systemctl", "restart", "rblive4"])
+    subprocess.run(["systemctl", "restart", "rbp"])
 
 
 def main():

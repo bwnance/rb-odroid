@@ -93,7 +93,7 @@ vc4-drm gpu: [drm] User-defined mode not supported: "1280x800": 60 83496 1280 13
 
 and the CRTC went on driving exactly that mode, because what keeps a replug alive
 is the fbdev **not being torn down**, not the mode being re-imposed. A
-`systemctl restart rblive4` re-runs none of this either: the kernel's mode setup
+`systemctl restart rbp` re-runs none of this either: the kernel's mode setup
 happens at boot, so a restarted unit keeps whatever geometry the new monitor gave
 it — which is precisely the case the `scale` rung and the display watcher exist
 for. See [13](13-raspberrypi4.md#s10--the-display-drills) S10.5.

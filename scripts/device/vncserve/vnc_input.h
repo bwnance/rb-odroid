@@ -47,7 +47,7 @@
 #include <time.h>
 
 /* --- the switch ------------------------------------------------------------- *
- * The same idiom as vnc_mode, deliberately: a small file under /run/rblive4 re-read
+ * The same idiom as vnc_mode, deliberately: a small file under /run/rbp re-read
  * by mtime, so the operator's page can turn it on and off, so a restart keeps
  * whatever it was, and so the setting can be changed from a shell when the page
  * cannot be reached. It is OFF until something says otherwise -- this is the control
@@ -60,7 +60,7 @@
 #define VNC_INPUT_OFF   0
 #define VNC_INPUT_ON    1
 
-#define VNC_INPUT_PATH  "/run/rblive4/vnc.input"
+#define VNC_INPUT_PATH  "/run/rbp/vnc.input"
 
 /* The size of a note. It is one log line, and it has to hold a path, a device name and
  * a sentence about what happened to them -- 128 was enough for every message in this

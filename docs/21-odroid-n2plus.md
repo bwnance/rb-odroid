@@ -132,7 +132,7 @@ On the unit, Armbian `6.18.43-current-meson64`, with a 1024×768 bench monitor
   identical to the Pi's (13, S0.2), so the patch table applies unchanged.
 * **O6/O7 (first boot).** Built on the board with `build-on-odroid.sh`, installed
   with `install.sh` (boot trim applied). After the reboot fb0 is **1280×800 at
-  32 bpp**, and `rblive4.service` is active with `edb_streamd`, `rbp -a`,
+  32 bpp**, and `rbp.service` is active with `edb_streamd`, `rbp -a`,
   `usb-watch` and `display-watch` running (~500 MB RSS). The `PRESENT:` line is
   in `/tmp/dfbdig9.log`, not `rbp.log`.
 * **Display: zero-copy confirmed.** `PRESENT: mode=off angle=0 real_fb=1280x800
@@ -355,7 +355,7 @@ Done 2026-10-26 (start-up splash, rbp's TRANS picture):
   rbp's address (splash.c). The empty performance screen's big rekordbox logo
   is rbp's own, not the splash's.
 - rbassets.py (start-rb.sh, before the launch) writes the splash picture to
-  /run/rblive4 and rebuilds rbp's two TRANS pictures in imagedata.dat (records
+  /run/rbp and rebuilds rbp's two TRANS pictures in imagedata.dat (records
   1059/1060, RGB565, 0xF81F transparent) as TRANNY from rbp's own letters --
   T R A N from TRANS, Y from VINYL BRAKE -- and the BEAT FX window's four
   160x40 name tiles (5225..5228: gray, white, faded, blue; opaque, so the text
@@ -370,7 +370,7 @@ Done and confirmed 2026-10-26 (rbp's UTILITY menu):
   the row added and points rbp's seven literal words at the copy, after
   checking each holds what was measured. The row borrows SLIP FLASHING's
   OFF/ON and rbp's generic handlers; its SetLine and EnterMenu read and write
-  /run/rblive4/mirror.mode.
+  /run/rbp/mirror.mode.
 - SHIFT + VIEW held 1 s holds MENU 500 ms, rbp's own way into UTILITY; a
   short press is still SHORTCUT. The drawn settings panel is no longer raised
   from the controller.
@@ -422,7 +422,7 @@ Done 2026-10-26 (FLX10 FX screen):
   MOBIUS triangle HELIX.
 
 Done 2026-10-26 (settings panel):
-- HDMI AUDIO row: ON/OFF, written to /run/rblive4/mirror.mode
+- HDMI AUDIO row: ON/OFF, written to /run/rbp/mirror.mode
   (RB_AUDIO_MIRROR_FILE); audioshim's mirror_switch_tick closes the mirror on
   `off` and reopens it at once on anything else. Absent means on, and /run
   means a reboot brings it back.
@@ -626,7 +626,7 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
 * **Splash until rbp is ready** (operator, 2026-10-25). A splash covering the
   whole screen from launch until rbp has fully initialized, so none of its
   start-up drawing shows, and no input (FLX10, keyboard, touch) reaching rbp
-  until then. What exists: the Pi's boot screen (`rblive4-boot`, docs/11 "The
+  until then. What exists: the Pi's boot screen (`rbp-boot`, docs/11 "The
   boot screen") paints stage lines on fb0 and leaves at rbp's FIRST frame
   (`rbp-drew`) -- too early, and it looks for fb0 named `vc4drmfb`, so on the
   ODROID (meson's drm_fbdev) it likely never shows. Plan: fb_shim keeps
@@ -667,7 +667,7 @@ drive it. Decks 3/4 have nothing to control.
 
 ### FLX10 map (`scripts/shims/map_flx10.c`)
 
-Selected with `RB_MIDI_MAP=flx10` in `/opt/rblive4/rb.local.conf`. That also
+Selected with `RB_MIDI_MAP=flx10` in `/opt/rbp/rb.local.conf`. That also
 points audio at the `DDJFLX10` card through the controller table's new `flx10`
 row. The headphone pair needs the per-device memory line above. The bindings
 are the operator's table, agreed control by control on 2026-10-24:

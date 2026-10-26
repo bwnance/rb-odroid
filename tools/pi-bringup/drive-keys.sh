@@ -30,7 +30,7 @@ set -u
 FIFO=/tmp/vkeyfifo
 [ -p "$FIFO" ] || { echo "no FIFO at $FIFO -- start vkeyd.py first" >&2; exit 1; }
 
-systemctl restart rblive4
+systemctl restart rbp
 sleep 16
 
 # The launcher execs rbp through the loader, so match the first argv element

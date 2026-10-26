@@ -10,12 +10,12 @@ MIDI device directly.
 
 The player must NOT be holding the port: stop it first.
 
-    systemctl stop rblive4
+    systemctl stop rbp
     python3 scripts/odroid/led-probe.py                # everything
     python3 scripts/odroid/led-probe.py --only pads    # one group
     python3 scripts/odroid/led-probe.py --list         # what it will try
     python3 scripts/odroid/led-probe.py --send         # type raw messages
-    systemctl start rblive4
+    systemctl start rbp
 
 At each prompt the candidate is ON:
     y        the named LED lit
@@ -285,7 +285,7 @@ def main():
         out = Out(dev)
     except OSError as e:
         print("cannot open %s: %s" % (dev, e))
-        print("if it is busy, the player holds it: systemctl stop rblive4")
+        print("if it is busy, the player holds it: systemctl stop rbp")
         return 1
 
     if a.send:

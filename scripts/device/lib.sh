@@ -55,7 +55,7 @@ rb_load_conf() {
     # rb.conf sets all of these itself; repeat the two the scripts use for every
     # path, so a hand-edited config cannot leave RB_CHROOT empty and make a
     # `mount --bind` target the filesystem root.
-    RB_DEPLOY_ROOT="${RB_DEPLOY_ROOT:-/opt/rblive4}"
+    RB_DEPLOY_ROOT="${RB_DEPLOY_ROOT:-/opt/rbp}"
     RB_CHROOT="${RB_CHROOT:-$RB_DEPLOY_ROOT/rbx3-run}"
 }
 
@@ -129,7 +129,7 @@ pids_matching() {
 # rb_bootmsg MESSAGE [MESSAGE...]
 #
 # Append one timestamped line to the boot-progress log the early screen tails
-# (bootscreen.py, started by rblive4-boot.service). It writes ONLY to that file,
+# (bootscreen.py, started by rbp-boot.service). It writes ONLY to that file,
 # never to stdout: the launcher's own `echo` lines already give the journal
 # record, so repeating them here would double every line in a report.
 #
@@ -148,7 +148,7 @@ pids_matching() {
 #
 # NEVER fatal. A missing directory or a read-only /run is a silent no-op; the
 # screen is a diagnostic, and a diagnostic must not be able to stop the player.
-# The `mkdir -p` is defensive and closes a real race: nothing creates /run/rblive4
+# The `mkdir -p` is defensive and closes a real race: nothing creates /run/rbp
 # at boot (only vnc-run.sh does, and only when RB_VNC=1), and the gap between
 # basic.target and the launcher is 70 ms — so the earliest calls could otherwise
 # run before any directory exists. install.sh also ships a tmpfiles.d entry that
@@ -156,7 +156,7 @@ pids_matching() {
 rb_bootmsg() {
     _t=$(cut -d' ' -f1 /proc/uptime 2>/dev/null) || _t=
     [ -n "$_t" ] || _t=0
-    _bl=${RB_BOOT_LOG:-/run/rblive4/boot.log}
+    _bl=${RB_BOOT_LOG:-/run/rbp/boot.log}
     mkdir -p "${_bl%/*}" 2>/dev/null
     printf '%s  %s\n' "$_t" "$*" >>"$_bl" 2>/dev/null || :
 }

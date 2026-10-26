@@ -8,7 +8,7 @@
 # when it is needed, and the device's own logs (displaywatch, usbwatch, rbp.log)
 # only write on events, so an idle wedge leaves no trail in them either.
 #
-# So this writes to DISK (/opt/rblive4/log/health.log -- survives a reboot) and to
+# So this writes to DISK (/opt/rbp/log/health.log -- survives a reboot) and to
 # TMPFS (/tmp/health.log -- survives a disk stall; read it *before* rebooting), and
 # it probes the symptom itself with a loopback connection to :22, watching for the
 # banner. The first round that fails while the previous one passed is the moment of
@@ -31,9 +31,9 @@
 # The ssh probe is deliberately sparse: each one forks an sshd-session and leaves a
 # "Connection closed ... [preauth]" line in the journal.
 
-LOG=/opt/rblive4/log/health.log
+LOG=/opt/rbp/log/health.log
 TMPLOG=/tmp/health.log
-INCDIR=/opt/rblive4/log
+INCDIR=/opt/rbp/log
 SCRATCH_ROOT=$INCDIR/.health-scratch-root
 SCRATCH_OPT=$INCDIR/.health-scratch-opt
 

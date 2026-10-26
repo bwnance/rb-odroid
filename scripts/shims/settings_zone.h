@@ -9,7 +9,7 @@
  * mixer route was `confscreen.py` on a laptop.
  *
  * THE SWITCH ITSELF IS NOT THIS FILE'S BUSINESS, and that is the whole of why this
- * is small. `/run/rblive4/mixer.mode` already exists, `audioshim.c`'s
+ * is small. `/run/rbp/mixer.mode` already exists, `audioshim.c`'s
  * mixer_route_tick() already re-reads it while the unit plays, and the config page
  * already writes it -- so a row here does exactly what the page does: it moves a
  * word in a file. NOTHING in this module opens a file, reaches rbp, or reads a clock;
@@ -97,7 +97,7 @@
 #define ST_ROW_USB2     3
 /* HDMI AUDIO, added 2026-10-26 at the operator's ask -- *"put that setting for hdmi audio into
  * the settings menu"*: the mirror of the master on the board's own HDMI card (audioshim.c),
- * switched live through /run/rblive4/mirror.mode. ON/OFF, always operable; the shim decides
+ * switched live through /run/rbp/mirror.mode. ON/OFF, always operable; the shim decides
  * whether there is a card to mirror to, as it does at start. */
 #define ST_ROW_MIRROR   4
 #define ST_ROW_SHARE    5
@@ -248,7 +248,7 @@ struct settings_state {
     int pointer_on;         /* vnc.input */
     /* THE DECK PAIRS AND THE CARD'S WIDTH, for the two deck rows (ST_ROW_DECK1/2).
      *
-     * READ FROM `/run/rblive4/audio.state` -- the file audioshim publishes -- and NOT from the
+     * READ FROM `/run/rbp/audio.state` -- the file audioshim publishes -- and NOT from the
      * live map file, because the row must show what the unit is DOING: audio.state carries the
      * resolved map, so a pair the shim refused is not claimed here. This is the mixer row's own
      * rule ("the route IN EFFECT and not the file's word") applied to a pair.

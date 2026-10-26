@@ -10,7 +10,7 @@ table and the risks, is [13 — Raspberry Pi 4](13-raspberrypi4.md).
 | Piece | Where it lives | On the Pi 4 |
 |---|---|---|
 | `rbp` patcher (`rbp_patch.py`) | [tools/patch-rbp](../tools/patch-rbp/) | **unchanged** — every patch's justification is the absence of Pioneer hardware, which a Pi also lacks |
-| glibc-2.13 soft-float chroot | [scripts/build-chroot.sh](../scripts/build-chroot.sh) | **unchanged recipe**, new root: `/opt/rblive4/rbx3-run` |
+| glibc-2.13 soft-float chroot | [scripts/build-chroot.sh](../scripts/build-chroot.sh) | **unchanged recipe**, new root: `/opt/rbp/rbx3-run` |
 | `tsc2007` protocol + `TouchCalib` | [scripts/shims](../scripts/shims/) | **unchanged** — it is `rbp`-facing ABI, not device code |
 | `crashcatch.c`, `seqinject2.c`, `udplog.c` | [scripts/shims](../scripts/shims/) | unchanged |
 | `gpioshim.c`, `tscshim.c`, `fbshim16.c` | [scripts/shims](../scripts/shims/) | reference only, out of the default build |
@@ -225,7 +225,7 @@ ssh pi@<host>
 # assemble the chroot, deploy, launch
 #   scripts/build-chroot.sh            # -> work/rbpi4b-pi4.tgz
 #   ssh pi@<host> 'sudo sh /tmp/device/install.sh /tmp/rbpi4b-pi4.tgz'
-#   ssh pi@<host> 'sudo sh /opt/rblive4/start-rb.sh'
+#   ssh pi@<host> 'sudo sh /opt/rbp/start-rb.sh'
 ```
 
 The per-subsystem docs (05–12) hold the detailed steps; [13](13-raspberrypi4.md)

@@ -52,14 +52,14 @@ usual two — see [08 — Controls](08-controls.md) and
 ## 1. The soft-float chroot
 
 `rbp` and its libraries are soft-float glibc 2.13. To run them we assemble an
-RX3 userland at `/opt/rblive4/rbx3-run` and `chroot` into it — exactly as
+RX3 userland at `/opt/rbp/rbx3-run` and `chroot` into it — exactly as
 PrimeBox did on Buildroot. The Pi kernel provides the hard-float host tooling;
 the chroot is pure RX3 soft-float.
 
-### Contents of `/opt/rblive4/rbx3-run`
+### Contents of `/opt/rbp/rbx3-run`
 
 ```
-/opt/rblive4/rbx3-run/
+/opt/rbp/rbx3-run/
 ├── lib/ld-linux.so.3 -> ld-2.13.so     soft-float loader
 ├── lib/libc.so.6, libpthread.so.0, ... RX3 glibc 2.13
 ├── usr/lib/                            libstdc++, DirectFB 1.4, freetype, ...
@@ -80,12 +80,12 @@ the chroot is pure RX3 soft-float.
 ### Bind mounts (run after every reboot)
 
 ```sh
-mkdir -p /opt/rblive4/rbx3-run/dev /opt/rblive4/rbx3-run/proc \
-         /opt/rblive4/rbx3-run/sys /opt/rblive4/rbx3-run/tmp
-mount --bind /dev  /opt/rblive4/rbx3-run/dev
-mount --bind /proc /opt/rblive4/rbx3-run/proc
-mount --bind /sys  /opt/rblive4/rbx3-run/sys
-mount --bind /tmp  /opt/rblive4/rbx3-run/tmp
+mkdir -p /opt/rbp/rbx3-run/dev /opt/rbp/rbx3-run/proc \
+         /opt/rbp/rbx3-run/sys /opt/rbp/rbx3-run/tmp
+mount --bind /dev  /opt/rbp/rbx3-run/dev
+mount --bind /proc /opt/rbp/rbx3-run/proc
+mount --bind /sys  /opt/rbp/rbx3-run/sys
+mount --bind /tmp  /opt/rbp/rbx3-run/tmp
 ```
 
 `fix-dev.sh` does this, and the launcher runs it. `/tmp` is shared with the

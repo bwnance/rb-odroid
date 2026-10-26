@@ -10,7 +10,7 @@ This unit starts early in boot, tails the launcher's stage messages, and turns
 that gap into a readable one.
 
 WHAT IT DRAWS. A title with the boot uptime, a scrolling log of the launcher's
-stages (from /run/rblive4/boot.log, which start-rb.sh appends to via
+stages (from /run/rbp/boot.log, which start-rb.sh appends to via
 rb_bootmsg()), and a 1 Hz heartbeat. The heartbeat is deliberate: a static
 picture cannot be told apart from a frozen one, and this whole file exists to be
 *read off the glass* -- the same rule tools/fbscreen.py states for its own loop.
@@ -51,7 +51,7 @@ pixel (x, y) is at (y*1280 + x) * 2. rbp is *told* 32 bpp by the fbshim
 same constants and the write(2)-advances-f_pos trap; this file uses an mmap, which
 has no file offset to get wrong.
 
-Run by rblive4-boot.service (ExecStart=/usr/bin/python3 .../bootscreen.py).
+Run by rbp-boot.service (ExecStart=/usr/bin/python3 .../bootscreen.py).
 """
 import mmap
 import os
@@ -65,8 +65,8 @@ SIZE = W * H * BPP                      # 2,048,000 -- matches fix.smem_len
 FB = os.environ.get("RB_FB", "/dev/fb0")
 FB_NAME = os.environ.get("RB_FB_NAME", "/sys/class/graphics/fb0/name")
 FB_SYSFS = os.environ.get("RB_FB_SYSFS", "/sys/class/graphics/fb0")
-BOOT_LOG = os.environ.get("RB_BOOT_LOG", "/run/rblive4/boot.log")
-RUN_DIR = os.environ.get("RB_RUN_DIR", "/run/rblive4")
+BOOT_LOG = os.environ.get("RB_BOOT_LOG", "/run/rbp/boot.log")
+RUN_DIR = os.environ.get("RB_RUN_DIR", "/run/rbp")
 STAGE_FILE = os.path.join(RUN_DIR, "boot.stage")
 
 WAIT_FB_S = 15.0                        # how long to wait for vc4drmfb
@@ -198,7 +198,7 @@ def render(lines, tick, status, uptime):
     fill_rect(buf, 0, 0, W, 3, EDGE)
     fill_rect(buf, 0, H - 3, W, 3, EDGE)
 
-    title = "RBLIVE4 BOOT"
+    title = "RBP BOOT"
     draw_text(buf, title, MARGIN, 16, TITLE_SCALE, WHITE)
     x = MARGIN + len(title) * ADVANCE * TITLE_SCALE + 12
     draw_text(buf, "T+%dS" % int(uptime), x, 16 + GLYPH_H * (TITLE_SCALE - BODY_SCALE),
@@ -340,9 +340,9 @@ def main():
         # would make the screen silently never appear: the worst failure for a
         # diagnostic, because it is indistinguishable from the unit being black.
         # The cost is bounded and only reachable by an explicit mid-session
-        # `systemctl start rblive4-boot`: if rbp is live, we overwrite its frame
+        # `systemctl start rbp-boot`: if rbp is live, we overwrite its frame
         # for at most one tick (~250 ms) before rbp's own next flip, well before
-        # the shadow rule exits us. At boot the ordering (Before=rblive4) means
+        # the shadow rule exits us. At boot the ordering (Before=rbp) means
         # rbp cannot have painted yet, so this is a no-op there.
         if not first and cur != black and (shadow is None or cur != shadow):
             stage("rbp-drew", "uptime=%.1f" % uptime())

@@ -145,7 +145,7 @@ static long pan_pacer_ns(void)
  * The window is held in MILLISECONDS IN A 64-BIT TYPE, and that is not style:
  * `long` is 4 bytes in this soft-float ARM32 build, so a nanosecond
  * CLOCK_MONOTONIC held in one wraps every 4.29 s
- * (rblive4-32bit-long-clock-wrap). */
+ * (rbp-32bit-long-clock-wrap). */
 static void vsync_rate_tick(void)
 {
     static int enabled = -1;

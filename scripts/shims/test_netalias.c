@@ -429,10 +429,10 @@ static void test_player_test(void)
 {
     /* 0x38f830 lives here in the player: executable, file-backed by rbp. */
     const char *rx  = "002d1000-0050b000 r-xp 002c9000 b3:02 381935   "
-                      "/opt/rblive4/rbx3-run/root/pdj/rbp\n";
+                      "/opt/rbp/rbx3-run/root/pdj/rbp\n";
     /* the same file, but NOT executable -- .data, not code */
     const char *rw  = "00512000-0053e000 rw-p 00502000 b3:02 381935   "
-                      "/opt/rblive4/rbx3-run/root/pdj/rbp\n";
+                      "/opt/rbp/rbx3-run/root/pdj/rbp\n";
     /* the player's .bss tail, where NM_SINGLETON actually is: anonymous, and the
      * kernel labels it [heap] because the brk begins there. It is NOT code and
      * must never be treated as such. */
@@ -466,7 +466,7 @@ static void test_player_test(void)
      * the point -- "no, because it is not rbp" and "no, because it is a deleted
      * rbp" are different answers and only one of them is a bug in the file. */
     const char *del = "002d1000-0050b000 r-xp 002c9000 b3:02 381935   "
-                      "/opt/rblive4/rbx3-run/root/pdj/rbp (deleted)\n";
+                      "/opt/rbp/rbx3-run/root/pdj/rbp (deleted)\n";
     CHECK(na_maps_line_is_code_at(del, 0x38f830UL, "rbp"), "a deleted rbp is still named rbp");
 
     /* A pathname with no directory part at all: not a maps line we understand, so

@@ -205,7 +205,7 @@ fire() {
 
     if [ "$_count" -ge "$FIRE_MAX" ]; then
         log "REFUSE: $_why — but this would be restart $((_count + 1)) and the cap is $FIRE_MAX."
-        log "  The picture is stale for good; restart rblive4 by hand, or reboot."
+        log "  The picture is stale for good; restart rbp by hand, or reboot."
         return 1
     fi
     if [ "$_last" -gt 0 ] && [ "$((_epoch - _last))" -lt "$FIRE_COOLDOWN_S" ]; then
@@ -229,7 +229,7 @@ fire() {
     printf '%s %s %s\n' "$((_count + 1))" "$_epoch" "$_boot" > "$FIRES"
     # --no-block queues the job and returns, so this is never mid-call when the
     # restart takes the process down.
-    systemctl --no-block restart rblive4
+    systemctl --no-block restart rbp
     return 0
 }
 

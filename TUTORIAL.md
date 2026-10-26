@@ -27,7 +27,7 @@ monitor and a DDJ-FLX4.
   `gcc`, `make` and `python3`**. Pi OS Lite ships no compiler, and `install.sh`
   compiles `vncserve` *on the unit* — that compile is what gives you the VNC
   viewer and its unit. Without `make`/`cc` it warns and carries on, and the
-  result is no VNC binary and no `rblive4-vnc` unit rather than a failed install.
+  result is no VNC binary and no `rbp-vnc` unit rather than a failed install.
   `python3` is what the boot screen and the configuration page run under, and
   that page's unit carries `ConditionPathExists=/usr/bin/python3`, so without it
   the page is simply absent. The diagnostic tools in step 6 are single-file C and
@@ -77,7 +77,7 @@ via [`scripts/patch-rbp-depth.py`](scripts/patch-rbp-depth.py) at the depth
 ## 3. Deploy (Pi)
 
 [`scripts/device/install.sh`](scripts/device/install.sh) is the only on-device
-entry point. It untars to `/opt/rblive4`, puts `rb.conf` in place, proves the
+entry point. It untars to `/opt/rbp`, puts `rb.conf` in place, proves the
 chroot can execute a 32-bit binary, checks `/dev/fb0` and `/dev/snd/seq`, and
 runs `fix-dev.sh`. It is idempotent — re-running upgrades in place.
 
@@ -88,8 +88,8 @@ ssh pi@<host> 'sudo sh /tmp/device/install.sh /tmp/rbpi4b-pi4.tgz'
 ```
 
 `RB_DEPLOY_ROOT` overrides the destination if you would rather not use
-`/opt/rblive4`. Everything machine-specific — display mode, audio card, MIDI
-match strings, services to stop — is in `/opt/rblive4/rb.conf`, and nothing else
+`/opt/rbp`. Everything machine-specific — display mode, audio card, MIDI
+match strings, services to stop — is in `/opt/rbp/rb.conf`, and nothing else
 should need editing.
 
 ## 4. (Optional) iterate on a shim
@@ -101,7 +101,7 @@ you never rebuild the tarball to test a shim:
 ```sh
 cd scripts/shims
 make knobshim.so RX3=/path/to/extracted/XDJRX3-rootfs
-scp knobshim.so pi@<host>:/opt/rblive4/knobshim.so
+scp knobshim.so pi@<host>:/opt/rbp/knobshim.so
 ```
 
 The same applies to `fbshim.so`, `audioshim.so` and `rbp-audio`.
@@ -109,13 +109,13 @@ The same applies to `fbshim.so`, `audioshim.so` and `rbp-audio`.
 ## 5. Launch
 
 **The player is normally already up by the time you get here.** `install.sh`
-installs *and enables* `rblive4.service` (`RB_AUTOSTART=1`, the shipped default),
+installs *and enables* `rbp.service` (`RB_AUTOSTART=1`, the shipped default),
 so after the reboot that follows a deploy `rbp` starts on its own. This command
 is then a **restart**, and the manual path only if you set `RB_AUTOSTART=0`
 ([docs/11](docs/11-runtime-launcher.md)):
 
 ```sh
-ssh pi@<host> 'sudo sh /opt/rblive4/start-rb.sh'
+ssh pi@<host> 'sudo sh /opt/rbp/start-rb.sh'
 ```
 
 That stops the desktop services that would fight for the display or the media
@@ -155,7 +155,7 @@ gcc -O2 -static -o evdevdump tools/evdevdump.c
 
 ```sh
 # clean restart (clears the DeviceSQL locks — important for the USB library)
-sudo sh /opt/rblive4/start-rb.sh
+sudo sh /opt/rbp/start-rb.sh
 
 # back to a normal desktop session
 sudo systemctl start lightdm
@@ -186,7 +186,7 @@ again by the line above.
 * Booth output is dropped: the FLX4 has two output pairs ([docs/09](docs/09-audio.md)).
 * DJ FX parameter/layer encoders, TrackSkip, BeatJump and some SHIFT-actions are
   not mapped ([docs/08](docs/08-controls.md)).
-* Autostart ships enabled — `install.sh` installs and enables `rblive4.service`
+* Autostart ships enabled — `install.sh` installs and enables `rbp.service`
   (`RB_AUTOSTART=1`), so the player is already up after a reboot. `RB_AUTOSTART=0`
   installs the unit but leaves it disabled, and `start-rb.sh` is then run by hand
   ([docs/11](docs/11-runtime-launcher.md)).

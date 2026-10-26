@@ -19,7 +19,7 @@
  * The log goes to DISK and not /tmp, which is a 1.9 GB tmpfs that loses the
  * evidence on the next reboot. The path is CHROOT-RELATIVE, and it has to be:
  * rbp runs inside $RB_CHROOT, whose /opt is empty, so the host's own
- * /opt/rblive4/log is simply not there to write to -- a shim naming that path
+ * /opt/rbp/log is simply not there to write to -- a shim naming that path
  * falls back to tmpfs without saying so. /root/pdj is inside the chroot AND on
  * the SD card (it is the directory rbp and the shims themselves live in), so it
  * is the one place both conditions hold. Host-side that file is

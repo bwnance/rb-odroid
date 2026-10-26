@@ -33,7 +33,7 @@
 
 #define SPLASH_MS_DEFAULT   8000
 #define SPLASH_NO_FRAME_MS  60000         /* rbp never drew: let the controller go */
-#define SPLASH_FILE_DEFAULT "/run/rblive4/splash.rgb565"
+#define SPLASH_FILE_DEFAULT "/run/rbp/splash.rgb565"
 #define SPLASH_MAX_PX       (1280 * 800)
 
 static volatile int s_done;               /* 1 = over (or off) */

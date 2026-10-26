@@ -1,5 +1,5 @@
 [Unit]
-Description=rblive4 - XDJ-RX3 rekordbox player (rbp)
+Description=rbp - the XDJ-RX3 rekordbox player
 Documentation=https://github.com/salesforcedoc/rbpi4b/blob/main/docs/11-runtime-launcher.md
 After=basic.target
 # Deliberately NOT After=multi-user.target, which is what this unit used to say.
@@ -36,8 +36,8 @@ After=basic.target
 # that intent rather than a new mechanism.
 #
 # This is also why the early start is safe: Conflicts= is symmetric, so whichever
-# of rblive4/display-manager starts SECOND stops the first. Before the reorder
-# rblive4 always started second (it waited for multi-user), so a display manager
+# of rbp/display-manager starts SECOND stops the first. Before the reorder
+# rbp always started second (it waited for multi-user), so a display manager
 # could never take it down; now that it starts first, install.sh persists the
 # `systemctl disable` of each display manager and of getty@tty1 to keep the
 # conflict one-sided. On a target with one of them installed and ENABLED, that
@@ -58,7 +58,7 @@ Type=simple
 # Must be the deployed absolute path, not a wrapper or a symlink: the launcher
 # finds lib.sh (and fix-dev.sh, usb-watch.sh, display-watch.sh) through
 # `dirname "$0"`.
-ExecStart=/opt/rblive4/start-rb.sh
+ExecStart=/opt/rbp/start-rb.sh
 # The launcher calls chroot, modprobe and blkid, all of which live in /usr/sbin.
 # systemd's default PATH for a system unit does include it, but this unit is
 # started by hand during bring-up too, so it does not rely on that.
@@ -76,7 +76,7 @@ TimeoutStopSec=30
 KillMode=mixed
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=rblive4
+SyslogIdentifier=rbp
 # Deliberately NOT set:
 #   PrivateTmp= -- /tmp is the rendezvous between the host and the chroot
 #     (udev_usb1, usbwatch.pid, guard_LocalDBServer), and it is where both

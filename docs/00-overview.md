@@ -24,7 +24,7 @@ of the whole thing.
 │  BCM2711 · HDMI (vc4drmfb) · USB-A host · no touchscreen            │
 │  DDJ-FLX4 on USB: MIDI control surface + 4-channel USB audio        │
 │                                                                     │
-│  ┌────────────── /opt/rblive4/rbx3-run (chroot) ────────────────────┐│
+│  ┌────────────── /opt/rbp/rbx3-run (chroot) ────────────────────┐│
 │  │  soft-float glibc 2.13 + RX3 libs + DirectFB 1.4              ││
 │  │                                                               ││
 │  │   rbp-audio  ──  the XDJ-RX3 rekordbox player                 ││
@@ -65,7 +65,7 @@ addresses survive the move unchanged — see
 **Browsing a USB stick**
 
 ```
-stick → kernel usb-storage → usb-watch.sh mounts /opt/rblive4/media/usb1/sda1
+stick → kernel usb-storage → usb-watch.sh mounts /opt/rbp/media/usb1/sda1
       → bind-mount into chroot at /media/usb1/sda1
       → write "mount /media/usb1/sda1" to /tmp/udev_usb1
       → rbp UsbMountManager → DbProxy → DbIF::mount('C')
@@ -75,7 +75,7 @@ stick → kernel usb-storage → usb-watch.sh mounts /opt/rblive4/media/usb1/sda
 
 A **second** stick takes the same route a slot over: the first candidate in
 `/sys/block` order that actually carries an export is USB 1, the next is USB 2,
-onto `/opt/rblive4/media/usb2/sda1` → `/media/usb2/sda1` → `/tmp/udev_usb2`. rbp
+onto `/opt/rbp/media/usb2/sda1` → `/media/usb2/sda1` → `/tmp/udev_usb2`. rbp
 holds one `ui::UsbStorageManager` per channel, so both are separate devices and
 the settings panel's `USB1 STOP`/`USB2 STOP` rows can eject either one on its own channel.
 

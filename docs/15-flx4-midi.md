@@ -1186,7 +1186,7 @@ is enough for the fixture test):
 
 ```bash
 # in rb.conf, or as a one-off:
-RB_MIDI_DUMP=/opt/rblive4/log/midi_dump.log sh /opt/rblive4/start-rb.sh
+RB_MIDI_DUMP=/opt/rbp/log/midi_dump.log sh /opt/rbp/start-rb.sh
 ```
 
 The dump is written **above** the "is `rbp`'s KeyManager up yet" early-out
@@ -1196,7 +1196,7 @@ depended on it would be empty exactly when it is most needed.
 A dump is replayable:
 
 ```bash
-MIDI_REPLAY=/opt/rblive4/log/midi_dump.log sh /opt/rblive4/start-rb.sh
+MIDI_REPLAY=/opt/rbp/log/midi_dump.log sh /opt/rbp/start-rb.sh
 ```
 
 `MIDI_REPLAY_SPEED` scales the inter-event delays (default 1.0; `0` ignores

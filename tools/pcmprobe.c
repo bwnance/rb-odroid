@@ -40,9 +40,9 @@
  * The device half wants the card to be visible. On the Pi, run it from inside the
  * chroot, where /dev/snd is bound in and the libasound is again the shim's own:
  *
- *   cp scripts/shims/pcmprobe /opt/rblive4/rbx3-run/tmp/
- *   chroot /opt/rblive4/rbx3-run /tmp/pcmprobe hw:CARD=DDJFLX4,DEV=0
- *   chroot /opt/rblive4/rbx3-run /tmp/pcmprobe plughw:CARD=vc4hdmi0,DEV=0 32 nonblock
+ *   cp scripts/shims/pcmprobe /opt/rbp/rbx3-run/tmp/
+ *   chroot /opt/rbp/rbx3-run /tmp/pcmprobe hw:CARD=DDJFLX4,DEV=0
+ *   chroot /opt/rbp/rbx3-run /tmp/pcmprobe plughw:CARD=vc4hdmi0,DEV=0 32 nonblock
  *
  * WHICH libasound is the point of the chroot, and it is not a detail. Measured on
  * 2026-09-27: the host's `aplay -D plughw:CARD=vc4hdmi0,DEV=0 -f S24_3LE` played

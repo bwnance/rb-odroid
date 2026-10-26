@@ -3,7 +3,7 @@
 #
 # Run on a Linux host (WSL is fine). Produces work/rbpi4b-pi4.tgz, which holds
 # the complete deploy root, ready for the Pi's install.sh to untar into
-# /opt/rblive4:
+# /opt/rbp:
 #
 #   rbx3-run/    the soft-float chroot: RX3 rootfs + patched rbp + gui + shims
 #                + the patched DirectFB 1.4.16 stack
@@ -162,7 +162,7 @@ STAGE="$(mktemp -d /tmp/rbx3-stage.XXXXXX)"
 trap 'rm -rf "$STAGE"' EXIT
 
 # The stage is the *deploy root*: the chroot is a subdirectory of it, next to
-# rb.conf. install.sh untars this straight into /opt/rblive4.
+# rb.conf. install.sh untars this straight into /opt/rbp.
 CHROOT="$STAGE/rbx3-run"
 mkdir -p "$CHROOT"
 

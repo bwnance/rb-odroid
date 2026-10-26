@@ -1198,7 +1198,7 @@ pull the USB as it might continue to corrupt the USB stick"*.
 **The last column is a gear and it sends NO key at all** — it raises the settings panel
 ([07](07-touch.md#the-settings-panel-settings_zonec-settings_paintc)), and the rows that do
 act send nothing either: they write the same one-word switch files the config page writes
-(`/run/rblive4/mixer.mode` and the viewer's `vnc.*`), because those files *are* the live
+(`/run/rbp/mixer.mode` and the viewer's `vnc.*`), because those files *are* the live
 switches ([09](09-audio.md)). It is the one column whose `menu_key[]` entry is 0, and
 `menu_fire()` catches it by COLUMN rather than by keycode — a zero keycode still means "no
 keycode yet, nothing sent" for any column that is merely unnamed.
@@ -1464,7 +1464,7 @@ Two implementation notes that carry over:
 make -C scripts/shims RX3=/path/to/extracted/XDJRX3-rootfs knobshim.so
 ```
 
-Deploy: `scp knobshim.so root@<device>:/opt/rblive4/knobshim.so`, then restart
+Deploy: `scp knobshim.so root@<device>:/opt/rbp/knobshim.so`, then restart
 rbp (or run `start-rb.sh`).
 
 ## Verify

@@ -220,7 +220,7 @@ knobshim2: evdev[41302] /dev/input/event11 'rbpi4b-vkeyd' appeared; adding it
 ```
 
 Before the fix the device was never seen and every test had to begin with
-`systemctl restart rblive4`.
+`systemctl restart rbp`.
 
 **On a real USB keyboard the kernel makes that release first, and the reader's
 own synth path is the backup rather than the mechanism** (measured 2026-09-30
@@ -511,7 +511,7 @@ Two traps that cost time here, both worth knowing before writing another one:
 
 * **The virtual device had to exist before rbp started**, because a device
   created afterwards was never enumerated — so every test began with
-  `systemctl restart rblive4`. This was the hot-add gap in observation 4 and it
+  `systemctl restart rbp`. This was the hot-add gap in observation 4 and it
   is now fixed, so the restart is no longer needed; the entry is kept because it
   is what made the gap visible, and because a test harness that *needs* a
   restart is evidence of a gap rather than a property of the harness.
@@ -525,7 +525,7 @@ Two traps that cost time here, both worth knowing before writing another one:
 * **And it is not only your own `pkill` that does the matching — the launcher
   does too, on every restart.** A fourth occurrence, 2026-09-27: an SSH one-liner
   whose text happened to contain the player's path, and which ended in
-  `systemctl restart rblive4`, was killed **mid-script** when the launcher's
+  `systemctl restart rbp`, was killed **mid-script** when the launcher's
   `cleanup()` ran `pids_matching` over the real command lines and found the
   session's own `bash -c` string. The tell is a bare `Exit code 255` with no
   output after the last command that printed. So the rule covers any command
@@ -581,7 +581,7 @@ Three things about writing into an evdev node cost time here:
 ## What is temporary on the unit
 
 The measurements — and the verification of the fixes — were taken with overrides
-in `/opt/rblive4/rb.local.conf`, all marked TEMPORARY there and none of them a
+in `/opt/rbp/rb.local.conf`, all marked TEMPORARY there and none of them a
 fix. As of 2026-09-27 the file holds:
 
 * `RB_MIDI_MAP=flx4` — **this one is now the default in `rb.conf` and the line is

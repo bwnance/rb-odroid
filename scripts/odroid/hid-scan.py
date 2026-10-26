@@ -10,11 +10,11 @@ icon, the BEAT SYNC text -- can be tied to a byte and bit.
 
 Stop rb's own sender first, or the two fight:
 
-    echo RB_FLX10_HID=0 >> /opt/rblive4/rb.local.conf && systemctl restart rblive4
+    echo RB_FLX10_HID=0 >> /opt/rbp/rb.local.conf && systemctl restart rbp
     python3 ~/rb-odroid/scripts/odroid/hid-scan.py              # 1.5 s a step
     python3 ~/rb-odroid/scripts/odroid/hid-scan.py --bytes 3,4,5,6,7,8 --step 3
     python3 ~/rb-odroid/scripts/odroid/hid-scan.py --empty --set 2=01   # an empty deck, SLIP set
-    sed -i '/^RB_FLX10_HID=0/d' /opt/rblive4/rb.local.conf && systemctl restart rblive4
+    sed -i '/^RB_FLX10_HID=0/d' /opt/rbp/rb.local.conf && systemctl restart rbp
 
 While it runs, type a command and Enter:
 

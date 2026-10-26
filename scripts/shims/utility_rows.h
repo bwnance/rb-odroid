@@ -8,7 +8,7 @@
  * builds one at load -- rbp's 33 rows with ours inserted -- and points rbp's
  * seven literal-pool words at it (docs/21 has the measurements). The first row
  * is HDMI AUDIO, after MIXER MODE (operator, 2026-10-26), which writes the same
- * /run/rblive4/mirror.mode the shim's own panel does.
+ * /run/rbp/mirror.mode the shim's own panel does.
  *
  * The table building and the row's handlers are pure enough for a host test
  * (test_utility.c); utility_rows_install() is the part that touches rbp.

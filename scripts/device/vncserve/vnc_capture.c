@@ -17,7 +17,7 @@
  * client that never asked for it still holds it until it drops it or exits. That is not
  * theory: this file's own comment claimed no master for as long as the ordering happened
  * to hide the problem. MEASURED 2026-10-09, on the first cold boot where the viewer came
- * up BEFORE the player (systemd starts rblive4-vnc at 17:02:12, rblive4 at 17:02:20), the
+ * up BEFORE the player (systemd starts rbp-vnc at 17:02:12, rbp at 17:02:20), the
  * only process holding /dev/dri/card1 was vncserve -- and the shims that put rbp's band
  * and drawers on real planes were refused:
  *

@@ -323,7 +323,7 @@ Two changes came out of it, both cheap:
 
 ## The switch
 
-`/run/rblive4/vnc.mode` holds `raw` or `hwjpeg`. It is re-read every frame, mtime-gated
+`/run/rbp/vnc.mode` holds `raw` or `hwjpeg`. It is re-read every frame, mtime-gated
 so the common case is one `stat`. It is the project's own idiom — the same shape as
 `/tmp/udev_usb1`.
 
@@ -442,7 +442,7 @@ it starts the encoder and closing it stops the encoder — one encode, two consu
 ## The build, and why it happens on the unit
 
 There is **no toolchain in this tree that can produce this binary**. The
-`rblive4-build` image is soft-float **armel**; the unit's userland is hard-float
+`rbp-build` image is soft-float **armel**; the unit's userland is hard-float
 **armhf**, and the image has no `arm-linux-gnueabihf-gcc` and no hard-float `libc.a`.
 `make all` there would exit 0 having built nothing.
 
@@ -453,7 +453,7 @@ it **there, with the unit's own gcc**, into `$DEPLOY/.vnc-build.$$`. Two details
   summary of it. `install_artifact`'s "no source → return 0 in silence" shape is
   exactly how a deploy can look clean and ship nothing.
 * **It does not build in place.** `cc -o vncserve` truncates its output file, and a
-  running `rblive4-vnc` has that binary mapped — the truncation would be a `SIGBUS`
+  running `rbp-vnc` has that binary mapped — the truncation would be a `SIGBUS`
   in the operator's live view. Only the finished binary is **renamed** into
   `$DEPLOY/vncserve/vncserve`. (Same trap as replacing any mapped `.so`; see the note
   in `install.sh`'s artifact section.)
@@ -473,17 +473,17 @@ the one suite that cannot run there.
 
 ## The service
 
-`rblive4-vnc.service` runs `vnc-run.sh`, which sources `lib.sh` + `rb.conf` and execs
+`rbp-vnc.service` runs `vnc-run.sh`, which sources `lib.sh` + `rb.conf` and execs
 the binary with the `RB_VNC_*` values. It is a unit of its own rather than a branch in
 `start-rb.sh`, for two reasons:
 
-1. **A crash in the viewer must not take the player with it.** Under `rblive4.service`
+1. **A crash in the viewer must not take the player with it.** Under `rbp.service`
    a failed `vncserve` would be a failed rbp, and the operator's decks would go silent
    because a status page threw.
 2. **`RB_VNC=0` must mean the process is not started at all**, and costs exactly
    nothing — which an uninstalled unit gives more cleanly than a branch.
 
-It has **no ordering dependency on `rblive4.service`**, deliberately. It reads the
+It has **no ordering dependency on `rbp.service`**, deliberately. It reads the
 framebuffer and the DRM planes; with the player down it serves an honest black screen
 with the drawers on it, which is a useful thing to look at while working out why the
 player is down. An `After=` would also mean a player restart dragged the VNC session
@@ -506,7 +506,7 @@ All in `rb.conf` (the shipped defaults) or, for this unit, `rb.local.conf`
 | `RB_VNC_PASSWORD` | `password` (**placeholder**) | the VNC client's credential; **worth changing**; empty means macOS will not connect at all. It went by `RB_PASSWORD` until schema v3 — the configuration page's old sign-in, retired, which left that name with no reader |
 | `RB_VNC_FPS` | `4` | frames a second; the cost table is in its comment |
 | `RB_VNC_MODE` | `raw` | the mode to start in, if the mode file is absent |
-| `RB_VNC_MODE_FILE` | `/run/rblive4/vnc.mode` | the switch's control file |
+| `RB_VNC_MODE_FILE` | `/run/rbp/vnc.mode` | the switch's control file |
 | `RB_VNC_ZLIB_LEVEL` | `1` | the deflate level for **both** compressing encodings, Tight (7) and zlib (6); `0` means "send everything Raw", not "compress at level 0" |
 | `RB_VNC_INPUT` | `0` | pointer and keys back into rbp — **not yet implemented** |
 
@@ -551,7 +551,7 @@ target tolerantly on the host.
 
 ## The screen in a browser (noVNC, `:5903`)
 
-`rblive4-webvnc.service` runs `websockify`, which serves **noVNC** and reframes WebSocket bytes to
+`rbp-webvnc.service` runs `websockify`, which serves **noVNC** and reframes WebSocket bytes to
 the RFB port. Open **`http://<unit>:5903/`** — `vnc.html` is the client and `webvnc-run.sh` links it
 as `index.html` at startup, because websockify serves a directory *listing* for `/` when there is no
 index.html. Either URL works; the bare one is the one to type. The password is the one the viewer asks a

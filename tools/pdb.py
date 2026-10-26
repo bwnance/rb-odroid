@@ -71,7 +71,7 @@ R_OFS_STRINGS = 0x5e         # 21 x u2, then the variable-length strings
 # Where the library is on the unit -- the export rbp itself mounts. This is what
 # makes the script one word over ssh, which is how it is actually used; pass a path
 # as the first argument and that wins instead.
-DEFAULT_PDB = "/opt/rblive4/rbx3-run/media/usb1/sda1/PIONEER/rekordbox/export.pdb"
+DEFAULT_PDB = "/opt/rbp/rbx3-run/media/usb1/sda1/PIONEER/rekordbox/export.pdb"
 
 # What rbp_load.c watches. `--play` writes this, so a search and a load are one word.
 LOAD_CMD = "/tmp/rb_load"

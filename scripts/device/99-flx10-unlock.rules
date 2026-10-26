@@ -3,4 +3,4 @@
 # cycled or replugged mid-set otherwise comes back with NO AUDIO DRIVER on both
 # jogs. Installed by install.sh to /etc/udev/rules.d/; flx10-unlock.py is the
 # same script start-rb.sh runs (exit 0 sent, 1 failed, 2 absent).
-ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="2b73", ATTR{idProduct}=="0041", RUN+="/usr/bin/python3 /opt/rblive4/flx10-unlock.py"
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="2b73", ATTR{idProduct}=="0041", RUN+="/usr/bin/python3 /opt/rbp/flx10-unlock.py"

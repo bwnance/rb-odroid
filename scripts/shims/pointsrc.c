@@ -321,7 +321,7 @@ static int menu_key_needs_repeat(int code)
  * start-rb.sh predates the knob, `systemctl set-environment RB_POINT_MENU=0`
  * reaches the service and stops there, with the shim silently using its in-source
  * default. Measured 2026-09-29, and it cost three runs before the launcher was
- * read rather than the shim. `grep POINT_MENU /opt/rblive4/start-rb.sh` is the
+ * read rather than the shim. `grep POINT_MENU /opt/rbp/start-rb.sh` is the
  * one-line check. */
 static int  menu_key_eff[MZ_COLS];
 
@@ -934,7 +934,7 @@ static void menu_fire(int button, int held_ms)
  *
  * NOT AN ERROR AND NOT LOGGED. This is asked on every tick of the builder's thread as
  * well as from this one, so a line here would be the log-filling trap
- * ([[rblive4-verbose-log-fills-tmpfs]]); what the box draws is the proof, and it says so
+ * ([[rbp-verbose-log-fills-tmpfs]]); what the box draws is the proof, and it says so
  * in menu_draw.c's own verbose line. */
 /* The device's own name, sanitized, into `out` (at most `max` bytes, NUL included).
  * Answers its length, 0 for a slot with no label file or an empty one.
@@ -1043,7 +1043,7 @@ static int usb_slots_live(int live[2])
 
 /* ONE WORD OUT OF A SWITCH FILE, or 0 when there is nothing to read. The same shape
  * audioshim.c's own reader has -- a word and a newline, which is what every live switch in
- * this tree is, /run/rblive4/mixer.mode and the viewer's vnc.* alike. The raw syscall
+ * this tree is, /run/rbp/mixer.mode and the viewer's vnc.* alike. The raw syscall
  * helpers are used because fb_shim interposes open() for this whole process, the same
  * reason the /tmp/udev_usbN.label read above uses them. */
 static int switch_word_read(const char *path, char *out, size_t outsz)
@@ -1120,19 +1120,19 @@ static void switch_word_write(const char *path, const char *word)
 static const char *settings_row_path(int row)
 {
     switch (row) {
-    case ST_ROW_MIXER:   return env_str("MIXER_MODE_FILE", "/run/rblive4/mixer.mode");
-    case ST_ROW_SHARE:   return env_str("VNC_LIVE_FILE", "/run/rblive4/vnc.live");
-    case ST_ROW_ENCODE:  return env_str("VNC_MODE_FILE", "/run/rblive4/vnc.mode");
-    case ST_ROW_POINTER: return env_str("VNC_INPUT_FILE", "/run/rblive4/vnc.input");
+    case ST_ROW_MIXER:   return env_str("MIXER_MODE_FILE", "/run/rbp/mixer.mode");
+    case ST_ROW_SHARE:   return env_str("VNC_LIVE_FILE", "/run/rbp/vnc.live");
+    case ST_ROW_ENCODE:  return env_str("VNC_MODE_FILE", "/run/rbp/vnc.mode");
+    case ST_ROW_POINTER: return env_str("VNC_INPUT_FILE", "/run/rbp/vnc.input");
     /* THE HDMI MIRROR'S ON/OFF -- audioshim's mirror_switch_tick() reads it while the unit
      * plays; "off" closes the mirror and anything else, or no file, leaves it on. */
-    case ST_ROW_MIRROR:  return env_str("AUDIO_MIRROR_FILE", "/run/rblive4/mirror.mode");
+    case ST_ROW_MIRROR:  return env_str("AUDIO_MIRROR_FILE", "/run/rbp/mirror.mode");
     /* THE TWO DECK ROWS WRITE THE LIVE PAIR MAP -- audioshim's own switch, read by
      * pairs_tick() while the unit plays. The word they write is a whole AUDIO_MAP line
      * ("deck1=4,5;deck2=2,3"), which is why the row's answer is composed there and written
      * here verbatim: this file is the switch's path and nothing else. */
     case ST_ROW_DECK1:
-    case ST_ROW_DECK2:   return env_str("AUDIO_MAP_FILE", "/run/rblive4/audio.map");
+    case ST_ROW_DECK2:   return env_str("AUDIO_MAP_FILE", "/run/rbp/audio.map");
     default:             return 0;
     }
 }
@@ -1146,7 +1146,7 @@ __attribute__((constructor)) static void settings_layout_init(void)
                        atoi(env_str("SETTINGS_VNC", "0")) != 0);
 }
 
-/* THE DECK PAIRS AND THE CARD'S WIDTH, out of /run/rblive4/audio.state -- audioshim's own
+/* THE DECK PAIRS AND THE CARD'S WIDTH, out of /run/rbp/audio.state -- audioshim's own
  * publish -- and NOT out of the live map file this row writes.
  *
  * THE ROW MUST SHOW WHAT THE UNIT IS DOING, which is the mixer row's rule and applies here for
@@ -1165,7 +1165,7 @@ static void settings_read_astate(struct settings_state *S)
     int fd, n;
     int ch = 0, a1 = 0, b1 = 0, a2 = 0, b2 = 0;
 
-    fd = real_open(env_str("AUDIO_STATE_FILE", "/run/rblive4/audio.state"), O_RDONLY, 0);
+    fd = real_open(env_str("AUDIO_STATE_FILE", "/run/rbp/audio.state"), O_RDONLY, 0);
     if (fd < 0)
         return;
     n = (int)real_read(fd, buf, sizeof buf - 1);

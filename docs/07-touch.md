@@ -108,7 +108,7 @@ maths were split into separate files with separate env knobs. The procedure is
 measurement:
 
 ```sh
-POINT_DEBUG=1 POINT_KIND=rel POINT_DEV=/dev/input/event2 sh /opt/rblive4/start-rb.sh
+POINT_DEBUG=1 POINT_KIND=rel POINT_DEV=/dev/input/event2 sh /opt/rbp/start-rb.sh
 #   then click the four corners of the UI and read /tmp/pointsrc.log
 ```
 
@@ -1426,7 +1426,7 @@ this flicker; it is the worst setting measured.** The cure has to stop the band 
 erased — F5, or a presenter — and no tick is a substitute for it.
 
 *The instrument was stale on the first attempt and nearly produced a plausible wrong
-answer.* `/opt/rblive4/fbpanel` was built 2026-09-29 12:44, **before** `PANEL_ROWS`
+answer.* `/opt/rbp/fbpanel` was built 2026-09-29 12:44, **before** `PANEL_ROWS`
 was halved to 56, and it announced itself as `panel rows 0..111`: it read rows 110-111
 — 56 rows *below* the 56-row panel — as the bottom border, so the bottom pair was
 never ours and the trace came back as a `T`/`.` storm reading `duty 0.0%, bottom
@@ -1509,7 +1509,7 @@ magenta, its solid and the other side flickers"*. One half of one strip, one pro
 both regimes — so the flicker is not a property of the panel, of the tick, or of the
 band's content, and the cure is to stop the band being rbp's drawing at all. The drill
 is `work/drmbar.sh`; it is not installed at boot, so a reboot always clears it, and
-`pkill -x drmplane` (or `/opt/rblive4/drmplane off`) clears it sooner.
+`pkill -x drmplane` (or `/opt/rbp/drmplane off`) clears it sooner.
 
 **What the follow-on costs is smaller than it looks, and one measured detail is why.**
 The band is drawn by `menu_paint.c` in the *framebuffer's* pixel format, which on this
@@ -2386,7 +2386,7 @@ but the shared array the mixer reads, taken out of the running process:
 pointsrc: side left  fader ch1 -> 0
 pointsrc: side right fader ch2 -> 1023
 
-$ readelf -sW /opt/rblive4/fbshim.so | grep -w 'g_fader'      # -> live at 0xf788e2b8
+$ readelf -sW /opt/rbp/fbshim.so | grep -w 'g_fader'      # -> live at 0xf788e2b8
 g_fader      (1023, 0, 1023)      # [master, ch1, ch2] -- ch1 held at ZERO
 g_fader_seen (   0, 1,    1)      # both channel faders claimed by the drawer
 ```
@@ -3346,7 +3346,7 @@ icon"*. Until this shipped, the mixer route could only be changed from `confscre
 a laptop, and the three viewer switches ([09](09-audio.md), [20](20-config-page.md)) were
 the page's business alone.
 
-**The switch is a file, and it was already live.** `/run/rblive4/mixer.mode` is one word
+**The switch is a file, and it was already live.** `/run/rbp/mixer.mode` is one word
 and a newline; `audioshim.c`'s `mixer_route_tick()` re-reads it every ~512 audio blocks
 (~0.7 s) and re-walks the USB bus every ~6 s while the unit plays. So the panel needed
 **no new audio machinery and no restart** — a row does exactly what the config page does,
@@ -3422,7 +3422,7 @@ opens a box any more — the two USB rows do their work in place, on the hold �
 | `SHARE` | `ON` / `OFF` | always | writes `vnc.live` | — |
 | `ENCODE` | `RAW` / `HWJPEG` | always | writes `vnc.mode` | — |
 | `POINTER INJECT` | `ON` / `OFF` | always | writes `vnc.input` | — |
-| `DECK 1 PAIR` | that deck's channels, e.g. `2-3` | always | writes `/run/rblive4/audio.map` | — |
+| `DECK 1 PAIR` | that deck's channels, e.g. `2-3` | always | writes `/run/rbp/audio.map` | — |
 | `DECK 2 PAIR` | ...the same for deck 2 | always | ...**naming both decks** | — |
 
 **The two deck rows are the pair map on the glass** (2026-10-15), and they exist because the
@@ -3448,7 +3448,7 @@ free pair; in internal mode the deck taps are not used, so a deck parked there i
 than harmful. The operator's question — *"why doesn't the euphonia have 1/2 as deck pairs
 also"* — is what found it.
 
-The readout comes from `/run/rblive4/audio.state` — the **resolved** map — so the row shows what
+The readout comes from `/run/rbp/audio.state` — the **resolved** map — so the row shows what
 the unit is doing, which is the mixer row's own rule, and it draws a **dash and not the file's
 comma** because menu_font.h's atlas has no comma and a value with one in it would ship as a gap.
 
@@ -3566,7 +3566,7 @@ rows, and the new width floor.
 
 **Not yet run on the glass.** The panel has not been deployed or tapped on the operator's
 unit as of 2026-10-14 — the plan's own on-glass drill (swipe down, tap the gear, watch a
-row read, `cat /run/rblive4/mixer.mode`, and `audioshim.log`'s `mixer route -> EXTERNAL`
+row read, `cat /run/rbp/mixer.mode`, and `audioshim.log`'s `mixer route -> EXTERNAL`
 within a second) is what is owed, and a plane-drawn surface must be checked **on the
 screen** and not in a VNC client ([13](13-raspberrypi4.md)).
 

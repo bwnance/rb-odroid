@@ -1,8 +1,8 @@
 #!/bin/sh
-# doctor.sh — check a deployed rblive4 unit and report on it. Changes NOTHING.
+# doctor.sh — check a deployed rbp unit and report on it. Changes NOTHING.
 #
-#   sh /opt/rblive4/doctor.sh
-#   RB_DEPLOY_ROOT=/srv/rblive4 sh doctor.sh
+#   sh /opt/rbp/doctor.sh
+#   RB_DEPLOY_ROOT=/srv/rbp sh doctor.sh
 #   sh install.sh doctor            # same thing, via the installer's entry point
 #
 # Exit status: 0 if nothing failed, 1 if something did. Warnings alone do not
@@ -68,7 +68,7 @@ fix() {
 
 # RB_DEPLOY_ROOT goes first because rb.conf uses it to find rb.local.conf, and
 # rb.local.conf is where this unit's measured overrides live.
-RB_DEPLOY_ROOT="${RB_DEPLOY_ROOT:-/opt/rblive4}"
+RB_DEPLOY_ROOT="${RB_DEPLOY_ROOT:-/opt/rbp}"
 RB_CONF_FILE="${RB_CONF_FILE:-$HERE/rb.conf}"
 [ -f "$RB_CONF_FILE" ] || RB_CONF_FILE="$RB_DEPLOY_ROOT/rb.conf"
 
@@ -568,25 +568,25 @@ done
 # --- 7. the service, and what is ACTUALLY running ---------------------------
 
 hdr 7 "the service, and the build actually loaded"
-if [ -f /etc/systemd/system/rblive4.service ]; then
-	_um=$(stat -c '%a' /etc/systemd/system/rblive4.service 2>/dev/null || echo '?')
+if [ -f /etc/systemd/system/rbp.service ]; then
+	_um=$(stat -c '%a' /etc/systemd/system/rbp.service 2>/dev/null || echo '?')
 	if [ "$_um" = "644" ]; then
-		ok "rblive4.service installed, mode 644"
+		ok "rbp.service installed, mode 644"
 	else
-		warn "rblive4.service mode is $_um (644 is what install.sh sets)"
+		warn "rbp.service mode is $_um (644 is what install.sh sets)"
 	fi
 else
-	bad "/etc/systemd/system/rblive4.service is not installed"
-	fix "sh $RB_DEPLOY_ROOT/install.sh   # or: systemctl enable --now rblive4"
+	bad "/etc/systemd/system/rbp.service is not installed"
+	fix "sh $RB_DEPLOY_ROOT/install.sh   # or: systemctl enable --now rbp"
 fi
 
 if command -v systemctl >/dev/null 2>&1; then
-	_en=$(systemctl is-enabled rblive4.service 2>/dev/null || echo unknown)
+	_en=$(systemctl is-enabled rbp.service 2>/dev/null || echo unknown)
 	if [ "${RB_AUTOSTART:-1}" = "1" ]; then
 		case "$_en" in
 			enabled) ok "enabled (RB_AUTOSTART=1) — the player starts at boot";;
 			*)       bad "RB_AUTOSTART=1 in rb.conf but the unit is '$_en' — it will not start at boot"
-			         fix "systemctl enable rblive4";;
+			         fix "systemctl enable rbp";;
 		esac
 	else
 		case "$_en" in
@@ -607,7 +607,7 @@ fi
 #     word "password" in the error it shows;
 #   * a control file holding something the server will not parse, so a change made
 #     on the web page silently did nothing.
-if [ "${RB_VNC:-0}" = "1" ] || [ -f /etc/systemd/system/rblive4-vnc.service ]; then
+if [ "${RB_VNC:-0}" = "1" ] || [ -f /etc/systemd/system/rbp-vnc.service ]; then
 	VNC_BIN="$RB_DEPLOY_ROOT/vncserve/vncserve"
 	if [ -x "$VNC_BIN" ]; then
 		ok "vncserve built on the unit: $VNC_BIN"
@@ -620,22 +620,22 @@ if [ "${RB_VNC:-0}" = "1" ] || [ -f /etc/systemd/system/rblive4-vnc.service ]; t
 	fi
 
 	if command -v systemctl >/dev/null 2>&1; then
-		if [ -f /etc/systemd/system/rblive4-vnc.service ]; then
-			_ven=$(systemctl is-enabled rblive4-vnc.service 2>/dev/null || echo unknown)
+		if [ -f /etc/systemd/system/rbp-vnc.service ]; then
+			_ven=$(systemctl is-enabled rbp-vnc.service 2>/dev/null || echo unknown)
 			if [ "${RB_VNC:-0}" = "1" ]; then
 				case "$_ven" in
-					enabled) ok "rblive4-vnc.service enabled — the screen is on port ${RB_VNC_PORT:-5900}";;
-					*)       bad "RB_VNC=1 but rblive4-vnc.service is '$_ven'";
-					         fix "systemctl enable --now rblive4-vnc";;
+					enabled) ok "rbp-vnc.service enabled — the screen is on port ${RB_VNC_PORT:-5900}";;
+					*)       bad "RB_VNC=1 but rbp-vnc.service is '$_ven'";
+					         fix "systemctl enable --now rbp-vnc";;
 				esac
 			else
 				case "$_ven" in
-					enabled) warn "rblive4-vnc.service is enabled but RB_VNC=${RB_VNC} — the next install will disable it";;
-					*)       ok "rblive4-vnc.service disabled (RB_VNC=${RB_VNC})";;
+					enabled) warn "rbp-vnc.service is enabled but RB_VNC=${RB_VNC} — the next install will disable it";;
+					*)       ok "rbp-vnc.service disabled (RB_VNC=${RB_VNC})";;
 				esac
 			fi
 		elif [ "${RB_VNC:-0}" = "1" ]; then
-			bad "RB_VNC=1 but /etc/systemd/system/rblive4-vnc.service is not installed"
+			bad "RB_VNC=1 but /etc/systemd/system/rbp-vnc.service is not installed"
 			note "install.sh installs it only when the binary exists, so the two are"
 			note "missing together."
 			fix "sh $RB_DEPLOY_ROOT/install.sh"
@@ -659,7 +659,7 @@ if [ "${RB_VNC:-0}" = "1" ] || [ -f /etc/systemd/system/rblive4-vnc.service ]; t
 		# placeholder is not just a look at the screen, it is the decks. Read the
 		# way the server reads it (the switch file wins wherever it exists; the
 		# config is only the seed for a file that is not there yet).
-		_vi_file="${RB_VNC_INPUT_FILE:-/run/rblive4/vnc.input}"
+		_vi_file="${RB_VNC_INPUT_FILE:-/run/rbp/vnc.input}"
 		if [ -f "$_vi_file" ]; then
 			_vi=$(tr -d ' \t\r\n' < "$_vi_file" 2>/dev/null | tr 'A-Z' 'a-z')
 		else
@@ -728,10 +728,10 @@ if [ "${RB_VNC:-0}" = "1" ] || [ -f /etc/systemd/system/rblive4-vnc.service ]; t
 			note "the noVNC page and websockify come from the distribution:"
 			fix "apt-get install novnc websockify && sh $RB_DEPLOY_ROOT/install.sh"
 		else
-			_wb=$(systemctl is-active rblive4-webvnc.service 2>/dev/null)
+			_wb=$(systemctl is-active rbp-webvnc.service 2>/dev/null)
 			if [ "$_wb" != "active" ]; then
-				warn "rblive4-webvnc.service is $_wb"
-				fix "systemctl enable --now rblive4-webvnc"
+				warn "rbp-webvnc.service is $_wb"
+				fix "systemctl enable --now rbp-webvnc"
 			else
 				note "web client up on :${RB_VNC_WEB_PORT:-5903} -- the password is the
   viewer's, and sharing must be ON or a browser connection fails (that is the gate)"
@@ -759,7 +759,7 @@ if [ "${RB_VNC:-0}" = "1" ] || [ -f /etc/systemd/system/rblive4-vnc.service ]; t
 	# Read exactly as the server reads it (vnc_mode_parse): blanks and case are
 	# forgiven, anything that is not raw/hwjpeg is refused and the running mode is
 	# kept. A file holding junk therefore looks like a switch that does nothing.
-	VNC_MODE_FILE="${RB_VNC_MODE_FILE:-/run/rblive4/vnc.mode}"
+	VNC_MODE_FILE="${RB_VNC_MODE_FILE:-/run/rbp/vnc.mode}"
 	if [ -f "$VNC_MODE_FILE" ]; then
 		_vm=$(tr -d ' \t\r\n' < "$VNC_MODE_FILE" 2>/dev/null | tr 'A-Z' 'a-z')
 		case "$_vm" in
@@ -794,52 +794,52 @@ fi
 #   * the unit disabled while RB_BOOTSCREEN=1, so the gap stays black;
 #   * the rendezvous directory absent, so the launcher's first boot.log lines die
 #     (rb_bootmsg mkdir -p's defensively, so this is belt, not the only hold-up).
-BOOT_UNIT=/etc/systemd/system/rblive4-boot.service
+BOOT_UNIT=/etc/systemd/system/rbp-boot.service
 if [ -f "$BOOT_UNIT" ]; then
 	_bum=$(stat -c '%a' "$BOOT_UNIT" 2>/dev/null || echo '?')
 	if [ "$_bum" = "644" ]; then
-		ok "rblive4-boot.service installed, mode 644"
+		ok "rbp-boot.service installed, mode 644"
 	else
-		warn "rblive4-boot.service mode is $_bum (644 is what install.sh sets)"
+		warn "rbp-boot.service mode is $_bum (644 is what install.sh sets)"
 	fi
 	if command -v python3 >/dev/null 2>&1; then
 		ok "python3 present ($(command -v python3)) — the screen can run"
 	else
-		bad "python3 is not installed — ConditionPathExists skips rblive4-boot in silence"
+		bad "python3 is not installed — ConditionPathExists skips rbp-boot in silence"
 		note "the player is unaffected; the boot screen simply never appears."
-		fix "apt-get install python3 && systemctl restart rblive4-boot"
+		fix "apt-get install python3 && systemctl restart rbp-boot"
 	fi
 	if command -v systemctl >/dev/null 2>&1; then
-		_ben=$(systemctl is-enabled rblive4-boot.service 2>/dev/null || echo unknown)
+		_ben=$(systemctl is-enabled rbp-boot.service 2>/dev/null || echo unknown)
 		if [ "${RB_AUTOSTART:-1}" = "1" ] && [ "${RB_BOOTSCREEN:-1}" = "1" ]; then
 			case "$_ben" in
 				enabled) ok "enabled — the boot screen draws from first light (RB_BOOTSCREEN=1)";;
-				*)       bad "RB_BOOTSCREEN=1 but rblive4-boot.service is '$_ben'"
-				         fix "systemctl enable rblive4-boot";;
+				*)       bad "RB_BOOTSCREEN=1 but rbp-boot.service is '$_ben'"
+				         fix "systemctl enable rbp-boot";;
 			esac
 		else
 			case "$_ben" in
-				enabled) warn "rblive4-boot.service is enabled but RB_BOOTSCREEN=${RB_BOOTSCREEN:-1}/RB_AUTOSTART=${RB_AUTOSTART:-1} — the next install will disable it";;
+				enabled) warn "rbp-boot.service is enabled but RB_BOOTSCREEN=${RB_BOOTSCREEN:-1}/RB_AUTOSTART=${RB_AUTOSTART:-1} — the next install will disable it";;
 				*)       ok "disabled (RB_BOOTSCREEN=${RB_BOOTSCREEN:-1}, RB_AUTOSTART=${RB_AUTOSTART:-1})";;
 			esac
 		fi
 	fi
 else
-	warn "/etc/systemd/system/rblive4-boot.service is not installed — no boot screen"
+	warn "/etc/systemd/system/rbp-boot.service is not installed — no boot screen"
 	note "install.sh installs and enables it with the player (RB_BOOTSCREEN=1)."
 	fix "sh $RB_DEPLOY_ROOT/install.sh"
 fi
-if [ -f /etc/tmpfiles.d/rblive4.conf ]; then
-	ok "tmpfiles.d/rblive4.conf present — /run/rblive4 exists from sysinit"
+if [ -f /etc/tmpfiles.d/rbp.conf ]; then
+	ok "tmpfiles.d/rbp.conf present — /run/rbp exists from sysinit"
 else
-	warn "no /etc/tmpfiles.d/rblive4.conf — the launcher's first boot.log lines can race the directory"
+	warn "no /etc/tmpfiles.d/rbp.conf — the launcher's first boot.log lines can race the directory"
 	note "rb_bootmsg mkdir -p's defensively, so this is belt rather than the only"
 	note "thing holding the directory up; install.sh installs the drop-in."
 	fix "sh $RB_DEPLOY_ROOT/install.sh"
 fi
 # The screen's own word on what it did last boot — a breadcrumb, never a fault.
-if [ -f /run/rblive4/boot.stage ]; then
-	note "last boot-screen stage: $(cat /run/rblive4/boot.stage 2>/dev/null)"
+if [ -f /run/rbp/boot.stage ]; then
+	note "last boot-screen stage: $(cat /run/rbp/boot.stage 2>/dev/null)"
 fi
 
 # pids_matching, not `ps | awk`: the same lookup start-rb.sh uses (start-rb.sh:269),
@@ -857,7 +857,7 @@ fi
 if [ -z "$RBPID" ]; then
 	warn "rbp is not running (${RB_PLAYER:-?})"
 	note "nothing below can report a loaded build; start it with"
-	note "  systemctl start rblive4"
+	note "  systemctl start rbp"
 else
 	_started=$(stat -c '%y' "/proc/$RBPID" 2>/dev/null | cut -d. -f1 || echo '?')
 	ok "rbp is running: pid $RBPID, started $_started"

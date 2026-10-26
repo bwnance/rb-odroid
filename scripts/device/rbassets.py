@@ -5,7 +5,7 @@
    rbp's first frame, so the start-up's half-made screens and the blue hot cue
    pads are never seen -- operator, 2026-10-26). This writes the picture it draws:
 
-       /run/rblive4/splash.rgb565   "RBSPLSH1", u16 width, u16 height, then
+       /run/rbp/splash.rgb565   "RBSPLSH1", u16 width, u16 height, then
                                     width x height RGB565 pixels, little-endian
 
    from RB_SPLASH_IMAGE (a PNG: 8-bit grey, grey+alpha, RGB or RGBA, not

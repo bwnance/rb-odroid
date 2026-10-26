@@ -6,7 +6,7 @@
  * setting that lives only in the process's memory is a setting the operator has to
  * make again every time. So the choice is a file on disk, re-read as it changes.
  *
- * /run/rblive4/vnc.mode is the project's own idiom for exactly this -- /tmp/udev_usb1
+ * /run/rbp/vnc.mode is the project's own idiom for exactly this -- /tmp/udev_usb1
  * is the same shape -- and /run is the right directory for it because the setting
  * describes the running system and not the installed one. A reboot may clear it; that
  * is what the default in rb.conf is for.
@@ -20,7 +20,7 @@
 #define VNC_MODE_RAW     0
 #define VNC_MODE_HWJPEG  1
 
-#define VNC_MODE_PATH    "/run/rblive4/vnc.mode"
+#define VNC_MODE_PATH    "/run/rbp/vnc.mode"
 
 struct vnc_mode {
     const char *path;

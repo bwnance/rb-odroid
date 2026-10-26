@@ -41,7 +41,7 @@ static const uint32_t ut_lit_rows = 0x0013d9e4;
 #define UTIL_SETLINE_MIXERCATEGORY 0x0013aae8u
 #define UTIL_SETLINE_BLANK  0x0013a9b4u
 
-#define MIRROR_FILE_DEFAULT "/run/rblive4/mirror.mode"
+#define MIRROR_FILE_DEFAULT "/run/rbp/mirror.mode"
 #define UT_LINE_LEN   32                  /* +32 the length, +34 the text */
 #define UT_LINE_TEXT  34
 #define UT_LINE_BYTES 512

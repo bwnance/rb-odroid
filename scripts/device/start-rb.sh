@@ -71,7 +71,7 @@ if [ "${RB_DISABLE_GETTY:-0}" = "1" ]; then
     # Guarded on is-enabled, NOT is-active. `Conflicts=` does not disable: getty
     # that is enabled but momentarily INACTIVE is exactly the state that must be
     # caught, or the enablement symlink stays, getty.target starts it near
-    # multi-user, the bidirectional conflict stops rblive4, and Restart=always
+    # multi-user, the bidirectional conflict stops rbp, and Restart=always
     # undoes that ten seconds at a time. Never MASK it either — masking breaks
     # the documented console-recovery idiom `systemctl start getty@tty1`.
     if [ "$(systemctl is-enabled getty@tty1 2>/dev/null)" != "disabled" ]; then
@@ -311,7 +311,7 @@ rm -f /tmp/displaywatch.geom
 # injection) and it needs the same paths vnc-run.sh uses. They arrive by this loop's
 # own rule -- `RB_VNC_LIVE_FILE` in rb.conf becomes `VNC_LIVE_FILE` in the shim's
 # environment -- and an empty or unset one is not a problem: env_str() falls back to
-# the /run/rblive4 default, so the panel writes where the viewer reads either way.
+# the /run/rbp default, so the panel writes where the viewer reads either way.
 SHIM_VARS="
 DFB_PRESENT DFB_ROTATE PAN_PACER_MS FB_DEV FB_LIE_BPP DRM_CARD FB_VBLANK
 DFB_PRESENT_AUTO DFB_PRESENT_FIT DFB_PRESENT_SKIP DFB_PRESENT_PX_BUDGET
@@ -435,14 +435,14 @@ fi
 
 # --- 8b. the start-up pictures ----------------------------------------------
 # rbassets.py writes the splash fbshim.so draws over rbp's first seconds
-# (RB_SPLASH_IMAGE, or rbp's own rekordbox logo) to /run/rblive4, and makes rbp's
+# (RB_SPLASH_IMAGE, or rbp's own rekordbox logo) to /run/rbp, and makes rbp's
 # own TRANS picture read TRANNY. Before the launch, because rbp reads its pictures
 # at start; it never fails the start.
 if [ -f "$HERE/rbassets.py" ] && command -v python3 >/dev/null 2>&1; then
-    mkdir -p /run/rblive4
+    mkdir -p /run/rbp
     python3 "$HERE/rbassets.py" \
         --imagedata "$RB_CHROOT/root/gui/pset/imagedata/imagedata.dat" \
-        --splash-out /run/rblive4/splash.rgb565 \
+        --splash-out /run/rbp/splash.rgb565 \
         --splash-image "${RB_SPLASH_IMAGE:-}" \
         --tranny "${RB_FX_TRANNY:-1}" >&2 || true
 fi

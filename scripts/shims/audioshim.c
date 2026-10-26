@@ -138,9 +138,9 @@ static void alog(const char *fmt, ...)
  * a laptop was available the file was gone.
  *
  * THE SHIM CANNOT WRITE THE DEPLOY ROOT: it runs inside $RB_CHROOT, where only /dev, /proc,
- * /sys, /tmp and /run/rblive4 are bound ([[shims-see-the-chroots-filesystem]]). What it CAN
+ * /sys, /tmp and /run/rbp are bound ([[shims-see-the-chroots-filesystem]]). What it CAN
  * reach is the one file rbp itself was launched with -- start-rb.sh runs it as
- * `>>"$RBP_LOG" 2>&1`, so /opt/rblive4/log/rbp.log IS this process's stdout and stderr, on DISK,
+ * `>>"$RBP_LOG" 2>&1`, so /opt/rbp/log/rbp.log IS this process's stdout and stderr, on DISK,
  * and rotated to `rbp.log.prev` at every launch. So a decision line written to fd 2 outlives
  * the reboot and is readable afterwards with nothing but ssh.
  *
@@ -615,11 +615,11 @@ static int apply_audio_device(const char **why)
  * glibc 2.13 era), and there the plug advertises THE SAME ONE FORMAT as the hw
  * device and rejects everything else:
  *
- *   chroot /opt/rblive4/rbx3-run /tmp/pcmprobe plughw:CARD=vc4hdmi0,DEV=0 32 nonblock
+ *   chroot /opt/rbp/rbx3-run /tmp/pcmprobe plughw:CARD=vc4hdmi0,DEV=0 32 nonblock
  *     mask:          IEC958_SUBFRAME_LE
  *     set_format     FAILED  Invalid argument (-22)          # S24_3LE, and S16_LE
  *                                                            # and S24_LE likewise
- *   chroot /opt/rblive4/rbx3-run /tmp/pcmprobe plughw:CARD=vc4hdmi0,DEV=0 18 nonblock
+ *   chroot /opt/rbp/rbx3-run /tmp/pcmprobe plughw:CARD=vc4hdmi0,DEV=0 18 nonblock
  *     set_format ok … hw_params ok … negotiated: rate=44100 channels=2 period=256
  *     write ok
  *
@@ -1266,17 +1266,17 @@ static void parse_card_id(const char *dev)
  * to take. */
 /* Where the LIVE mixer-route switch lives when the conf does not name one. Same directory and
  * same one-word-and-newline shape as the viewer's switch files (RB_VNC_FPS_FILE and friends). */
-#define MIXER_MODE_FILE_DEFAULT "/run/rblive4/mixer.mode"
+#define MIXER_MODE_FILE_DEFAULT "/run/rbp/mixer.mode"
 
 /* The same shape for the pair map: one line of AUDIO_MAP grammar, and its ABSENCE means "keep
  * what we were started with" rather than "reset" -- the same rule the route's file follows, so
  * a unit nobody has switched behaves exactly as its conf says. */
-#define AUDIO_MAP_FILE_DEFAULT  "/run/rblive4/audio.map"
+#define AUDIO_MAP_FILE_DEFAULT  "/run/rbp/audio.map"
 
 /* And the HDMI mirror's on/off, the settings panel's HDMI AUDIO row: "off" closes the mirror
  * and anything else (or no file) leaves it to AUDIO_MIRROR_DEV, so a unit nobody has switched
  * mirrors exactly as its conf says. Re-read while the unit plays (mirror_switch_tick). */
-#define MIRROR_FILE_DEFAULT     "/run/rblive4/mirror.mode"
+#define MIRROR_FILE_DEFAULT     "/run/rbp/mirror.mode"
 
 static int read_switch_word(const char *path, char *out, size_t outsz);
 
@@ -1509,7 +1509,7 @@ static void load_config(void)
     /* AND NOW THE STATE FILE, which is the only place all of this is visible at once: the
      * rung above writes too, but it runs before the conf's map has been parsed, so its copy
      * reads channels=0 and a map of zeros. This one is the real picture, and it is what
-     * /run/rblive4/audio.state is for -- `cat` it from a laptop. */
+     * /run/rbp/audio.state is for -- `cat` it from a laptop. */
     astate_write(why, g_cfg.mixer_external ? "external" : "internal");
 }
 
@@ -1566,8 +1566,8 @@ static void clamp_pair(const char *what, struct pair *p)
  * A caller that forgot would route against the previous card's width. */
 /* WHAT THIS SHIM DECIDED, IN ONE FILE A HUMAN OR A PANEL CAN READ.
  *
- * /run/rblive4 is bound into the chroot (fix-dev.sh), so the shim can write it and the HOST
- * can read it -- `cat /run/rblive4/audio.state` over ssh is the whole point, and it is the
+ * /run/rbp is bound into the chroot (fix-dev.sh), so the shim can write it and the HOST
+ * can read it -- `cat /run/rbp/audio.state` over ssh is the whole point, and it is the
  * answer to the question that could not be asked on 2026-10-14: which card did it choose, by
  * which rung, against which map, and had it failed.
  *
@@ -1583,7 +1583,7 @@ static void clamp_pair(const char *what, struct pair *p)
  *
  * CALLED WHEN SOMETHING CHANGED, never per block: apply_audio_device() calls it on a device
  * change, resolve_pairs() when the map is settled, and the route tick on a transition. */
-#define ASTATE_PATH "/run/rblive4/audio.state"
+#define ASTATE_PATH "/run/rbp/audio.state"
 
 /* Set by flush_master(), which only the process rbp plays through ever reaches. Everything
  * else that loads this shim -- the bring-up helpers -- stays out of the state file. */
@@ -3815,7 +3815,7 @@ static void mirror_switch_tick(void)
  * AUDIO_MAP is an ENVIRONMENT VARIABLE, so its value is frozen when the player launches: that is
  * why the pair map was the one audio setting with no way in from the glass or the page, and why
  * changing it meant editing rb.local.conf and restarting the unit. The file named by
- * AUDIO_MAP_FILE (/run/rblive4/audio.map) lifts that. It holds ONE line of AUDIO_MAP grammar, so
+ * AUDIO_MAP_FILE (/run/rbp/audio.map) lifts that. It holds ONE line of AUDIO_MAP grammar, so
  * it overrides only what it names and every stream it leaves out keeps the value underneath it:
  *
  *     deck1=2,3;deck2=4,5

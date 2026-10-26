@@ -1,11 +1,11 @@
 [Unit]
-Description=rblive4 health watchdog (records why the unit wedges)
-Documentation=file:/opt/rblive4/log/health.log
+Description=rbp health watchdog (records why the unit wedges)
+Documentation=file:/opt/rbp/log/health.log
 After=multi-user.target
 
 [Service]
 Type=simple
-ExecStart=/bin/bash /opt/rblive4/healthwatch.sh
+ExecStart=/bin/bash /opt/rbp/healthwatch.sh
 Restart=always
 RestartSec=5
 

@@ -51,10 +51,10 @@ import subprocess
 #
 # `restart` says what has to happen for the value to take effect, and it is the honest
 # answer rather than a uniform one:
-#   player  -- the launcher reads the conf once at start, so rblive4 must restart
-#   viewer  -- vnc-run.sh reads it at start, so rblive4-vnc must restart
+#   player  -- the launcher reads the conf once at start, so rbp must restart
+#   viewer  -- vnc-run.sh reads it at start, so rbp-vnc must restart
 #   service -- an install-time decision (the unit's enablement), so systemctl enable/disable
-#   live    -- a /run/rblive4 control file; nothing restarts
+#   live    -- a /run/rbp control file; nothing restarts
 #   none    -- the page reads it live (the password the page itself checks)
 
 B = "bool"
@@ -89,18 +89,18 @@ SCHEMA = [
          label="Verbose shim logging",
          help="Umbrella flag for the per-module verbose flags. Writes megabytes to /tmp, "
               "which is a 1.9 GB tmpfs."),
-    dict(key="RB_VNC", group="basic", type=B, restart="service:rblive4-vnc", risk="low",
+    dict(key="RB_VNC", group="basic", type=B, restart="service:rbp-vnc", risk="low",
          label="Start the VNC viewer at boot",
          help="Whether the viewer service comes back after a power cut. Set by the "
               "enable/disable on its row under services -- this is the install-time mirror of "
               "that choice, which install.sh re-applies."),
-    dict(key="RB_VNC_WEB", group="basic", type=B, restart="service:rblive4-webvnc", risk="low",
+    dict(key="RB_VNC_WEB", group="basic", type=B, restart="service:rbp-webvnc", risk="low",
          label="Web client at boot",
          help="Whether the noVNC page on :5903 comes back after a power cut. Set by the "
               "enable/disable on its row under services -- this is the install-time mirror of "
               "that choice. It is ALSO gated on the viewer: with RB_VNC=0 there is no RFB port "
               "for the bridge to reach, so an install disables it again."),
-    dict(key="RB_BOOTSCREEN", group="basic", type=B, restart="service:rblive4-boot", risk="low",
+    dict(key="RB_BOOTSCREEN", group="basic", type=B, restart="service:rbp-boot", risk="low",
          label="Boot progress screen",
          help="Draws the launcher's stages on the framebuffer from first light until rbp "
               "paints its first frame."),

@@ -36,7 +36,7 @@
 #       RB_BOOT_FORMAT      rpi (cmdline.txt + config.txt, the default) or
 #                           armbian (the extraargs= line of armbianEnv.txt, no
 #                           config.txt) -- rb.conf picks it from RB_BOARD
-#       RB_BOOT_TRIM_STATE  default /var/lib/rblive4/boot-trim.state
+#       RB_BOOT_TRIM_STATE  default /var/lib/rbp/boot-trim.state
 #       RB_BOOT_TRIM_FORCE=1  proceed past the cloud-init network pre-flight
 
 set -u
@@ -68,11 +68,11 @@ case "$BOOT_FORMAT" in
         CMDLINE="$BOOT_DIR/cmdline.txt"
         CONFIG="$BOOT_DIR/config.txt" ;;
 esac
-STATE="${RB_BOOT_TRIM_STATE:-/var/lib/rblive4/boot-trim.state}"
+STATE="${RB_BOOT_TRIM_STATE:-/var/lib/rbp/boot-trim.state}"
 CLOUD_MARKER=/etc/cloud/cloud-init.disabled
 CLOUD_UNITS="cloud-init-main cloud-init-local cloud-init-network cloud-config cloud-final"
 SEED_FILES="user-data meta-data network-config"
-UNIT_DST=/etc/systemd/system/rblive4.service
+UNIT_DST=/etc/systemd/system/rbp.service
 
 # The cmdline tokens and config.txt directives this trim ensures. Every one of
 # them was already present on the first unit it ran on except `quiet loglevel=3`
@@ -144,7 +144,7 @@ state_reverse() { state_lines | awk '{a[NR]=$0} END{for(i=NR;i>=1;i--) print a[i
 write_if_changed() {
     _p=$1
     _item=$2
-    _tmp="$_p.rblive4.new"
+    _tmp="$_p.rbp.new"
     cat > "$_tmp" || { warn "$_item: could not write $_tmp"; return 1; }
     if [ -f "$_p" ] && cmp -s "$_tmp" "$_p"; then
         rm -f "$_tmp"
@@ -215,7 +215,7 @@ svc_apply() {
         # Guarded on is-enabled, never is-active: `Conflicts=` does not disable.
         # A getty that is enabled-but-momentarily-inactive is exactly the state
         # that must be caught, or getty.target starts it near multi-user, the
-        # bidirectional conflict stops rblive4, and Restart=always undoes that
+        # bidirectional conflict stops rbp, and Restart=always undoes that
         # ten seconds at a time. Never MASK it either -- masking breaks the
         # documented console-recovery idiom `systemctl start getty@tty1`.
         if [ "$(unit_state getty@tty1)" = "disabled" ]; then
@@ -462,7 +462,7 @@ apt_apply() {
     for t in apt-daily.timer apt-daily-upgrade.timer; do
         d="/etc/systemd/system/$t.d"
         mkdir -p "$d" || { warn "apt: could not create $d"; continue; }
-        write_if_changed "$d/rblive4-defer.conf" apt <<'EOF'
+        write_if_changed "$d/rbp-defer.conf" apt <<'EOF'
 # Installed by rbpi4b's boot-trim.sh. Boot cost, not policy: Persistent=true
 # makes a missed window fire the moment the timer is activated, which is boot.
 # The calendar window is untouched, so the update still runs whenever the unit is
@@ -480,11 +480,11 @@ EOF
 apt_revert() {
     for t in apt-daily.timer apt-daily-upgrade.timer; do
         d="/etc/systemd/system/$t.d"
-        if [ -f "$d/rblive4-defer.conf" ]; then
-            rm -f "$d/rblive4-defer.conf" && say "apt: removed $d/rblive4-defer.conf"
+        if [ -f "$d/rbp-defer.conf" ]; then
+            rm -f "$d/rbp-defer.conf" && say "apt: removed $d/rbp-defer.conf"
             rmdir "$d" 2>/dev/null || true
         else
-            say "apt: $d/rblive4-defer.conf is not there"
+            say "apt: $d/rbp-defer.conf is not there"
         fi
     done
     systemctl daemon-reload 2>/dev/null || warn "apt: daemon-reload failed"
@@ -529,7 +529,7 @@ apt_status() {
 # restores the old ordering without touching the shipped unit — and survives a
 # later install.sh, which overwrites that file unconditionally. `apply unit`
 # removes the drop-in, so the two directions are each other's inverse.
-ORDER_DROPIN=/etc/systemd/system/rblive4.service.d/rblive4-wait-for-multi-user.conf
+ORDER_DROPIN=/etc/systemd/system/rbp.service.d/rbp-wait-for-multi-user.conf
 
 # Is the unit ordered behind multi-user.target — i.e. is the PRE-trim ordering in
 # force? Asked of systemd's merged view rather than by reading the two files,
@@ -543,7 +543,7 @@ ORDER_DROPIN=/etc/systemd/system/rblive4.service.d/rblive4-wait-for-multi-user.c
 # `unit_revert` a 0 is success and a 1 is failure — the opposite of most checks
 # here. The name is spelled out for that reason.
 unit_waits_for_multi_user() {
-    _a=$(systemctl show -p After --value rblive4.service 2>/dev/null)
+    _a=$(systemctl show -p After --value rbp.service 2>/dev/null)
     [ -n "$_a" ] || return 2
     case "$_a" in
         *multi-user.target*) return 0 ;;
@@ -564,14 +564,14 @@ unit_apply() {
         say "unit: the installed unit does not wait for multi-user.target"
         return 0
     fi
-    if [ -f "$HERE/rblive4.service" ] && ! grep -q '^After=multi-user.target' "$HERE/rblive4.service"; then
-        if install -m 644 -o root -g root "$HERE/rblive4.service" "$UNIT_DST"; then
+    if [ -f "$HERE/rbp.service" ] && ! grep -q '^After=multi-user.target' "$HERE/rbp.service"; then
+        if install -m 644 -o root -g root "$HERE/rbp.service" "$UNIT_DST"; then
             say "unit: installed the shipped unit (no After=multi-user.target)"
             systemctl daemon-reload 2>/dev/null || warn "unit: daemon-reload failed"
             state_add "unit installed $UNIT_DST"
             return 0
         fi
-        warn "unit: could not install $HERE/rblive4.service"
+        warn "unit: could not install $HERE/rbp.service"
         return 1
     fi
     warn "unit: $UNIT_DST still waits for multi-user.target, and the copy beside"
@@ -594,12 +594,12 @@ unit_revert() {
 # Installed by rbpi4b's boot-trim.sh, by `revert unit`. It puts the launcher
 # back behind multi-user.target -- the ordering the unit had before the boot trim.
 #
-# A drop-in rather than an edit to /etc/systemd/system/rblive4.service because
+# A drop-in rather than an edit to /etc/systemd/system/rbp.service because
 # After= is a LIST directive and drop-ins APPEND to list directives: this ADDS
 # multi-user.target back to an ordering the shipped unit no longer names, and it
 # therefore survives a later install.sh, which replaces that file unconditionally.
 #
-# Undo with: sh /opt/rblive4/boot-trim.sh apply unit
+# Undo with: sh /opt/rbp/boot-trim.sh apply unit
 [Unit]
 After=multi-user.target
 EOF
@@ -610,7 +610,7 @@ EOF
         warn "unit: the drop-in is written but systemd's merged After= does not name"
         warn "  multi-user.target, so the revert is not in force (helper returned $_rc:"
         warn "  1 = read the list and it was not there, 2 = could not read it)."
-        warn "  Check with: systemctl show -p After rblive4.service"
+        warn "  Check with: systemctl show -p After rbp.service"
         return 1
     fi
     say "unit: reverted -- the launcher waits for multi-user.target again"
@@ -634,12 +634,12 @@ unit_status() {
     unit_waits_for_multi_user
     case $? in
         1)  echo "  ok  no After=multi-user.target"
-            echo "      runs after: $(systemctl show -p After --value rblive4.service 2>/dev/null)"
+            echo "      runs after: $(systemctl show -p After --value rbp.service 2>/dev/null)"
             return 0 ;;
         0)  echo "  --  the unit file looks trimmed, but systemd's merged After= still"
             echo "      names multi-user.target -- something else is ordering it."
             return 1 ;;
-        *)  echo "  ??  could not read rblive4.service's After= list from systemd"
+        *)  echo "  ??  could not read rbp.service's After= list from systemd"
             return 1 ;;
     esac
 }
@@ -651,7 +651,7 @@ unit_status() {
 # operator's own cmdline.txt.bak-1080p idiom already on that partition.
 backup_once() {
     _f=$1
-    _b="$1.rblive4.bak"
+    _b="$1.rbp.bak"
     if [ -f "$_b" ]; then
         say "bootfiles: keeping the existing backup $_b"
     else
@@ -727,7 +727,7 @@ cmdline_apply() {
     set +f
     _out=${_out# }                           # strip the single leading space
 
-    _tmp="$CMDLINE.rblive4.new"
+    _tmp="$CMDLINE.rbp.new"
     cmdline_render "$_out" > "$_tmp" || { warn "bootfiles: could not write $_tmp"; return 1; }
 
     # Verify before replacing. A cmdline that boots is not something to discover
@@ -777,7 +777,7 @@ cmdline_apply() {
 # A token-at-a-time diff: on a one-line file a line diff is two 300-character
 # lines, which is not a diff anyone can read.
 cmdline_show_diff() {
-    _b="$CMDLINE.rblive4.bak"
+    _b="$CMDLINE.rbp.bak"
     [ -f "$_b" ] || return 0
     _t1=/tmp/boot-trim-old.$$
     _t2=/tmp/boot-trim-new.$$
@@ -821,7 +821,7 @@ config_apply() {
         return 0
     fi
 
-    _tmp="$CONFIG.rblive4.new"
+    _tmp="$CONFIG.rbp.new"
     {
         cat "$CONFIG"
         printf '\n# rbpi4b boot trim -- revert with: sh boot-trim.sh revert bootfiles\n'
@@ -838,8 +838,8 @@ config_apply() {
     fi
     mv "$_tmp" "$CONFIG" || { warn "bootfiles: could not replace $CONFIG"; return 1; }
     say "bootfiles: appended to $CONFIG"
-    echo "  --- $CONFIG.rblive4.bak  +++ $CONFIG"
-    diff -u "$CONFIG.rblive4.bak" "$CONFIG" 2>/dev/null | tail -n +3 | sed 's/^/  /' || true
+    echo "  --- $CONFIG.rbp.bak  +++ $CONFIG"
+    diff -u "$CONFIG.rbp.bak" "$CONFIG" 2>/dev/null | tail -n +3 | sed 's/^/  /' || true
     return 0
 }
 
@@ -853,7 +853,7 @@ bootfiles_apply() {
 bootfiles_revert() {
     _rc=0
     for f in "$CMDLINE" $CONFIG; do
-        _b="$f.rblive4.bak"
+        _b="$f.rbp.bak"
         if [ ! -f "$_b" ]; then
             say "bootfiles: no backup for $f -- nothing to restore"
             continue
@@ -920,10 +920,10 @@ bootfiles_status() {
     fi
     # Both files carry a backup exactly once, or the revert path is not there.
     for f in "$CMDLINE" $CONFIG; do
-        if [ -f "$f.rblive4.bak" ]; then
-            echo "  ok  backup: $f.rblive4.bak"
+        if [ -f "$f.rbp.bak" ]; then
+            echo "  ok  backup: $f.rbp.bak"
         else
-            echo "  --  no backup at $f.rblive4.bak"
+            echo "  --  no backup at $f.rbp.bak"
             _bad=1
         fi
     done
@@ -1016,7 +1016,7 @@ do_report() {
     #
     # The predecessor is NAMED per row rather than implied by print order, because
     # the print order that reads best is not a total order -- the two are only the
-    # same in the trimmed configuration. Measured counterexample: rblive4 starts
+    # same in the trimmed configuration. Measured counterexample: rbp starts
     # after basic.target in a trimmed boot (S11.5: 8.954 after 8.907) and after
     # multi-user.target in an untrimmed one (S11.6b: 13.953 after 13.950); and
     # multi-user.target precedes network-online.target in S11.6b (13.950 / 19.779)
@@ -1045,8 +1045,8 @@ do_report() {
     # differ and why only this one can settle what the console= tokens do.
     printf '%-14s %s\n' cmdline  "$(cat "$CMDLINE" 2>/dev/null)"
     printf '%-14s %s\n' cmdline-eff "$(cat /proc/cmdline 2>/dev/null)"
-    printf '%-14s %s\n' rb-conf  "$(sed -n 's/^RB_CONF_VERSION=//p' "${RB_CONF_FILE:-/opt/rblive4/rb.conf}" 2>/dev/null)"
-    printf '%-14s %s\n' shim     "$(sha256sum "${RB_DEPLOY_ROOT:-/opt/rblive4}/libdirectfb_fbdev-rot16.so" 2>/dev/null | cut -c1-12)"
+    printf '%-14s %s\n' rb-conf  "$(sed -n 's/^RB_CONF_VERSION=//p' "${RB_CONF_FILE:-/opt/rbp/rb.conf}" 2>/dev/null)"
+    printf '%-14s %s\n' shim     "$(sha256sum "${RB_DEPLOY_ROOT:-/opt/rbp}/libdirectfb_fbdev-rot16.so" 2>/dev/null | cut -c1-12)"
     echo
     echo "=== boot, seconds since boot (monotonic), one boot_id ==="
     # The order below is the dependency graph of the TRIMMED target, which is what
@@ -1058,7 +1058,7 @@ do_report() {
     #                (wait-online is the SERVICE and net-online the TARGET: the
     #                 service ACTIVATES before the target is REACHED)
     #   multi-user   basic -> multi-user   (NOT via net-online: measured both ways)
-    #   launcher     basic -> rblive4 -> launcher -> fix-dev -> rbp-launch ->
+    #   launcher     basic -> rbp -> launcher -> fix-dev -> rbp-launch ->
     #                rbp-ready -> usb-watch -> display-w
     #
     # The three chains are independent of each other in the trimmed target -- the
@@ -1069,8 +1069,8 @@ do_report() {
     row boot-fw   "$(ustamp boot-firmware.mount)"                  kernel
     row sysinit   "$(ustamp sysinit.target)"                      boot-fw
     row basic     "$(ustamp basic.target)"                        sysinit
-    row rblive4   "$(ustamp rblive4.service)"                     basic
-    row launcher  "$(ms 'start-rb: deploy root')"                 rblive4
+    row rbp   "$(ustamp rbp.service)"                     basic
+    row launcher  "$(ms 'start-rb: deploy root')"                 rbp
     row network   "$(ustamp network.target)"                      basic
     row wait-online "$(ustamp NetworkManager-wait-online.service)" network
     row net-online "$(ustamp network-online.target)"              wait-online

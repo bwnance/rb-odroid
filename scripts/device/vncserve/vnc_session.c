@@ -1389,7 +1389,7 @@ int vnc_session_run(const struct vnc_session_opts *o)
              * through the SAME tracker this loop reads, so the turn that mattered had
              * already moved live.on before the loop ever compared it, the two were
              * equal, and nothing was started. Measured on the unit 2026-10-09: button
-             * pressed, the page said on, /run/rblive4/vnc.live read `on` -- and the
+             * pressed, the page said on, /run/rbp/vnc.live read `on` -- and the
              * process held no framebuffer, no DRM node and no RFB listener at all.
              * A switch that reports on and does nothing is the worst of the answers.
              *
