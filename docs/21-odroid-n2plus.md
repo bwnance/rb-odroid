@@ -234,7 +234,14 @@ session; details further down):
    MPL; built armv7 softfp for the float work). The hook installs on the unit;
    not yet heard -- the FLX10 was off. Not validated on hardware by the toolkit
    either. Also to check: the audio thread keeps up (no dropouts).
-8. Parked: HOT CUE mode switch lag.
+8. **Accent-insensitive search -- built, to try with a touchscreen**
+   (2026-10-26): NINO finds NIÑO. searchfold.c (rx3-toolkit's search-latin,
+   MPL) detours shape() @0x1644fc, which makes the upper-cased copy of each
+   track's text rbp's search compares against, and folds Latin-1 letters in
+   it to plain ASCII -- returning shape()'s character count, which the toolkit
+   dropped and rbp's matchers use as the length. RB_SEARCH_FOLD=0 is off.
+   Installs on the unit; untested until something types into rbp's search.
+9. Parked: HOT CUE mode switch lag.
 
 Done 2026-10-26 (start-up splash, rbp's TRANS picture):
 - For RB_SPLASH_MS (5000) after rbp's first frame the screen shows a picture on

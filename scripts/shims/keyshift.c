@@ -4,7 +4,7 @@
  *
  * Adapted from rx3-toolkit (github.com/Tratosca/rx3-toolkit at cc17a1f,
  * MPL-2.0): mod/modules/keyshift/rx3_keyshift.h and _decl.h (the engines and the
- * audio hook) and mod/modules/core/services/rx3_hooks.c (the detour). This file
+ * audio hook); the detour is rbp_hook.c, from the toolkit's rx3_hooks.c. This file
  * stays under the MPL; the rest of this tree does not have to. Every address and
  * guard below was checked against the XDJ-RX3 1.20 rbp this port runs (sha1
  * 3513d34b..., which the toolkit lists as supported).
@@ -21,6 +21,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include "rbp_hook.h"       /* rbp_hook(): the detour */
 #include "rbp_key.h"        /* is_rbp_process() */
 #include "shimutil.h"       /* klog() */
 
@@ -73,51 +74,6 @@ struct deck {
 static struct deck decks[2] = { { .request = 12u }, { .request = 12u } };
 static operate_fn original_operate;
 static volatile int engines_built;
-
-/* ---- the detour (rx3_hooks.c's install_raw_hook) ---------------------------- */
-
-static int write_code(unsigned long addr, const void *src, size_t n)
-{
-    long pg = sysconf(_SC_PAGESIZE);
-    unsigned long page = addr & ~((unsigned long)pg - 1);
-    size_t span = (addr + n) - page;
-
-    if (mprotect((void *)page, span, PROT_READ | PROT_WRITE | PROT_EXEC))
-        return -1;
-    memcpy((void *)addr, src, n);
-    __builtin___clear_cache((char *)addr, (char *)addr + n);
-    mprotect((void *)page, span, PROT_READ | PROT_EXEC);
-    return 0;
-}
-
-/* The target's first two instructions into a trampoline that jumps back to
- * target+8, and the target replaced with a jump to `replacement`. The two
- * stolen here (push {r4-r8,lr}; mov r4,r0) have nothing pc-relative. */
-static void *hook(unsigned long target, const uint8_t guard[8], void *replacement)
-{
-    uint32_t *tramp, patch[2];
-
-    if (memcmp((const void *)target, guard, 8))
-        return NULL;
-    tramp = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (tramp == MAP_FAILED)
-        return NULL;
-    memcpy(tramp, (const void *)target, 8);
-    tramp[2] = 0xe51ff004u;                          /* ldr pc,[pc,#-4] */
-    tramp[3] = (uint32_t)(target + 8);
-    __builtin___clear_cache((char *)tramp, (char *)tramp + 16);
-    if (mprotect(tramp, 4096, PROT_READ | PROT_EXEC)) {
-        munmap(tramp, 4096);
-        return NULL;
-    }
-    patch[0] = 0xe51ff004u;
-    patch[1] = (uint32_t)(uintptr_t)replacement;
-    if (write_code(target, patch, sizeof patch)) {
-        munmap(tramp, 4096);
-        return NULL;
-    }
-    return tramp;
-}
 
 /* ---- the engines ------------------------------------------------------------ */
 
@@ -272,7 +228,7 @@ int keyshift_install(void)
         return 0;
     if (!is_rbp_process())
         return -1;
-    original_operate = (operate_fn)hook(TIMESTRETCH_MANAGER, timestretch_guard,
+    original_operate = (operate_fn)rbp_hook(TIMESTRETCH_MANAGER, timestretch_guard,
                                         (void *)hooked_operate);
     if (!original_operate) {
         klog("knobshim2: key shift: rbp's TimeStretchManager::operate is not the one "
