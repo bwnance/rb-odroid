@@ -797,6 +797,13 @@ static const signed char bfx_type_to_pos[15] = {
 #define PE_ISVINYLMODE     0x5e260
 #define PE_ISSLIPMODEON    0x5fc60
 #define PE_GETREVERSE      0x5e010   /* PlayEngine::getReverse(ch): Player+0xe9b */
+/* Player+0xe9b is the reverse ASKED for: Player::setReverse @0x6a5ec writes it
+ * at once, quantized or not. The reverse in EFFECT is Player+0xe9c, which
+ * setReverse_core @0x68b90 copies from +0xe9b when it applies it. A quantized
+ * slip reverse released (setReverse(false)) clears +0xe9b at once and leaves
+ * +0xe9c set until the slip end lands on the beat (endSlippingFromCallback
+ * @0x79500 clears both). */
+#define PLAYER_REVERSE_ON_OFF 0xe9c
 /* djengine::DjEngineIF setters that ignore `this` (each reloads the PlayEngine
  * singleton itself, as ADDR_ENGINE_CLEAR_HOTCUE does), called (NULL, ch, ...) */
 #define DJE_SET_SLIPMODE   0x4ae10   /* setSlipMode(EnPlayerChannel, bool) */

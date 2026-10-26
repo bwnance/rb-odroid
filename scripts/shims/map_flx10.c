@@ -576,10 +576,23 @@ __attribute__((weak)) int flx10_slip_mode(int deck)
      return pe ? ((int (*)(void *, int))PE_ISSLIPMODEON)(pe, deck) != 0 : 0;
 }
 
+static void *pe_player(int deck);
+
+/* Asked for OR still in effect (rbp_abi.h, PLAYER_REVERSE_ON_OFF). getReverse
+ * alone is only the asked-for half: with quantize on it reads clear the moment
+ * SLIP REVERSE is released while the deck goes on reversing to the next beat,
+ * and putting slip off then (setSlipMode(false) mid-slip is
+ * endSlippingToStayFg, which leaves the reverse alone) left the deck reversing
+ * for good (operator, 2026-10-25). */
 __attribute__((weak)) int flx10_reversing(int deck)
 {
-     void *pe = *(void **)PLAYENGINE_GLOBAL;
-     return pe ? (((int (*)(void *, int))PE_GETREVERSE)(pe, deck) & 0xff) != 0 : 0;
+     void *pe = *(void **)PLAYENGINE_GLOBAL, *player;
+     if (!pe)
+          return 0;
+     if (((int (*)(void *, int))PE_GETREVERSE)(pe, deck) & 0xff)
+          return 1;
+     player = pe_player(deck);
+     return player && *((unsigned char *)player + PLAYER_REVERSE_ON_OFF) != 0;
 }
 
 /* Slip mode straight into the engine (DjEngineIF::setSlipMode), at once:
@@ -609,17 +622,22 @@ __attribute__((weak)) void flx10_set_reverse(int deck, int on)
  * slip mode is put back as soon as the reverse is over: SLIP REVERSE is
  * "hold: slip on and reverse; release: reverse stops, slip off" (operator,
  * 2026-10-25 -- the old fixed 2 s watch left slip on for 2 s).
- *   reverse seen while held, or after the release: slip off once rbp's
- *     reverse flag has read clear for SLIPREV_CLEAR_TICKS ticks (the slip
- *     return lands with it);
+ *   reverse seen while held, or after the release: slip off once the deck
+ *     has read not reversing -- asked for nor in effect, flx10_reversing --
+ *     for SLIPREV_CLEAR_TICKS ticks. With quantize on the reverse goes on to
+ *     the next beat after the release and the slip return lands there
+ *     (endSlippingFromCallback clears both flags); slip put off before that
+ *     ends the slip and leaves the deck reversing. SLIPREV_MAX_MS caps the
+ *     wait (rbp's own slip reverse limit is 8 s, calcSlipReverseOffPoint);
  *   never seen (a tap released before a quantized reverse began): the watch
  *     lasts SLIPREV_PENDING_MS for the late start, then slip off. */
 #define SLIPREV_PENDING_MS 1000
 #define SLIPREV_CLEAR_TICKS 2
+#define SLIPREV_MAX_MS 10000
 static int rev_seen[2], rev_clear_n[2];
 static int rev_held[2], rev_forced_slip[2], rev_latched[2], rev_slip_restore[2];
 static unsigned long long rev_slip_off_at[2], rev_latched_at[2];
-static unsigned long long rev_watch_until[2], rev_stop_sent_at[2];
+static unsigned long long rev_watch_until[2], rev_stop_sent_at[2], rev_released_at[2];
 /* slip put back off, then checked: rbp sometimes kept slip on after a SLIP
  * REVERSE (operator, 2026-10-25) -- a setSlipMode(false) landing while the
  * deck is still slipping back seems not to take -- so it is re-checked
@@ -662,7 +680,8 @@ static void flx10_slip_reverse(int deck, int on)
           deck + 1, flx10_slip_mode(deck), rev_forced_slip[deck], flx10_reversing(deck));
      if (flx10_reversing(deck))
           rev_seen[deck] = 1;
-     rev_watch_until[deck] = shim_now_ms() + (rev_seen[deck] ? 1 : SLIPREV_PENDING_MS);
+     rev_released_at[deck] = shim_now_ms();
+     rev_watch_until[deck] = rev_released_at[deck] + (rev_seen[deck] ? 1 : SLIPREV_PENDING_MS);
      rev_clear_n[deck] = 0;
      rev_stop_sent_at[deck] = 0;
 }
@@ -707,13 +726,21 @@ static void flx10_rev_tick(unsigned long long t)
                rev_seen[d] = 1;
           if (rev_watch_until[d] && !rev_held[d] && !rev_latched[d]) {
                int r = flx10_reversing(d);
+               if (r && t - rev_released_at[d] >= SLIPREV_MAX_MS) {
+                    klog("knobshim2: flx10 deck%d SLIP REVERSE: still reversing %d ms "
+                         "after the release; giving up the wait\n", d + 1, SLIPREV_MAX_MS);
+                    r = 0;
+                    rev_seen[d] = 1;
+                    rev_clear_n[d] = SLIPREV_CLEAR_TICKS;
+               }
                if (r) {
                     rev_seen[d] = 1;
                     rev_clear_n[d] = 0;
                     if (t - rev_stop_sent_at[d] >= 100) {
                          if (!rev_stop_sent_at[d])
                               klog("knobshim2: flx10 deck%d SLIP REVERSE: still reversing "
-                                   "after the release (quantize); ending it\n", d + 1);
+                                   "after the release (quantize); ending it, slip "
+                                   "on until it is over\n", d + 1);
                          flx10_set_reverse(d, 0);
                          rev_stop_sent_at[d] = t;
                     }

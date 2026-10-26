@@ -61,9 +61,11 @@ int hotcue_delete(int deck, int pad) { deleted_deck = deck; deleted_pad = pad; r
 static int browse_mode = 1, usb1 = 1, cursor_track = 1;
 int flx10_cursor_is_track(void) { return cursor_track; }
 /* the engine, as SLIP REVERSE / REVERSE see it */
-static int slipmode[2], reversing[2], slip_sets, rev_sets;
+static int slipmode[2], reversing[2], rev_effect[2], slip_sets, rev_sets;
 int flx10_slip_mode(int d) { return slipmode[d]; }
-int flx10_reversing(int d) { return reversing[d]; }
+/* reversing: asked for (getReverse); rev_effect: still in effect after it was
+ * asked off -- a quantized release, until the beat */
+int flx10_reversing(int d) { return reversing[d] || rev_effect[d]; }
 void flx10_set_slip(int d, int on) { slipmode[d] = on; slip_sets++; }
 void flx10_set_reverse(int d, int on) { reversing[d] = on; rev_sets++; }
 static int bj_n, bj_deck[16], bj_t[16];
@@ -213,6 +215,31 @@ int main(void)
      /* a tap released before a quantized reverse began: the late reverse is
       * ended when it turns up, then slip goes off */
      reset(); ON(1, 21); OFF(1, 21);
+     /* quantize on: the release clears getReverse at once and the deck goes
+      * on reversing to the beat. Slip put off then left it reversing for good
+      * (operator, 2026-10-25): slip stays on until it is really over. */
+     reset(); ON(1, 21);
+     reversing[0] = 1; ms(20); map_flx10.tick();
+     reset(); OFF(1, 21);
+     reversing[0] = 0; rev_effect[0] = 1;
+     for (int i = 0; i < 5; i++) { ms(100); map_flx10.tick(); }
+     CHECK(slipmode[0] == 1, "quantize: slip kept on while the reverse runs to the beat");
+     CHECK(dk_note_v[0][21] == 0x7F, "quantize: LED lit while it still reverses");
+     rev_effect[0] = 0;                     /* the slip return landed on the beat */
+     ms(20); map_flx10.tick(); ms(20); map_flx10.tick(); ms(20); map_flx10.tick();
+     CHECK(slipmode[0] == 0, "quantize: slip off once the reverse is over");
+     for (int i = 0; i < 40; i++) { ms(100); map_flx10.tick(); }
+     /* ...and a reverse that never ends is not waited on for ever */
+     reset(); ON(1, 21);
+     reversing[0] = 1; ms(20); map_flx10.tick();
+     reset(); OFF(1, 21);
+     reversing[0] = 0; rev_effect[0] = 1;
+     for (int i = 0; i < 95; i++) { ms(100); map_flx10.tick(); }
+     CHECK(slipmode[0] == 1, "stuck reverse: still waiting inside 10 s");
+     for (int i = 0; i < 10; i++) { ms(100); map_flx10.tick(); }
+     CHECK(slipmode[0] == 0, "stuck reverse: slip off after 10 s");
+     rev_effect[0] = 0;
+     for (int i = 0; i < 40; i++) { ms(100); map_flx10.tick(); }
      ms(250); map_flx10.tick();
      CHECK(slipmode[0] == 1, "tap: slip kept while a late reverse may still come");
      reversing[0] = 1; rev_sets = 0; ms(20); map_flx10.tick();
