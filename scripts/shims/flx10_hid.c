@@ -176,8 +176,10 @@ void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
      if (tempo < -32768) tempo = -32768;
      p[23] = (unsigned char)(tempo & 0xff);
      p[24] = (unsigned char)((tempo >> 8) & 0xff);
-     /* (SLIP is not sent on an empty deck: [2] 0x01 in the empty packet lit
-      * every hot-cue pad white -- operator, 2026-10-25) */
+     /* SLIP shows on an empty deck too (the white hot-cue pads seen with it
+      * are not this bit: hid-scan.py --empty --set 2=01 lights no pads) */
+     if (s->slip)
+          p[2] |= 0x01;
      if (!s->loaded)
           return;
 

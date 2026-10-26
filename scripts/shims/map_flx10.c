@@ -583,9 +583,16 @@ __attribute__((weak)) int flx10_reversing(int deck)
      return pe ? (((int (*)(void *, int))PE_GETREVERSE)(pe, deck) & 0xff) != 0 : 0;
 }
 
+/* Slip mode is set the way the SLIP button sets it -- rbp's own SLIP key,
+ * a toggle, sent only when the engine's state differs. It used to be
+ * DjEngineIF::setSlipMode, straight into the engine: rbp's UI keeps its own
+ * slip flag, and slip set behind its back came back on after being put back
+ * off, or the put-back never landed (operator's logs, 2026-10-25). The key
+ * also runs on rbp's UI thread, in order with the REV key that follows. */
 __attribute__((weak)) void flx10_set_slip(int deck, int on)
 {
-     ((void (*)(void *, int, int))DJE_SET_SLIPMODE)(NULL, deck, on != 0);
+     if ((flx10_slip_mode(deck) != 0) != (on != 0))
+          pulse(K_SLIP, deck + 1);
 }
 
 __attribute__((weak)) void flx10_set_reverse(int deck, int on)
@@ -2476,7 +2483,7 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
                .loop_in_ms = di->loop_in_ms, .loop_out_ms = di->loop_out_ms,
                .loop_num = di->loop_num, .loop_den = di->loop_den,
                .on_air = di->on_air,
-               .slip = di->loaded && flx10_slip_mode(deck),
+               .slip = flx10_slip_mode(deck),
           };
           flx10_hid_update(deck, &hs);
      }

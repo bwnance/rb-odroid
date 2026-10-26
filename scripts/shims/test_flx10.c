@@ -771,7 +771,7 @@ int main(void)
                struct flx10_hid_deck e;
                memset(&e, 0, sizeof e);
                e.slip = 1; flx10_hid_state_pkt(p, 1, &e);
-               CHECK(p[2] == 0x00 && p[9] == 0x10, "no SLIP on an empty deck (it lit the pads)");
+               CHECK(p[2] == 0x01 && p[9] == 0x10, "SLIP on an empty deck too");
           }
           hs.end_caution = 1; flx10_hid_state_pkt(p, 1, &hs);
           CHECK(p[8] == 0x00, "track-end warning flash: the jog ring off ([8] 00)");
