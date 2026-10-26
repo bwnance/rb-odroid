@@ -403,7 +403,7 @@ tempo/range, loop size 1/128..512, cue marker, remaining/elapsed (follows
 rbp's time mode; SHIFT + 4 BEAT flips it), white edges = ON AIR, SLIP icon
 (empty decks too), track-end warning on the jog ring (rbp's own, slow at 30 s,
 fast at 15, not while paused); synced non-master deck shows its playing tempo
-and holds % / key while jogged; BEAT SYNC range fit (only widens); BEAT SYNC
+and holds % / key while jogged; BEAT SYNC range fit (follows the sync, floored at the deck's own range); BEAT SYNC
 button's off-beat blink slowed. The centre BEAT SYNC text: nothing lights it
 (full scan) -- dropped.
 
@@ -621,7 +621,8 @@ are the operator's table, agreed control by control on 2026-10-24:
 | PLAY, CUE / SHIFT + CUE | PLAY, CUE / back to the start: a seek straight to the auto cue point (the main cue when auto cue set it, else the top), play/pause kept, nothing repeats while held |
 | BEAT SYNC / SHIFT / held | SYNC / MASTER (tempo master) / **INST.DOUBLES** (the RX3 manual p. 74): the FLX10 sends note 120 for a hold, and rbp gets its own BEAT SYNC held 1.1 s; the FLX10's lone SYNC release after the hold is dropped. A copy of a paused deck is paused and put at the original's position (rbp starts it, from the top) |
 | KEY SYNC / held | nothing (rbp has no key sync) / MASTER TEMPO; SHIFT nothing |
-| TEMPO RESET / SHIFT | toggle: tempo held at 0.0%, fader ignored; off = back to the fader (LED lit while on) / TEMPO RANGE |
+| TEMPO RESET / SHIFT | toggle: tempo held at 0.0%, fader ignored; off = back to the fader (LED lit while on) / TEMPO RANGE -- on a deck synced to a master, never to a range too narrow for the sync: round past it to the next that holds, or nothing (no WIDE -> +-6 flash) |
+| (no control) BEAT SYNC tempo range | SYNC on widens the range first if the sync needs it. While synced and following, the range follows the need both ways -- master sped up, wider; slowed down, narrower -- never below the range the deck started on or was set to by hand since. The need is the master's playing BPM over the track's own (rbp's bpm_orig: the tempo % of a synced deck is its fader's, not the speed) |
 | TEMPO fader, jog (top press = touch, top spin, side ring) | the same |
 | SHIFT + 4 BEAT (loop section) | flip the deck's elapsed / remaining time (rbp's TIME MODE, `UiSetKeyTimeMode`; the jog screen follows) |
 | 4 BEAT JUMP < > / SHIFT | beat jump -4 / +4 beats / -16 / +16 beats (`DjEngineIF::playBeatJump`, paused or playing, one jump each) |

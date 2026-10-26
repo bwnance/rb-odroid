@@ -1157,40 +1157,144 @@ static int deck_mt[2];                     /* MASTER TEMPO on (struct deck_info'
 static int deck_speed[2];                  /* the speed it plays at, % x100 (flx10_shown_tempo) */
 static char deck_key[2][16];               /* rbp's key text for the deck, "" = none */
 static int deck_playing[2], deck_on_air[2];  /* struct deck_info's playing / on_air */
+static int deck_orig[2];                   /* the track's own BPM x100 (bpm_orig), 0 = unknown */
 
-/* BEAT SYNC turned on: the tempo range set first to the smallest that holds
- * the tempo the sync needs (operator, 2026-10-25) -- a 100 BPM track synced
- * to a 250 BPM master goes to WIDE. It only ever widens: a range already
- * wide enough is kept (operator, 2026-10-25). The need is the master's playing BPM over
- * this track's own (its playing BPM at its tempo %). Ranges +-6/10/16/WIDE
- * (100%) are getTempoRange 0..3, stepped by rbp's TEMPO RANGE key, which
- * goes round them in that order. Nothing when there is no other deck that is
- * master, or a BPM is unknown. */
-static void flx10_sync_fit_range(int deck)
+/* BEAT SYNC's tempo range. The NEED is the master's playing BPM over this
+ * track's own (its playing BPM at its tempo %), as the smallest range that holds
+ * it -- a 100 BPM track synced to a 250 BPM master needs WIDE. Ranges
+ * +-6/10/16/WIDE (100%) are getTempoRange 0..3, stepped by rbp's TEMPO RANGE key,
+ * which goes round them in that order (so WIDE -> +-10 is two steps).
+ *
+ * SYNC pressed on: the range widened first if the need is wider (operator,
+ * 2026-10-25), never narrowed. Then, while synced and following, the range
+ * follows the need both ways -- a master sped way up widens it, slowed back down
+ * narrows it again -- but never below the FLOOR: the range the deck had when
+ * SYNC came on, or the one the operator set by hand since (operator,
+ * 2026-10-26: a deck that started on +-10 never ends on +-6 unless set there).
+ * A range change the shim did not just ask for is the operator's. */
+#define FIT_SETTLE_MS 500
+static int range_floor[2] = { -1, -1 };    /* -1 = not synced */
+static int range_expect[2] = { -1, -1 };   /* the range our steps are heading to */
+static int range_seen[2] = { -1, -1 };     /* the range when last looked at */
+static int range_by_hand[2];               /* range_expect is the operator's press */
+static unsigned long long range_sent_at[2];
+
+/* the smallest range that holds the sync's tempo, -1 = not known */
+static int flx10_sync_need(int deck)
 {
      static const int limit[4] = { 600, 1000, 1600, 10000 };
-     int m = 1 - deck, cur = deck_range[deck] & 3, want = 3, n;
+     int m = 1 - deck;
      long long orig, need;
 
      if (!deck_loaded[deck] || !deck_loaded[m] || !deck_master[m] ||
          deck_bpm[deck] <= 0 || deck_bpm[m] <= 0 || deck_tempo[deck] <= -10000)
-          return;
-     orig = (long long)deck_bpm[deck] * 10000 / (10000 + deck_tempo[deck]);
+          return -1;
+     /* the track's own BPM: rbp's, when it says. Worked back from the playing
+      * BPM and tempo % it is wrong while synced -- the % is the FADER's, not
+      * the speed sync plays at (deck 2 synced at 94.08 read -0.68% against its
+      * own 100.62: the need looked like -0.6%, the range narrowed, then
+      * widened, round and round -- on the unit 2026-10-26) */
+     orig = deck_orig[deck] > 0 ? deck_orig[deck]
+                                : (long long)deck_bpm[deck] * 10000 / (10000 + deck_tempo[deck]);
      if (orig <= 0)
-          return;
+          return -1;
      need = (long long)deck_bpm[m] * 10000 / orig - 10000;
      if (need < 0)
           need = -need;
      for (int i = 0; i < 4; i++)
-          if (need <= limit[i]) { want = i; break; }
-     if (want <= cur)
-          return;                     /* wide enough already: only ever widen */
-     n = want - cur;
-     klog("knobshim2: flx10 deck%d BEAT SYNC: needs %+lld.%02lld%%, range %d -> %d\n",
-          deck + 1, need / 100, need % 100, cur, want);
+          if (need <= limit[i])
+               return i;
+     return 3;
+}
+
+static void flx10_range_steer(int deck, int want, const char *why)
+{
+     int cur = deck_range[deck] & 3, n = (want - cur + 4) % 4;
+
+     if (!n)
+          return;
+     klog("knobshim2: flx10 deck%d BEAT SYNC %s: range %d -> %d\n", deck + 1, why, cur, want);
      while (n--)
           pulse(K_TEMPO_RANGE, deck + 1);
+     range_expect[deck] = want;
+     range_by_hand[deck] = 0;
+     range_seen[deck] = cur;
+     range_sent_at[deck] = shim_now_ms();
 }
+
+/* SYNC about to go on: the floor is the range now, widened first if needed */
+static void flx10_sync_fit_range(int deck)
+{
+     int need = flx10_sync_need(deck), cur = deck_range[deck] & 3;
+
+     range_floor[deck] = cur;
+     range_seen[deck] = cur;
+     if (need > cur)
+          flx10_range_steer(deck, need, "on");
+}
+
+/* TEMPO RANGE pressed: rbp's next range round the ring -- but on a deck synced
+ * to a master, never one too narrow for the sync: the press goes on round to the
+ * next that holds it, or does nothing when only the one it is on does (operator,
+ * 2026-10-26: WIDE -> +-6 and straight back was a flash, not a choice). The
+ * range it lands on is the operator's, so it is the floor (flx10_range_tick). */
+static void flx10_tempo_range_press(int deck)
+{
+     int cur = deck_range[deck] & 3, next = (cur + 1) & 3, need = -1;
+
+     if (deck_sync[deck] && !deck_master[deck] && deck_master[1 - deck])
+          need = flx10_sync_need(deck);
+     while (need >= 0 && next < need && next != cur)
+          next = (next + 1) & 3;
+     if (next == cur) {
+          klog("knobshim2: flx10 deck%d TEMPO RANGE: the sync needs range %d, kept\n",
+               deck + 1, cur);
+          return;
+     }
+     for (int n = (next - cur) & 3; n > 0; n--)
+          pulse(K_TEMPO_RANGE, deck + 1);
+     range_expect[deck] = next;              /* the tick waits for it, then floors */
+     range_by_hand[deck] = 1;
+     range_seen[deck] = cur;
+     range_sent_at[deck] = shim_now_ms();
+}
+
+static void flx10_range_tick(unsigned long long t)
+{
+     for (int d = 0; d < 2; d++) {
+          int cur = deck_range[d] & 3, need, want;
+
+          if (!deck_sync[d]) {
+               range_floor[d] = range_expect[d] = -1;
+               range_by_hand[d] = 0;
+               continue;
+          }
+          if (range_floor[d] < 0)                 /* synced some other way */
+               range_floor[d] = range_seen[d] = cur;
+          if (range_expect[d] >= 0) {
+               if (cur == range_expect[d] || t - range_sent_at[d] >= FIT_SETTLE_MS) {
+                    if (range_by_hand[d] && cur == range_expect[d])
+                         range_floor[d] = cur;      /* the operator's press arrived */
+                    range_expect[d] = -1;           /* (or never will) */
+                    range_by_hand[d] = 0;
+               } else {
+                    continue;
+               }
+          } else if (cur != range_seen[d]) {
+               range_floor[d] = cur;                /* the operator's */
+          }
+          range_seen[d] = cur;
+          if (deck_master[d] || !deck_master[1 - d])
+               continue;                            /* only a deck following a master */
+          need = flx10_sync_need(d);
+          if (need < 0)
+               continue;
+          want = need > range_floor[d] ? need : range_floor[d];
+          if (want != cur)
+               flx10_range_steer(d, want, want > cur ? "wider" : "narrower");
+     }
+}
+
 static int tr_key[2];
 static unsigned long long tr_up_at[2];
 
@@ -2365,6 +2469,10 @@ static void flx10_note(int ch, int note, int on)
                if (on)
                     pulse(K_MASTER, sch);
                return;
+          case N_TEMPO_RANGE:
+               if (on)
+                    flx10_tempo_range_press(deck);
+               return;
           case N_TEMPO_RESET:
                if (on)
                     flx10_tempo_reset(deck);
@@ -2727,7 +2835,6 @@ static void flx10_build(void)
           add_note(rch, N_CUE, K_CUE, sch);
           add_note(rch, N_JOG_TOUCH, K_JOG_TOUCH, sch);
           add_note(rch, N_JOG_TOUCH_SH, K_JOG_TOUCH, sch);   /* SHIFT-held press */
-          add_note(rch, N_TEMPO_RANGE, K_TEMPO_RANGE, sch);
           add_note(rch, N_QUANTIZE, K_QUANTIZE, sch);
           add_note(rch, N_SLIP, K_SLIP, sch);
           /* SHIFT + SLIP (VINYL) is off (operator, 2026-10-25): the button has
@@ -2900,6 +3007,7 @@ static void flx10_tick(void)
      flx10_keysync_tick();
      flx10_master_tick(t);
      flx10_sync_tick(t);
+     flx10_range_tick(t);
 }
 
 static void flx10_unit_setting(int ch, int is_cc, int num, int val);
@@ -3508,6 +3616,7 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
      deck_mt[deck] = di->mt;
      deck_speed[deck] = flx10_shown_tempo(di);
      snprintf(deck_key[deck], sizeof deck_key[deck], "%s", di->key);
+     deck_orig[deck] = di->bpm_orig;
      deck_playing[deck] = di->playing;
      deck_on_air[deck] = di->on_air;
      if (deck == 0) {

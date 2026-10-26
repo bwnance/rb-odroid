@@ -479,8 +479,10 @@ int main(void)
      reset(); ON(1, 92);
      CHECK(sent_n == 2 && is(0, K_MASTER, OP_PRESS, 1), "SHIFT+SYNC -> MASTER");
      reset(); ON(1, 96);
-     CHECK(sent_n == 1 && is(0, K_TEMPO_RANGE, OP_PRESS, 1), "SHIFT + TEMPO RESET -> RANGE");
+     CHECK(sent_n == 2 && is(0, K_TEMPO_RANGE, OP_PRESS, 1) && is(1, K_TEMPO_RANGE, OP_RELEASE, 1),
+           "SHIFT + TEMPO RESET -> RANGE, one step on the press");
      OFF(1, 96);
+     CHECK(sent_n == 2, "...nothing on the release");
 
      /* TEMPO RESET: a toggle; on holds rbp at the centre and ignores the fader,
       * off sends the fader's current position; LED note 65 follows */
@@ -1806,6 +1808,82 @@ int main(void)
           memset(&p0, 0, sizeof p0); memset(&p1, 0, sizeof p1);
           map_flx10.leds->deck_display(0, &p0); map_flx10.leds->deck_display(1, &p1);
           ms(500);
+     }
+
+     /* a synced deck's tempo range follows the master, wider and narrower, never
+      * below where it started or where the operator set it */
+     {
+          struct deck_info m, f;
+          memset(&m, 0, sizeof m); memset(&f, 0, sizeof f);
+          m.loaded = f.loaded = 1; m.master = 1;
+          m.bpm_raw = 10500; f.bpm_raw = 10500; f.bpm_orig = 10000; f.tempo_range = 1; f.sync = 1;
+          f.tempo_raw = -68;                 /* synced: rbp's tempo %% is the fader's, not the speed */
+          map_flx10.leds->deck_display(0, &m); map_flx10.leds->deck_display(1, &f);
+          reset(); ms(600); map_flx10.tick();
+          CHECK(sent_n == 0, "the master within deck 2's +-10%%: nothing");
+          m.bpm_raw = 12000; f.bpm_raw = 12000;                       /* +20%% on a 100 BPM track */
+          map_flx10.leds->deck_display(0, &m); map_flx10.leds->deck_display(1, &f);
+          map_flx10.tick();
+          CHECK(sent_n == 4 && is(0, K_TEMPO_RANGE, OP_PRESS, 2) && is(2, K_TEMPO_RANGE, OP_PRESS, 2),
+                "master at 120 on a 100 BPM track: +-10 -> WIDE, two steps (%d)", sent_n);
+          ms(100); map_flx10.tick();
+          CHECK(sent_n == 4, "...once, while rbp's range comes back");
+          f.tempo_range = 3; map_flx10.leds->deck_display(1, &f); ms(100); map_flx10.tick();
+          CHECK(sent_n == 4, "WIDE arrived: nothing");
+          m.bpm_raw = 10300; f.bpm_raw = 10300;                       /* back to +3%% */
+          map_flx10.leds->deck_display(0, &m); map_flx10.leds->deck_display(1, &f);
+          map_flx10.tick();
+          CHECK(sent_n == 8 && is(4, K_TEMPO_RANGE, OP_PRESS, 2) && is(6, K_TEMPO_RANGE, OP_PRESS, 2),
+                "the master back down to +3%%: WIDE -> +-10, the start, not +-6 (two steps round, %d)", sent_n);
+          f.tempo_range = 1; map_flx10.leds->deck_display(1, &f); ms(600); map_flx10.tick();
+          CHECK(sent_n == 8, "at +-10: nothing");
+          f.tempo_range = 0; map_flx10.leds->deck_display(1, &f); map_flx10.tick();  /* by hand */
+          ms(600); map_flx10.tick();
+          CHECK(sent_n == 8, "set to +-6 by hand: kept, it is the operator's now");
+          m.bpm_raw = 11200; f.bpm_raw = 11200;                       /* +12%% */
+          map_flx10.leds->deck_display(0, &m); map_flx10.leds->deck_display(1, &f);
+          map_flx10.tick();
+          CHECK(sent_n == 12, "+12%%: +-6 -> +-16, two steps (%d)", sent_n);
+          f.tempo_range = 2; map_flx10.leds->deck_display(1, &f); ms(100); map_flx10.tick();
+          m.bpm_raw = 10300; f.bpm_raw = 10300;
+          map_flx10.leds->deck_display(0, &m); map_flx10.leds->deck_display(1, &f);
+          map_flx10.tick();
+          CHECK(sent_n == 16, "back to +3%%: +-16 -> +-6, the hand-set floor (two steps round, %d)", sent_n);
+          f.tempo_range = 0; map_flx10.leds->deck_display(1, &f); ms(600); map_flx10.tick();
+          m.bpm_raw = 9408; f.bpm_raw = 9408; f.bpm_orig = 10062;     /* the unit's: -6.5%% */
+          map_flx10.leds->deck_display(0, &m); map_flx10.leds->deck_display(1, &f);
+          map_flx10.tick();
+          CHECK(sent_n == 18 && is(16, K_TEMPO_RANGE, OP_PRESS, 2), "94.08 against 100.62: +-6 -> +-10 (%d)", sent_n);
+          f.tempo_range = 1; map_flx10.leds->deck_display(1, &f);
+          for (int i = 0; i < 6; i++) { ms(200); map_flx10.tick(); }
+          CHECK(sent_n == 18, "...and stays there, the fader's -0.68%% notwithstanding (%d)", sent_n);
+          /* TEMPO RANGE pressed on the synced deck: never to a range too narrow */
+          m.bpm_raw = 2000; f.bpm_raw = 2000;                         /* -80%%: WIDE */
+          map_flx10.leds->deck_display(0, &m); map_flx10.leds->deck_display(1, &f);
+          map_flx10.tick(); f.tempo_range = 3; map_flx10.leds->deck_display(1, &f);
+          ms(600); map_flx10.tick();
+          reset(); ON(2, 96); OFF(2, 96);
+          CHECK(sent_n == 0, "WIDE needed: TEMPO RANGE does nothing, no flash to +-6 (%d)", sent_n);
+          m.bpm_raw = 9408; f.bpm_raw = 9408;                         /* -6.5%%: +-10 */
+          map_flx10.leds->deck_display(0, &m); map_flx10.leds->deck_display(1, &f);
+          reset(); ON(2, 96); OFF(2, 96);       /* before the tick narrows it */
+          CHECK(sent_n == 4 && is(0, K_TEMPO_RANGE, OP_PRESS, 2) && is(2, K_TEMPO_RANGE, OP_PRESS, 2),
+                "+-10 needed: WIDE goes round past +-6 to +-10, two steps (%d)", sent_n);
+          ms(100); map_flx10.tick();
+          CHECK(sent_n == 4, "...nothing more while rbp's range comes back (%d)", sent_n);
+          f.tempo_range = 1; map_flx10.leds->deck_display(1, &f); ms(100); map_flx10.tick();
+          ms(600); map_flx10.tick();
+          CHECK(sent_n == 4, "...and +-10 is kept");
+          m.bpm_raw = 9900; f.bpm_raw = 9900;                         /* -1.6%%: +-6 would do */
+          map_flx10.leds->deck_display(0, &m); map_flx10.leds->deck_display(1, &f);
+          ms(600); map_flx10.tick();
+          CHECK(sent_n == 4, "...as the floor: the master at -1.6%% leaves it at +-10 (%d)", sent_n);
+          f.sync = 0; f.tempo_range = 3; map_flx10.leds->deck_display(1, &f); ms(600); map_flx10.tick();
+          reset(); ON(2, 96); OFF(2, 96);
+          CHECK(sent_n == 2 && is(0, K_TEMPO_RANGE, OP_PRESS, 2), "not synced: one step, WIDE -> +-6 as rbp does");
+          CHECK(sent_n == 2, "SYNC off: the range is the operator's");
+          memset(&m, 0, sizeof m); memset(&f, 0, sizeof f);
+          map_flx10.leds->deck_display(0, &m); map_flx10.leds->deck_display(1, &f);
      }
 
      printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);
