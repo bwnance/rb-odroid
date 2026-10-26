@@ -2368,6 +2368,16 @@ static void flx10_note(int ch, int note, int on)
      }
 
      if (ch == CH_FX) {
+          /* ON/OFF: a press and a release BACK TO BACK, on the button's press. rbp
+           * takes a held key as momentary -- watched on the unit 2026-10-26: the
+           * effect came on at the press (type 14, on) and went off 0.2 s later at
+           * the release -- and a tap as a toggle, which is what the touch panel's
+           * button sends (pointsrc.c) and what this button means. */
+          if (note == N_FX_ONOFF) {
+               if (on)
+                    pulse(K_BFX, CH_GLOBAL);
+               return;
+          }
           if (note >= N_FX_SEL_FIRST && note <= N_FX_SEL_LAST) {
                if (on)
                     flx10_fxsel(note);
@@ -2636,7 +2646,6 @@ static void flx10_build(void)
      add_note(CH_MIX, N_SAMPLER_CUE, 0, CH_GLOBAL);
 
      /* Beat FX. */
-     add_note(CH_FX, N_FX_ONOFF, K_BFX, CH_GLOBAL);
      add_note(CH_FX, N_FX_TAP, K_TAP, CH_GLOBAL);
      add_note(CH_FX, N_FX_RELEASE, 0, CH_GLOBAL);
 }

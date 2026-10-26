@@ -944,9 +944,11 @@ int main(void)
           flx10_fx_beat_text(5, -50, 1, t, sizeof t);
           CHECK(!strcmp(t, "-50%"), "PITCH reads a signed percent (got %s)", t);
      }
-     reset(); ON(5, 70); OFF(5, 70);
+     reset(); ON(5, 70);
      CHECK(sent_n == 2 && is(0, K_BFX, OP_PRESS, 1) && is(1, K_BFX, OP_RELEASE, 1),
-           "Beat FX ON/OFF is note 70 (rekordbox's capture) -> rbp's BFX key");
+           "Beat FX ON/OFF is note 70 (rekordbox's capture): a tap of rbp's BFX key, at the press");
+     OFF(5, 70);
+     CHECK(sent_n == 2, "...and nothing at the release (rbp takes a held key as momentary)");
      reset(); ON(5, 71); OFF(5, 71);
      CHECK(sent_n == 0, "note 71 on the FX channel: nothing");
      reset(); CC(5, 2, 64);
