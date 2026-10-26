@@ -222,7 +222,13 @@ session; details further down):
 6. **Splash until rbp is ready**, input held until then (item below). Needs
    the operator's description of the start-up glitches first.
 7. **Booth and master outputs**, by ear.
-8. **MASTER, BOOTH and HEADPHONES levels at start**: not read until moved.
+8. **MASTER, BOOTH and HEADPHONES levels at start**: not read until moved, and
+   the unit cannot be asked -- its answer to the position query (rekordbox's
+   startup capture) has every other absolute control and none of CC 8, 9, 12,
+   13 on ch 7, and its HID input reports carry no knob state. Remembering them
+   in a file was tried and dropped (operator, 2026-10-26). MASTER only drives
+   the HDMI mirror's level and BOOTH nothing here (the unit applies both
+   itself); HEADPHONES LEVEL / MIX go to rbp as K_HPLEVEL / K_HPMIX.
 9. **Key sync** (operator, 2026-10-26): bring in the key sync functionality
    from https://github.com/Tratosca/rx3-toolkit.
 10. Parked: HOT CUE mode switch lag.
