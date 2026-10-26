@@ -1054,12 +1054,15 @@ static void led_refresh(void)
                           * State-only rule lights all eight white pads in HOT
                           * CUE -- which is what the operator's panel showed, and
                           * not what an RX3 or this unit's own cues do. */
-                         /* HOT CUE / GATE CUE on a deck with no track: no cue
-                          * can exist, and rbp's entries read as eight white
-                          * pads once slip mode is on (operator, 2026-10-25) --
-                          * dark, as the panel shows with slip off */
+                         /* HOT CUE / GATE CUE: a pad is lit only for a hot cue
+                          * that exists. With slip mode on rbp's entries read
+                          * as eight white pads, cue or not, loaded or not
+                          * (operator, 2026-10-25) -- the slot itself is asked
+                          * (UiGetHotCueINtime, -1 = empty) */
                          if (((m & 3) == 0 &&
-                              !((int (*)(void *, int))PE_ISLOADED)(pe, i)) ||
+                              (!((int (*)(void *, int))PE_ISLOADED)(pe, i) ||
+                               ((int (*)(int, unsigned int))UI_GET_HOTCUE_INTIME)
+                                    (i, (unsigned int)p) == -1)) ||
                              st <= 0 ||
                              ledstat_unassigned(LED_PAD_FIRST + (unsigned)p,
                                                 (unsigned)i + 1) ||

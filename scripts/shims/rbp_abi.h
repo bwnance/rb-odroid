@@ -946,6 +946,10 @@ static const signed char bfx_type_to_pos[15] = {
  * states at 0x05a19208 + deck*64 + 8 == 1 / 2). Read by
  * Ui_GetRemainCautionReverse @0x13439c and ComputePlayAddRemain. */
 #define UI_REMAIN_CAUTION_REVERSE 0x03275750UL
+/* A hot cue's IN time, or -1 when the slot is empty: UiGetHotCueINtime(deck,
+ * slot 0..7) @0xfd750 (ui::StatWatcher::getHotCueINtime), an exported C
+ * function -- what the RX3's own jog GUI asks (PlayInfoDataUpdate). */
+#define UI_GET_HOTCUE_INTIME 0x000fd750
 #define PE_ISCUESAMPLING   0x5e958
 
 /* rbp LedStat ids we have identified (channels 1/2 = deck 1/2):
