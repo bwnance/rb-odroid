@@ -960,7 +960,10 @@ int main(void)
      fx_on = -1; ON(5, 70); OFF(5, 70);
      CHECK(sent_n == 4, "rbp not up: nothing");
      fx_on = 0; ms(400); query_at = shim_now_ms(); ms(100); ON(5, 70);
-     CHECK(sent_n == 4, "note 70 inside the answer to the controls query: a report, not a push");
+     CHECK(sent_n == 6 && is(4, K_BFX, OP_PRESS, 1),
+           "the controls query's answer reports the latch on, rbp's FX off: rbp follows");
+     fx_on = 1; ms(2000); query_at = shim_now_ms(); ms(100); ON(5, 70);
+     CHECK(sent_n == 6, "...and the next answer, rbp already on: nothing");
      query_at = 0; fx_on = 0;
      reset(); ON(5, 71); OFF(5, 71);
      CHECK(sent_n == 0, "note 71 on the FX channel: nothing");

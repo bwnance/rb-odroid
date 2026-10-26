@@ -2390,19 +2390,20 @@ static void flx10_note(int ch, int note, int on)
            * MasterInnards::onEv_BeatEffectEnable gets 2 from
            * uif::MixerSkeleton::onKeyEvent @0x2c9f0c -- is tapped only when rbp
            * is not already there. Button and rbp then agree after every push,
-           * whatever happened before. */
+           * whatever happened before; and from its reports, at start. */
           if (note == N_FX_ONOFF) {
                unsigned long long now = shim_now_ms();
                int is_on = flx10_fx_on();
-               /* not a push at all inside the unit's answer to the controls
-                * query, which REPORTS the button (94 46 7f) -- every 2 s for
-                * rbp_vu.c's first 30 s */
-               if (midi_query_at_ms() && now - midi_query_at_ms() < 300)
-                    return;
+               /* The unit's answer to the controls query -- every 2 s for
+                * rbp_vu.c's first 30 s -- REPORTS the latch the same way (94 46
+                * 7f while its light flashes), so rbp takes it from there at
+                * start: the button is the truth, and it survives rbp's restarts. */
+               int report = midi_query_at_ms() && now - midi_query_at_ms() < 300;
                if (is_on < 0 || is_on == on)
                     return;
                pulse(K_BFX, CH_GLOBAL);
-               klog("knobshim2: flx10 Beat FX ON/OFF -> %s\n", on ? "on" : "off");
+               klog("knobshim2: flx10 Beat FX ON/OFF -> %s%s\n", on ? "on" : "off",
+                    report ? " (the unit's report)" : "");
                return;
           }
           if (note >= N_FX_SEL_FIRST && note <= N_FX_SEL_LAST) {
