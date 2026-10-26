@@ -934,6 +934,9 @@ static const signed char bfx_type_to_pos[15] = {
 #define PE_GETTEMPOX100    0x5dcf8
 #define PE_GETTEMPORANGE   0x5debc
 #define PE_ISINCUESTANDBY  0x5e910
+/* PlayEngine::isJogTouching(ch) @0x5e308: Player+0xeae, the platter held --
+ * a playing deck held by the hand (vinyl mode) is not moving */
+#define PE_ISJOGTOUCHING   0x5e308
 #define PE_ISCUESAMPLING   0x5e958
 
 /* rbp LedStat ids we have identified (channels 1/2 = deck 1/2):

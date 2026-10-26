@@ -891,8 +891,12 @@ __attribute__((weak)) int flx10_pos_now(int deck, int *pos_ms, int *moving)
      if (!pe || !((int (*)(void *, int))PE_ISLOADED)(pe, deck))
           return 0;
      *pos_ms = ((int (*)(void *, int))PE_GETPLAYINGTIME)(pe, deck);
+     /* a playing deck under a held platter (vinyl mode) is held by the hand,
+      * not running: counted as stopped, or the arm ran ahead at the tempo
+      * and snapped back -- the "hold the jog and the arm shakes" bug */
      *moving = ((int (*)(void *, int))PE_ISPLAYING)(pe, deck) != 0 &&
-               ((int (*)(void *, int))PE_ISINCUESTANDBY)(pe, deck) == 0;
+               ((int (*)(void *, int))PE_ISINCUESTANDBY)(pe, deck) == 0 &&
+               ((int (*)(void *, int))PE_ISJOGTOUCHING)(pe, deck) == 0;
      return 1;
 }
 

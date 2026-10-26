@@ -523,7 +523,7 @@ static void *hid_thread(void *arg)
                     hd[d].k.fresh = t - hd[d].jog_at < JOG_LEAD_FRESH_MS;
                     s.elapsed_ms = flx10_hid_merge(&hd[d].k, pos, mov, jog,
                                                    s.tempo_x100, s.total_ms, t);
-                    if (live) {
+                    if (live && !s.jog_touch) {   /* (held: still "playing") */
                          s.playing = mov;      /* a pause shows at once */
                          if (mov)
                               s.cue_standby = 0;
