@@ -220,8 +220,20 @@ session; details further down):
    line already there is now not replayed, a load waits for the pool, and
    the watcher runs only in rbp.
 6. **Booth and master outputs**, by ear.
-7. **Key sync** (operator, 2026-10-26): bring in the key sync functionality
-   from https://github.com/Tratosca/rx3-toolkit.
+7. **Key sync -- built, to try on the unit** (2026-10-26). KEY SYNC (short
+   press; held is still MASTER TEMPO) latches like a CDJ: the deck that is not
+   the tempo MASTER is shifted by the fewest semitones (-5..+6) onto the
+   master's Camelot number (its key or the relative major/minor), counting
+   the semitones a tempo moves the pitch with MASTER TEMPO off; it follows the
+   master's key, lets go on a new track or a second press, and its LED shows
+   the latch (map_flx10.c, flx10_keysync_*). The shift itself is rx3-toolkit's
+   (github.com/Tratosca/rx3-toolkit at cc17a1f, MPL-2.0): a detour on
+   dsp::TimeStretchManager::operate @0xa0e54 (guard f0412de9 0040a0e1) that
+   shifts each deck's block in place, down through rbp's own BeatEffectPitch
+   and up through the toolkit's shifter (keyshift.c, rx3_pitch_shift.h, both
+   MPL; built armv7 softfp for the float work). The hook installs on the unit;
+   not yet heard -- the FLX10 was off. Not validated on hardware by the toolkit
+   either. Also to check: the audio thread keeps up (no dropouts).
 8. Parked: HOT CUE mode switch lag.
 
 Done 2026-10-26 (start-up splash, rbp's TRANS picture):

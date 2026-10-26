@@ -60,6 +60,10 @@ volatile int led_kick;
 static int query_n, splash_up;
 int led_query_absolute(void) { query_n++; return 1; }
 int shim_splash_active(void) { return splash_up; }
+static int ks_shift[2], ks_reloads;
+int keyshift_set(int d, int n) { ks_shift[d] = n; return 0; }
+int keyshift_get(int d) { return ks_shift[d]; }
+void keyshift_reload(int d) { ks_reloads++; ks_shift[d] = 0; }
 static int cue[4], mcue, deleted_deck = -1, deleted_pad = -1;
 int me_get_cue(int idx) { return cue[idx]; }
 void me_set_cue(int idx, int on) { cue[idx] = on; }
@@ -1591,6 +1595,56 @@ int main(void)
           n->deck_display(0, &d0); n->deck_display(1, &d1);
      }
      media_tests();
+     /* KEY SYNC: latched; the non-master deck onto the master's Camelot number by
+      * the fewest semitones, following the master, let go on a new track */
+     {
+          extern int flx10_key_root(const char *);
+          extern int flx10_tempo_semis(int, int);
+          extern int flx10_keysync_shift(int, int, int);
+          const struct led_notes *n = map_flx10.leds;
+          struct deck_info a, b;
+
+          CHECK(flx10_key_root("8A") == 0 && flx10_key_root("8B") == 0 &&
+                flx10_key_root("Am") == 0 && flx10_key_root("10A") == 2 &&
+                flx10_key_root("") == -1, "roots: 8A, 8B, Am on C; 10A on D");
+          CHECK(flx10_tempo_semis(5946, 0) == 8 && flx10_tempo_semis(5946, 1) == 0 &&
+                flx10_tempo_semis(300, 0) == 1 && flx10_tempo_semis(-200, 0) == 0,
+                "tempo semitones: +59.46%% is 8 without MASTER TEMPO, none with it");
+          CHECK(flx10_keysync_shift(2, 0, 0) == -2 && flx10_keysync_shift(0, 0, 6) == 6 &&
+                flx10_keysync_shift(0, 0, 7) == -5 && flx10_keysync_shift(0, 1, 1) == 0,
+                "shifts: the fewest semitones, -5..+6");
+
+          memset(&a, 0, sizeof a);
+          a.loaded = 1; a.master = 1; a.mt = 1; a.total_ms = 200000;
+          strcpy(a.key, "8A");
+          b = a;
+          b.master = 0; b.total_ms = 180000;
+          strcpy(b.key, "10A");
+          n->deck_display(0, &a);
+          n->deck_display(1, &b);
+          ks_shift[0] = ks_shift[1] = 0; ks_reloads = 0;
+          reset(); ON(2, 101); OFF(2, 101); map_flx10.tick();
+          CHECK(ks_shift[1] == -2 && dk_note_v[1][101] == 0x7F,
+                "KEY SYNC on deck 2: 10A -2 onto deck 1's 8A, LED lit (%d)", ks_shift[1]);
+          strcpy(a.key, "9A");
+          n->deck_display(0, &a); map_flx10.tick();
+          CHECK(ks_shift[1] == 5, "the master moves to 9A: deck 2 follows, +5 (%d)", ks_shift[1]);
+          ON(1, 101); OFF(1, 101); map_flx10.tick();
+          CHECK(ks_shift[0] == 0, "KEY SYNC on the master deck itself: nothing");
+          strcpy(b.key, "4B"); b.total_ms = 150000;
+          n->deck_display(1, &b); map_flx10.tick();
+          CHECK(ks_shift[1] == 0 && ks_reloads == 1 && dk_note_v[1][101] == 0,
+                "a new track on deck 2: let go, back to its own key, LED dark");
+          ON(2, 101); OFF(2, 101); map_flx10.tick();
+          CHECK(dk_note_v[1][101] == 0x7F, "latched again");
+          ON(2, 101); OFF(2, 101); map_flx10.tick();
+          CHECK(ks_shift[1] == 0 && dk_note_v[1][101] == 0, "a second press lets go");
+          a.master = 0;
+          n->deck_display(0, &a);
+          ON(2, 101); OFF(2, 101); map_flx10.tick();
+          CHECK(dk_note_v[1][101] == 0, "no master: nothing to match, nothing latched");
+     }
+
      printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);
      return failures ? 1 : 0;
 }

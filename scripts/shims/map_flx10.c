@@ -47,6 +47,7 @@
  */
 #define _GNU_SOURCE
 #include <fcntl.h>          /* open(), for rbp's mount table */
+#include <math.h>           /* lround, log2: KEY SYNC's tempo semitones */
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1088,6 +1089,8 @@ static void flx10_jump(int deck, int beats)
 static int deck_loaded[2], deck_elapsed_ms[2], deck_total_ms[2];
 /* for BEAT SYNC's range fit: what deck_display last showed */
 static int deck_bpm[2], deck_tempo[2], deck_range[2], deck_sync[2], deck_master[2];
+static int deck_mt[2];                     /* MASTER TEMPO on (struct deck_info's mt) */
+static char deck_key[2][16];               /* rbp's key text for the deck, "" = none */
 
 /* BEAT SYNC turned on: the tempo range set first to the smallest that holds
  * the tempo the sync needs (operator, 2026-10-25) -- a 100 BPM track synced
@@ -2160,6 +2163,8 @@ static void flx10_main_mode(int deck, int a, int b)
 static int sb_opened;
 static unsigned long long sb_again_at;
 
+static void flx10_keysync_press(int deck);
+
 static void flx10_note(int ch, int note, int on)
 {
      int deck = IS_DECK(ch) ? ch : -1;
@@ -2257,14 +2262,11 @@ static void flx10_note(int ch, int note, int on)
            * itself: a short press sends 101 on/off, a hold sends 26 on at the
            * threshold and 26 off + 101 off on release (no 101 on) -- measured
            * with midi-learn.py. The hold is MASTER TEMPO. The short press is
-           * KEY SYNC, which rbp does not have: no key sync or key shift exists
-           * anywhere in its engine (DjEngineIF has no key/pitch-shift call;
-           * the RX3 has no KEY SYNC on its panel), so it is logged and does
-           * nothing. Its LED is kept dark (operator, 2026-10-25). */
+           * KEY SYNC, which rbp does not have, so the shim does it (keyshift.c,
+           * flx10_keysync below; operator, 2026-10-26: latched, like a CDJ). */
           case N_KEYSYNC:
                if (on)
-                    klog("knobshim2: flx10 deck%d KEY SYNC: rbp has no key sync; "
-                         "hold the button for MASTER TEMPO\n", sch);
+                    flx10_keysync_press(deck);
                return;
           case N_4BEAT_SHIFT:
                if (on)
@@ -2658,6 +2660,7 @@ static void flx10_sb_tick(unsigned long long t)
 }
 
 static void flx10_splash_tick(void);
+static void flx10_keysync_tick(void);
 
 static void flx10_tick(void)
 {
@@ -2673,9 +2676,145 @@ static void flx10_tick(void)
      flx10_link_tick(t);
      flx10_fxscreen_tick(t);
      flx10_splash_tick();
+     flx10_keysync_tick();
 }
 
 static void flx10_unit_setting(int ch, int is_cc, int num, int val);
+
+/* ---- KEY SYNC ---------------------------------------------------------------
+ * rbp has no key sync; keyshift.c (rx3-toolkit's key shift) shifts a deck's key
+ * by whole semitones in rbp's audio path, and this decides by how much. Latched,
+ * like a CDJ (operator, 2026-10-26): a press on the deck that is NOT the tempo
+ * MASTER shifts it by the fewest semitones that put it on the master's Camelot
+ * number -- the same key, or its relative major/minor -- and keeps it there while
+ * the master's key changes; a second press, or a new track on the deck, lets go
+ * and returns it to its own key. The LED is lit while it holds.
+ *
+ * WHAT A DECK PLAYS IN is its key's root (flx10_key_code's pairs: a major key
+ * and its relative minor share one, and one Camelot number), plus any shift of
+ * ours, plus -- with MASTER TEMPO off -- the semitones its tempo moves the pitch.
+ * WEAK, so a build or a test without keyshift.o has no key sync. */
+__attribute__((weak)) int keyshift_set(int deck, int semitones);
+__attribute__((weak)) int keyshift_get(int deck);
+__attribute__((weak)) void keyshift_reload(int deck);
+
+static int ks_latched[2];
+static int ks_led[2] = { -1, -1 };
+static char ks_track[2][16];               /* the key the latch was taken on */
+static int ks_total[2];                    /* ...and the track's length */
+
+int flx10_key_code(const char *k);
+
+/* The root, 0..11, of rbp's key text (major keys chromatically from C, a minor
+ * key on its relative major's), or -1. */
+int flx10_key_root(const char *k)
+{
+     int c = flx10_key_code(k);
+     return c ? (c - 1) / 2 : -1;
+}
+
+/* Semitones a tempo of `tempo_x100` % moves the pitch by, with MASTER TEMPO off. */
+int flx10_tempo_semis(int tempo_x100, int mt)
+{
+     double r = 1.0 + (double)tempo_x100 / 10000.0;
+     if (mt || r <= 0.0)
+          return 0;
+     return (int)lround(12.0 * log2(r));
+}
+
+/* The shift that puts a deck whose root is `root` (tempo moving it `t` semitones)
+ * on the master playing in `target`: the smallest, -5..+6. Pure. */
+int flx10_keysync_shift(int root, int t, int target)
+{
+     int n = ((target - root - t) % 12 + 12) % 12;
+     return n > 6 ? n - 12 : n;
+}
+
+static int ks_master_of(int deck)
+{
+     int m = !deck;
+     return deck_master[m] && !deck_master[deck] && deck_loaded[m] ? m : -1;
+}
+
+/* The shift deck `deck` needs now, or 99 when there is nothing to match. */
+static int ks_wanted(int deck)
+{
+     int m = ks_master_of(deck), root = flx10_key_root(deck_key[deck]), mroot;
+
+     if (m < 0 || root < 0 || !deck_loaded[deck])
+          return 99;
+     mroot = flx10_key_root(deck_key[m]);
+     if (mroot < 0)
+          return 99;
+     mroot += (keyshift_get ? keyshift_get(m) : 0) + flx10_tempo_semis(deck_tempo[m], deck_mt[m]);
+     return flx10_keysync_shift(root, flx10_tempo_semis(deck_tempo[deck], deck_mt[deck]),
+                                ((mroot % 12) + 12) % 12);
+}
+
+static void ks_release(int deck, const char *why)
+{
+     ks_latched[deck] = 0;
+     if (keyshift_set)
+          keyshift_set(deck, 0);
+     klog("knobshim2: flx10 deck%d KEY SYNC off (%s)\n", deck + 1, why);
+}
+
+static void flx10_keysync_press(int deck)
+{
+     int n;
+
+     if (deck > 1)
+          return;
+     if (ks_latched[deck]) {
+          ks_release(deck, "pressed again");
+          return;
+     }
+     if (!keyshift_set) {
+          klog("knobshim2: flx10 deck%d KEY SYNC: no key shift in this build\n", deck + 1);
+          return;
+     }
+     n = ks_wanted(deck);
+     if (n == 99) {
+          klog("knobshim2: flx10 deck%d KEY SYNC: nothing to match (key '%s', master %s)\n",
+               deck + 1, deck_key[deck], ks_master_of(deck) < 0 ? "none" : "the other deck");
+          return;
+     }
+     if (keyshift_set(deck, n) != 0) {
+          klog("knobshim2: flx10 deck%d KEY SYNC: the key shift is not hooked in\n", deck + 1);
+          return;
+     }
+     ks_latched[deck] = 1;
+     snprintf(ks_track[deck], sizeof ks_track[deck], "%s", deck_key[deck]);
+     ks_total[deck] = deck_total_ms[deck];
+     klog("knobshim2: flx10 deck%d KEY SYNC on: %s %+d -> deck%d's %s\n", deck + 1,
+          deck_key[deck], n, ks_master_of(deck) + 1, deck_key[ks_master_of(deck)]);
+}
+
+static void flx10_keysync_tick(void)
+{
+     for (int d = 0; d < 2; d++) {
+          int v;
+
+          if (ks_latched[d]) {
+               if (!deck_loaded[d] || strcmp(ks_track[d], deck_key[d]) ||
+                   ks_total[d] != deck_total_ms[d]) {
+                    ks_release(d, "a new track");
+                    if (keyshift_reload)
+                         keyshift_reload(d);
+               } else {
+                    int n = ks_wanted(d);
+                    if (n != 99 && keyshift_get && n != keyshift_get(d)) {
+                         keyshift_set(d, n);
+                         klog("knobshim2: flx10 deck%d KEY SYNC follows the master: %+d\n",
+                              d + 1, n);
+                    }
+               }
+          }
+          v = ks_latched[d] ? 0x7F : 0x00;
+          if (fxs_ready && v != ks_led[d] && midi_note(d, N_KEYSYNC, v))
+               ks_led[d] = v;          /* only once the connect sequence is out */
+     }
+}
 
 /* ---- the start-up splash ---------------------------------------------------
  * While fbshim's splash covers rbp's first seconds (splash.h) the controller is
@@ -3008,6 +3147,7 @@ static void flx10_display_init(unsigned long long now)
      tempo_reset_led(1);
      midi_note(0, N_KEYSYNC, 0x00);        /* KEY SYNC: dark, whatever MT is */
      midi_note(1, N_KEYSYNC, 0x00);
+     ks_led[0] = ks_led[1] = -1;           /* ...until the latch says (flx10_keysync_tick) */
      rev_led_v[0] = rev_led_v[1] = -1;     /* the tick re-sends them */
      link_led_v[0] = link_led_v[1] = -1;
      /* Every pad page dark, as rekordbox does (all 128 notes on both pad
@@ -3062,6 +3202,8 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
      deck_range[deck] = di->tempo_range;
      deck_sync[deck] = di->sync;
      deck_master[deck] = di->master;
+     deck_mt[deck] = di->mt;
+     snprintf(deck_key[deck], sizeof deck_key[deck], "%s", di->key);
      if (deck == 0) {
           flx10_display_init(now);
           flx10_hid_set_pos_reader(flx10_pos_now);
