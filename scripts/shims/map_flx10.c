@@ -418,7 +418,7 @@ static void flx10_jog(int deck, int cc, int val)
      s->last_ms = t / 1000ULL;
      if (jog_cal)
           jog_cal_count(deck, d, units);
-     flx10_hid_jog_activity(deck);
+     flx10_hid_jog_activity(deck, d > 0 ? 1 : -1);
      if (t - s->win_us >= JOG_WINDOW_US)
           jog_flush(s, t);
 }

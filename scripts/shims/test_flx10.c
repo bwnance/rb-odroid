@@ -858,12 +858,20 @@ int main(void)
                      flx10_hid_merge(&k, 4785, 0, FLX10_JOG_HELD, 0, 0, t += 10) == 4800,
                      "held still: the reading's wobble does not move the arm");
                CHECK(flx10_hid_merge(&k, 4700, 0, FLX10_JOG_HELD, 0, 0, t += 10) == 4700, "held, moved: follows");
-               flx10_hid_merge(&k, 4690, 1, FLX10_JOG_TURNING, 0, 0, t += 10);
+               flx10_hid_merge(&k, 4690, 1, FLX10_JOG_TURNING_BACK, 0, 0, t += 10);
                {
-                    int v = flx10_hid_merge(&k, 4680, 1, FLX10_JOG_TURNING, 0, 0, t += 10);
+                    int v = flx10_hid_merge(&k, 4680, 1, FLX10_JOG_TURNING_BACK, 0, 0, t += 10);
                     CHECK(v < 4680 && v >= 4680 - 30, "turning back: drawn ahead of the reading, the way it moves (%d)", v);
-                    v = flx10_hid_merge(&k, 4680, 1, FLX10_JOG_TURNING, 0, 0, t += 10);
+                    v = flx10_hid_merge(&k, 4680, 1, FLX10_JOG_TURNING_BACK, 0, 0, t += 10);
                     CHECK(v < 4680, "turning: carried on between rbp's blocks (%d)", v);
+                    /* a slight move: rbp's reading wobbles against the hand */
+                    int w = flx10_hid_merge(&k, 4690, 1, FLX10_JOG_TURNING_BACK, 0, 0, t += 10);
+                    CHECK(w <= v, "a wobble against the hand does not move the arm back (%d after %d)", w, v);
+                    flx10_hid_merge(&k, 4690, 1, FLX10_JOG_HELD, 0, 0, t += 100);   /* speed settles */
+                    flx10_hid_merge(&k, 4690, 1, FLX10_JOG_HELD, 0, 0, t += 100);
+                    int x = flx10_hid_merge(&k, 4692, 1, FLX10_JOG_TURNING, 0, 0, t += 30);
+                    int y = flx10_hid_merge(&k, 4692, 1, FLX10_JOG_TURNING, 0, 0, t += 10);
+                    CHECK(x == y && y >= 4690 && y <= 4692, "a slow nudge: no lead, no twitch (%d %d)", x, y);
                }
                CHECK(flx10_hid_merge(&k, 9000, 0, 0, 0, 0, t += 10) == 9000, "cue/seek while paused: the reading");
                flx10_hid_merge(&k, 9000, 1, 0, 0, 0, t += 10);

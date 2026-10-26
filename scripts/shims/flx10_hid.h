@@ -77,7 +77,8 @@ struct flx10_hid_track {
      float vel;                       /* its speed, ms per ms */
 };
 #define FLX10_JOG_HELD    1           /* `jog`: platter held, not turning */
-#define FLX10_JOG_TURNING 2           /* `jog`: counts in the last JOG_ACTIVE_MS */
+#define FLX10_JOG_TURNING 2           /* `jog`: counts in the last JOG_ACTIVE_MS, forward */
+#define FLX10_JOG_TURNING_BACK 3      /* `jog`: the same, backward */
 void flx10_hid_track_init(struct flx10_hid_track *k);
 int flx10_hid_merge(struct flx10_hid_track *k, int reading, int moving, int jog,
                     int tempo_x100, int total_ms, unsigned long long now_ms);
@@ -100,8 +101,8 @@ void flx10_hid_tempo_hold(struct flx10_hid_tempo_hold *h, struct flx10_hid_deck 
  * flx10_hid_update is used. */
 void flx10_hid_set_pos_reader(int (*fn)(int deck, int *pos_ms, int *moving));
 
-/* The jog was turned on this deck (0..3). */
-void flx10_hid_jog_activity(int deck);
+/* The jog was turned on this deck (0..3), dir +1 forward / -1 back. */
+void flx10_hid_jog_activity(int deck, int dir);
 
 /* Key shown with master tempo off: the tempo moves it by a whole number of
  * semitones (round(12 * log2(1 + tempo%/100))), as rekordbox draws it -- the

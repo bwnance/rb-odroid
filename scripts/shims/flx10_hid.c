@@ -244,6 +244,7 @@ void flx10_hid_heartbeat_pkt(unsigned char p[FLX10_HID_PKT], int n)
 #define JOG_ACTIVE_MS 60             /* the jog counts as turning this long after a count */
 #define JOG_LEAD_MS 25               /* how far ahead of rbp's reading a turning jog is drawn */
 #define JOG_LEAD_MAX_MS 60
+#define JOG_LEAD_MIN_VEL 0.3f        /* lead only above this speed (track ms per ms) */
 #define JOG_STILL_MS 40              /* a held jog's reading wobbles this much */
 #define TEMPO_HOLD_MS 3000           /* sync + jog: tempo held this long after the jog */
 
@@ -252,6 +253,7 @@ struct hid_slot {
      struct flx10_hid_track k;
      struct flx10_hid_tempo_hold th;
      unsigned long long jog_at;       /* last jog turn (flx10_hid_jog_activity) */
+     int jog_dir;                     /* its direction, +1 / -1 */
 };
 static struct hid_slot hd[4];
 static pthread_mutex_t hd_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -296,15 +298,26 @@ int flx10_hid_merge(struct flx10_hid_track *k, int reading, int mov, int jog,
           k->last_reading = reading;
           k->changed_at = now;
      }
-     if (jog == FLX10_JOG_TURNING) {
+     if (jog == FLX10_JOG_TURNING || jog == FLX10_JOG_TURNING_BACK) {
           /* the hand moves the playhead: rbp's reading, carried on at its
            * own speed to now and JOG_LEAD_MS beyond (the reading is a block
-           * old by the time the screen draws it) */
-          long ahead = (long)(now - k->changed_at) + JOG_LEAD_MS;
-          long v;
-          if (ahead > JOG_LEAD_MAX_MS)
-               ahead = JOG_LEAD_MAX_MS;
-          v = reading + (long)(k->vel * (float)ahead);
+           * old by the time the screen draws it) -- but only at a real
+           * speed in the hand's direction: a slight move under a held hand
+           * gives a noisy speed, and the lead turned it into the arm
+           * twitching back and forth. And the arm only moves the way the
+           * hand turns: rbp's reading wobbles (as when held still), and a
+           * wobble against the hand is not shown unless it is a real jump
+           * (more than NO_BACKSTEP_MS). */
+          int dir = jog == FLX10_JOG_TURNING ? 1 : -1;
+          long v = reading;
+          if (k->vel * (float)dir >= JOG_LEAD_MIN_VEL) {
+               long ahead = (long)(now - k->changed_at) + JOG_LEAD_MS;
+               if (ahead > JOG_LEAD_MAX_MS)
+                    ahead = JOG_LEAD_MAX_MS;
+               v += (long)(k->vel * (float)ahead);
+          }
+          if ((v - k->shown) * dir < 0 && (k->shown - v) * dir < NO_BACKSTEP_MS)
+               v = k->shown;                 /* against the hand: hold */
           if (v < 0) v = 0;
           if (total_ms > 0 && v > total_ms) v = total_ms;
           k->base_ms = reading;
@@ -385,10 +398,12 @@ void flx10_hid_set_pos_reader(int (*fn)(int deck, int *pos_ms, int *moving))
      pos_reader = fn;
 }
 
-void flx10_hid_jog_activity(int deck)
+void flx10_hid_jog_activity(int deck, int dir)
 {
-     if (deck >= 0 && deck < 4)
+     if (deck >= 0 && deck < 4) {
           hd[deck].jog_at = shim_now_ms();
+          hd[deck].jog_dir = dir;
+     }
 }
 
 static int find_node(char *path, size_t n)
@@ -480,7 +495,8 @@ static void *hid_thread(void *arg)
                }
                if (s.loaded) {
                     /* touched on a playing deck does nothing (no vinyl mode) */
-                    int jog = t - hd[d].jog_at < JOG_ACTIVE_MS ? FLX10_JOG_TURNING :
+                    int jog = t - hd[d].jog_at < JOG_ACTIVE_MS ?
+                              (hd[d].jog_dir < 0 ? FLX10_JOG_TURNING_BACK : FLX10_JOG_TURNING) :
                               (s.jog_touch && !mov) ? FLX10_JOG_HELD : 0;
                     flx10_hid_tempo_hold(&hd[d].th, &s, t - hd[d].jog_at < JOG_ACTIVE_MS,
                                          t);
