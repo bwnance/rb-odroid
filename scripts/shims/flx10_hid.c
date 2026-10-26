@@ -242,8 +242,9 @@ void flx10_hid_heartbeat_pkt(unsigned char p[FLX10_HID_PKT], int n)
 #define EXTRAP_MAX_MS 200
 #define NO_BACKSTEP_MS 100
 #define JOG_ACTIVE_MS 60             /* the jog counts as turning this long after a count */
-#define JOG_LEAD_MS 25               /* how far ahead of rbp's reading a turning jog is drawn */
-#define JOG_LEAD_MAX_MS 60
+#define JOG_LEAD_MS 12               /* how far ahead of rbp's reading a turning jog is drawn */
+#define JOG_LEAD_MAX_MS 30
+#define JOG_LEAD_FRESH_MS 8          /* ...and only while counts are still arriving */
 #define JOG_LEAD_MIN_VEL 0.3f        /* lead only above this speed (track ms per ms) */
 #define JOG_STILL_MS 40              /* a held jog's reading wobbles this much */
 #define TEMPO_HOLD_MS 3000           /* sync + jog: tempo held this long after the jog */
@@ -310,7 +311,7 @@ int flx10_hid_merge(struct flx10_hid_track *k, int reading, int mov, int jog,
            * (more than NO_BACKSTEP_MS). */
           int dir = jog == FLX10_JOG_TURNING ? 1 : -1;
           long v = reading;
-          if (k->vel * (float)dir >= JOG_LEAD_MIN_VEL) {
+          if (k->fresh && k->vel * (float)dir >= JOG_LEAD_MIN_VEL) {
                long ahead = (long)(now - k->changed_at) + JOG_LEAD_MS;
                if (ahead > JOG_LEAD_MAX_MS)
                     ahead = JOG_LEAD_MAX_MS;
@@ -326,9 +327,12 @@ int flx10_hid_merge(struct flx10_hid_track *k, int reading, int mov, int jog,
      } else if (jog == FLX10_JOG_HELD) {
           /* held still: rbp's reading wobbles around the spot, so it moves
            * the arm only past JOG_STILL_MS */
+          int diff = reading - k->shown;
           k->vel = 0.0f;
-          if (k->shown - reading > JOG_STILL_MS || reading - k->shown > JOG_STILL_MS)
+          if (diff > JOG_STILL_MS || diff < -JOG_STILL_MS)
                k->shown = reading;
+          else if (diff >= 8 || diff <= -8)
+               k->shown += diff / 8;         /* eases onto the wobble's middle */
           k->base_ms = reading;
           k->hold = -1;
      } else if (mov) {
@@ -500,6 +504,7 @@ static void *hid_thread(void *arg)
                               (s.jog_touch && !mov) ? FLX10_JOG_HELD : 0;
                     flx10_hid_tempo_hold(&hd[d].th, &s, t - hd[d].jog_at < JOG_ACTIVE_MS,
                                          t);
+                    hd[d].k.fresh = t - hd[d].jog_at < JOG_LEAD_FRESH_MS;
                     s.elapsed_ms = flx10_hid_merge(&hd[d].k, pos, mov, jog,
                                                    s.tempo_x100, s.total_ms, t);
                     if (live) {

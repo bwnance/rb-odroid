@@ -75,6 +75,7 @@ struct flx10_hid_track {
      int last_reading;                /* rbp's reading and when it last changed */
      unsigned long long changed_at;
      float vel;                       /* its speed, ms per ms */
+     int fresh;                       /* set by the caller: a jog count in the last few ms */
 };
 #define FLX10_JOG_HELD    1           /* `jog`: platter held, not turning */
 #define FLX10_JOG_TURNING 2           /* `jog`: counts in the last JOG_ACTIVE_MS, forward */

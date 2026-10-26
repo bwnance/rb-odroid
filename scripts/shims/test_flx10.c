@@ -847,6 +847,7 @@ int main(void)
                struct flx10_hid_track k;
                unsigned long long t = 1000;
                flx10_hid_track_init(&k);
+               k.fresh = 1;
                CHECK(flx10_hid_merge(&k, 5000, 1, 0, 0, 0, t) == 5000, "first reading shown");
                CHECK(flx10_hid_merge(&k, 5000, 1, 0, 0, 0, t += 10) == 5010, "same block: runs on at the tempo");
                CHECK(flx10_hid_merge(&k, 5000, 1, 0, 0, 0, t += 10) == 5020, "still running on");
@@ -854,9 +855,12 @@ int main(void)
                CHECK(flx10_hid_merge(&k, 5023, 0, 0, 0, 0, t += 10) == 5030, "paused: holds the last shown, no jump back");
                CHECK(flx10_hid_merge(&k, 5023, 0, 0, 0, 0, t += 10) == 5030, "and keeps it while rbp stays put");
                CHECK(flx10_hid_merge(&k, 4800, 0, FLX10_JOG_HELD, 0, 0, t += 10) == 4800, "jogged back: the reading");
-               CHECK(flx10_hid_merge(&k, 4820, 0, FLX10_JOG_HELD, 0, 0, t += 10) == 4800 &&
-                     flx10_hid_merge(&k, 4785, 0, FLX10_JOG_HELD, 0, 0, t += 10) == 4800,
-                     "held still: the reading's wobble does not move the arm");
+               {
+                    int a1 = flx10_hid_merge(&k, 4820, 0, FLX10_JOG_HELD, 0, 0, t += 10);
+                    int a2 = flx10_hid_merge(&k, 4785, 0, FLX10_JOG_HELD, 0, 0, t += 10);
+                    CHECK(a1 >= 4800 && a1 <= 4803 && a2 >= 4798 && a2 <= 4803,
+                          "held still: the reading's wobble barely moves the arm (%d %d)", a1, a2);
+               }
                CHECK(flx10_hid_merge(&k, 4700, 0, FLX10_JOG_HELD, 0, 0, t += 10) == 4700, "held, moved: follows");
                flx10_hid_merge(&k, 4690, 1, FLX10_JOG_TURNING_BACK, 0, 0, t += 10);
                {
@@ -872,6 +876,18 @@ int main(void)
                     int x = flx10_hid_merge(&k, 4692, 1, FLX10_JOG_TURNING, 0, 0, t += 30);
                     int y = flx10_hid_merge(&k, 4692, 1, FLX10_JOG_TURNING, 0, 0, t += 10);
                     CHECK(x == y && y >= 4690 && y <= 4692, "a slow nudge: no lead, no twitch (%d %d)", x, y);
+               }
+               /* a fast turn, then the hand stops: no lead once counts stop */
+               {
+                    int r = 6000, v = 0;
+                    flx10_hid_merge(&k, r, 0, FLX10_JOG_HELD, 0, 0, t += 10);
+                    for (int i = 0; i < 6; i++)
+                         v = flx10_hid_merge(&k, r += 20, 1, FLX10_JOG_TURNING, 0, 0, t += 10);
+                    CHECK(v > r, "fast turn: drawn ahead (%d > %d)", v, r);
+                    k.fresh = 0;
+                    v = flx10_hid_merge(&k, r, 1, FLX10_JOG_TURNING, 0, 0, t += 10);
+                    CHECK(v - r <= 30, "hand stopped: lead dropped, at most a small hold (%d vs %d)", v, r);
+                    k.fresh = 1;
                }
                CHECK(flx10_hid_merge(&k, 9000, 0, 0, 0, 0, t += 10) == 9000, "cue/seek while paused: the reading");
                flx10_hid_merge(&k, 9000, 1, 0, 0, 0, t += 10);
