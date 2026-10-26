@@ -304,6 +304,8 @@ struct menu_map {
     int  settings_fail;          /* this machine refused a panel-sized plane */
     int  settings_valid;         /* a built panel exists in settings_img[0] */
     void  *settings_img[2];      /* [front, back]; NULL when none could be had */
+    struct settings_state settings_page_S; /* the page route's state, as last read */
+    int    settings_page_have;   /* ...and that it has been read */
     size_t settings_img_bytes;   /* one image, bytes */
     int    settings_buf_w;       /* the image's geometry, cached at allocation ... */
     int    settings_buf_h;
@@ -1183,6 +1185,8 @@ static void menu_settings_repaint(void)
     g.settings_painted_pointer = S.pointer_on;
 }
 
+static void menu_settings_page_paint(void);
+
 /* Everything the panel does per tick. One entry point for both routes, so the tick cannot
  * take one and forget the other. */
 static void menu_settings_live(void)
@@ -1199,18 +1203,33 @@ static void menu_settings_live(void)
     }
 
     if (!g.settings_ok) {
-        struct menu_view sv;
-        struct settings_state S;
-
-        pointsrc_settings_state(&S);
-        menu_settings_view(&sv);
-        if (settings_paint_ok(&sv))
-            settings_paint(&sv, &S, settings_pressed(),
-                       settings_hold_flash() ? settings_hold_row() : 0);
+        pointsrc_settings_state(&g.settings_page_S);
+        g.settings_page_have = 1;
+        menu_settings_page_paint();
         g.settings_valid = 1;
         return;
     }
     menu_settings_repaint();
+}
+
+/* THE PAGE ROUTE'S PAINT -- the panel drawn straight onto rbp's page, on a machine that
+ * refused it a plane. rbp draws into the very buffer that is scanned out, so every one of
+ * its redraws under the box (a waveform, a meter) covers the panel until it is painted
+ * again: painted only from the builder's tick, it flickered (operator, 2026-10-26). So
+ * menu_frame_tick() paints it too, after every rbp frame and before the wait, which leaves
+ * it the inter-frame gap to be scanned out in. It paints from the state the builder's tick
+ * last read (settings_page_S) -- that read is file and sysfs work, and this runs on rbp's
+ * render thread. Called under g_lock. */
+static void menu_settings_page_paint(void)
+{
+    struct menu_view sv;
+
+    if (!g.settings_page_have)
+        return;
+    menu_settings_view(&sv);
+    if (settings_paint_ok(&sv))
+        settings_paint(&sv, &g.settings_page_S, settings_pressed(),
+                       settings_hold_flash() ? settings_hold_row() : 0);
 }
 
 /* Bring the panel's plane into line with the panel. Called under g_lock from the tick,
@@ -2354,6 +2373,8 @@ void menu_frame_tick(void)
             drm_band_hide(&g.band);
             g.band_on = 0;
         }
+        if (!g.settings_ok && !g.settings_img[0])
+            menu_settings_page_paint();   /* the page route: after every rbp frame */
         pthread_mutex_unlock(&g_lock);
         return;
     }
