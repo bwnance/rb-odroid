@@ -272,7 +272,7 @@ session; details further down):
 10. Parked: HOT CUE mode switch lag.
 
 Done 2026-10-26 (start-up splash, rbp's TRANS picture):
-- For RB_SPLASH_MS (7000) after rbp's first frame the screen shows a picture on
+- For RB_SPLASH_MS (8000) after rbp's first frame the screen shows a picture on
   black (RB_SPLASH_IMAGE, a PNG, or rbp's own white rekordbox logo from
   imagedata.dat), the FLX10's LEDs are held and its input dropped; then the unit
   is asked for its controls again. rbp draws into a private buffer meanwhile:

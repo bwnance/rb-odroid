@@ -31,7 +31,7 @@
 
 #define EXPORT __attribute__((visibility("default")))
 
-#define SPLASH_MS_DEFAULT   7000
+#define SPLASH_MS_DEFAULT   8000
 #define SPLASH_NO_FRAME_MS  60000         /* rbp never drew: let the controller go */
 #define SPLASH_FILE_DEFAULT "/run/rblive4/splash.rgb565"
 #define SPLASH_MAX_PX       (1280 * 800)
@@ -275,7 +275,7 @@ EXPORT void *mmap64(void *addr, size_t len, int prot, int flags, int fd, off64_t
 __attribute__((constructor)) static void splash_init(void)
 {
     s_load_ms = now_ms();
-    s_ms = atol(env_str("SPLASH_MS", "7000"));
+    s_ms = atol(env_str("SPLASH_MS", "8000"));
     if (s_ms <= 0)
         s_done = 1;
 }
