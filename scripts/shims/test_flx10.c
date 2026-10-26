@@ -237,30 +237,37 @@ static void media_tests(void)
           src.ex2 = ex2; src.ex2_len = n2; src.dat = dat; src.dat_len = nd;
           src.art = jpg; src.art_len = 5; src.artm = jpgm; src.artm_len = 7;
           src.total_ms = 186489;
-          CHECK(flx10_media_from_src(&src, &m) == 0 && m.n == 6 && m.have_art && m.have_wave,
-                "six transfers");
-          CHECK(m.it[0].type == 0x30 && m.it[0].len == 4 && m.it[0].data[0] == 3 &&
-                m.it[0].data[1] == 6 && m.it[0].data[2] == 0xe9 && m.it[0].data[3] == 1,
+          CHECK(flx10_media_from_src(&src, &m) == 0 && m.n == 12 && m.have_art && m.have_wave,
+                "twelve transfers");
+          CHECK(m.it[0].type == 0x30 && m.it[0].len == 4 && !m.it[0].data[0] &&
+                m.it[3].type == 0x39 && m.it[3].len == 366 && m.it[3].data[1] == 'H' &&
+                m.it[4].type == 0x3b && m.it[4].len == 610,
+                "a load starts with an empty 0x30; 0x39 and 0x3b as rekordbox");
+          CHECK(m.it[2].type == 0x2d && m.it[2].len == 56 && m.it[2].data[4] == 10 &&
+                m.it[2].data[6] == 0x9e && m.it[2].data[55] == 0 && m.it[5].type == 0x3e &&
+                m.it[5].len == 0 && m.it[11].type == 0x3e, "0x2d (no cues) and 0x3e, as rekordbox");
+          CHECK(m.it[1].type == 0x30 && m.it[1].len == 4 && m.it[1].data[0] == 3 &&
+                m.it[1].data[1] == 6 && m.it[1].data[2] == 0xe9 && m.it[1].data[3] == 1,
                 "0x30: 3:06.489 as 03 06 e9 01 (the capture's)");
-          CHECK(m.it[1].type == 0x2b && m.it[1].len == 7 && m.it[1].data[0] == 5 &&
-                m.it[1].data[1] == 0 && !memcmp(m.it[1].data + 2, jpg, 5), "0x2b: LE16 + JPEG");
-          CHECK(m.it[2].type == 0x33 && m.it[2].len == 10 && m.it[2].data[0] == 7 &&
-                m.it[2].data[2] == 0 && !memcmp(m.it[2].data + 3, jpgm, 7), "0x33: LE24 + JPEG");
-          CHECK(m.it[3].type == 0x37 && m.it[3].len == 7 && m.it[3].data[0] == 0x80 &&
-                !memcmp(m.it[3].data + 1, w6, 6), "0x37: 0x80 + PWV6");
-          CHECK(m.it[4].type == 0x2f && m.it[4].len == 10 && m.it[4].data[0] == 2 &&
-                m.it[4].data[2] == 1 && m.it[4].data[3] == 0x6b && m.it[4].data[4] == 1 &&
-                m.it[4].data[6] == 2 && m.it[4].data[7] == 0x42 && m.it[4].data[8] == 3,
+          CHECK(m.it[6].type == 0x2b && m.it[6].len == 7 && m.it[6].data[0] == 5 &&
+                m.it[6].data[1] == 0 && !memcmp(m.it[6].data + 2, jpg, 5), "0x2b: LE16 + JPEG");
+          CHECK(m.it[7].type == 0x33 && m.it[7].len == 10 && m.it[7].data[0] == 7 &&
+                m.it[7].data[2] == 0 && !memcmp(m.it[7].data + 3, jpgm, 7), "0x33: LE24 + JPEG");
+          CHECK(m.it[8].type == 0x37 && m.it[8].len == 7 && m.it[8].data[0] == 0x80 &&
+                !memcmp(m.it[8].data + 1, w6, 6), "0x37: 0x80 + PWV6");
+          CHECK(m.it[9].type == 0x2f && m.it[9].len == 10 && m.it[9].data[0] == 2 &&
+                m.it[9].data[2] == 1 && m.it[9].data[3] == 0x6b && m.it[9].data[4] == 1 &&
+                m.it[9].data[6] == 2 && m.it[9].data[7] == 0x42 && m.it[9].data[8] == 3,
                 "0x2f: count, then beat + LE24 ms (the capture's 01 6b 01 00)");
-          CHECK(m.it[5].type == 0x38 && m.it[5].len == 13 && m.it[5].data[0] == 3 &&
-                m.it[5].data[3] == 0 && !memcmp(m.it[5].data + 4, w7, 9), "0x38: LE32 count + PWV7");
+          CHECK(m.it[10].type == 0x38 && m.it[10].len == 13 && m.it[10].data[0] == 3 &&
+                m.it[10].data[3] == 0 && !memcmp(m.it[10].data + 4, w7, 9), "0x38: LE32 count + PWV7");
           flx10_media_free(&m);
 
           memset(&src, 0, sizeof src);
           src.total_ms = 1000;
-          CHECK(flx10_media_from_src(&src, &m) == 0 && m.n == 6 && !m.have_art && !m.have_wave &&
-                m.it[1].len == 2 && m.it[2].len == 3 && m.it[3].len == 3601 &&
-                m.it[4].len == 2 && m.it[5].len == 4,
+          CHECK(flx10_media_from_src(&src, &m) == 0 && m.n == 12 && !m.have_art && !m.have_wave &&
+                m.it[6].len == 2 && m.it[7].len == 3 && m.it[8].len == 3601 &&
+                m.it[9].len == 2 && m.it[10].len == 4,
                 "nothing found: empty artwork, a flat overview, no detail");
           flx10_media_free(&m);
      }
@@ -343,8 +350,8 @@ static void media_tests(void)
           PUT("/PIONEER/Artwork/00001/a7_m.jpg", "\xff\xd8\x00\xff\xd9", 5);
 #undef PUT
           snprintf(path, sizeof path, "%s/Contents/\xc3\xa9.mp3", root);
-          CHECK(flx10_media_load(path, 186489, &m) == 0 && m.n == 6 && m.have_art &&
-                m.have_wave && m.it[1].len == 6 && m.it[2].len == 8 && m.it[5].len == 13,
+          CHECK(flx10_media_load(path, 186489, &m) == 0 && m.n == 12 && m.have_art &&
+                m.have_wave && m.it[6].len == 6 && m.it[7].len == 8 && m.it[10].len == 13,
                 "load: export found above the file, every piece read");
           flx10_media_free(&m);
           snprintf(path, sizeof path, "%s/Contents/other.mp3", root);

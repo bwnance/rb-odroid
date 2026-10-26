@@ -8,7 +8,15 @@
  * operator's rekordbox USB captures (tools/flx10-pcap-decode.py) and checked
  * byte for byte, both decks, against what this file builds from the same
  * tracks on the export stick (2026-10-26). In rekordbox's order:
+ *   0x30  empty (all zero), as a load starts
  *   0x30  track length: minutes, seconds, ms (LE16)
+ *   0x2d  the length again, then 0a 00 and ten 5-byte entries -- the cue
+ *         list, by the look of it; sent as rekordbox sent it for tracks with
+ *         no cues ("9e 2f 27 01 00" each), the format of a real cue unknown
+ *   0x39  00 "HOT CUE", zero-padded to 3 packets (meaning not known)
+ *   0x3b  zeros, 5 packets (meaning not known; one deck had values 0..4)
+ *   0x3e  the played part of the overview (a bitmap rekordbox fills as the
+ *         track plays): all zero
  *   0x2b  artwork, small: LE16 length + the export's 80x80 JPEG,
  *         PIONEER/Artwork/NNNNN/aID.jpg, as it is on the stick
  *   0x33  artwork, large: LE24 length + the 240x240 one, aID_m.jpg
@@ -17,6 +25,14 @@
  *         (LE24), from the DAT file's PQTZ
  *   0x38  detail waveform: LE32 entry count + the track's PWV7 (3-band,
  *         150 entries a second, 3 bytes each)
+ *   0x3e  again, once the rest is in
+ * With only the artwork, waveforms, beat grid and length, the jog drew a
+ * newly loaded track's waveform only after its display mode was changed;
+ * with 0x2d / 0x3e added it redrew by itself over a loaded track but not on
+ * a first load (operator, 2026-10-26), so all of rekordbox's load sequence is
+ * sent but 0x3c, which rekordbox computes and which is in no export file --
+ * with it the waveform comes up by itself, quickly (operator, the same day).
+ * Which of 0x30 / 0x39 / 0x3b the first load needed is not narrowed down.
  * PWV6 / PWV7 are in the track's ANLZ0000.2EX, which the export writes beside
  * the .DAT that export.pdb names for the track. Nothing here is converted:
  * every payload is the export's own bytes behind a length.
@@ -26,7 +42,7 @@
 
 #include <stddef.h>
 
-#define FLX10_MEDIA_MAX 6
+#define FLX10_MEDIA_MAX 13
 
 struct flx10_media_item {
      unsigned char type;

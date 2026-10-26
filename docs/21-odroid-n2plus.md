@@ -185,6 +185,10 @@ session; details further down):
    still steps a little -- it does under rekordbox too (operator), and the
    positions sent are within ~1 ms of a straight line (usbmon), smoother than
    rekordbox's own (12.5 ms steps at 8/16 ms): the unit's rendering, left.
+   A loaded track's waveform needed a display-mode change to appear until
+   the rest of rekordbox's load sequence went out too (0x30 empty, 0x2d,
+   0x39, 0x3b, 0x3e; flx10_media.h); with it, and 5 transfer packets a tick,
+   it comes up by itself and fast (operator, 2026-10-26).
 3. **Album art on rbp's browse screen** (operator, 2026-10-26): every track
    shows rbp's default blank artwork in the browser (on the HDMI screen; the
    jog screens show the real art). rbp has its own artwork path for that

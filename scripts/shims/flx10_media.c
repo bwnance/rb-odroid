@@ -324,12 +324,46 @@ int flx10_media_from_src(const struct flx10_media_src *s, struct flx10_media *m)
      int t = s->total_ms > 0 ? s->total_ms : 0;
 
      memset(m, 0, sizeof *m);
+     /* 0x30 empty first: rekordbox sends it as a load starts */
+     memset(h, 0, 4);
+     if (add(m, 0x30, h, 4, NULL, 0))
+          goto oom;
      /* 0x30: the length, as the state packet's [15..18] */
      h[0] = (unsigned char)(t / 60000 > 255 ? 255 : t / 60000);
      h[1] = (unsigned char)(t / 1000 % 60);
      h[2] = (unsigned char)(t % 1000 & 0xff);
      h[3] = (unsigned char)(t % 1000 >> 8);
      if (add(m, 0x30, h, 4, NULL, 0))
+          goto oom;
+
+     /* 0x2d: the length, then ten empty entries, as rekordbox sent them */
+     {
+          static const unsigned char empty[5] = { 0x9e, 0x2f, 0x27, 0x01, 0x00 };
+          unsigned char c[4 + 2 + 50];
+          memcpy(c, h, 4);
+          c[4] = 10;
+          c[5] = 0;
+          for (int i = 0; i < 10; i++)
+               memcpy(c + 6 + 5 * i, empty, 5);
+          if (add(m, 0x2d, c, sizeof c, NULL, 0))
+               goto oom;
+     }
+     /* 0x39: 00 "HOT CUE" (3 packets), 0x3b: zeros (5 packets) -- both as
+      * rekordbox sent them at a load, meaning not known */
+     {
+          static const unsigned char lab[8] = { 0, 'H', 'O', 'T', ' ', 'C', 'U', 'E' };
+          unsigned char *z = calloc(1, 610);
+          if (!z)
+               goto oom;
+          if (add(m, 0x39, lab, sizeof lab, z, 366 - sizeof lab) ||
+              add(m, 0x3b, z, 610, NULL, 0)) {
+               free(z);
+               goto oom;
+          }
+          free(z);
+     }
+     /* 0x3e: nothing played yet (one zero packet) */
+     if (add(m, 0x3e, NULL, 0, NULL, 0))
           goto oom;
 
      /* 0x2b / 0x33: the two JPEGs behind their lengths (0 = none, or one
@@ -408,6 +442,9 @@ int flx10_media_from_src(const struct flx10_media_src *s, struct flx10_media *m)
           if (add(m, 0x38, h, 4, NULL, 0))
                goto oom;
      }
+     /* 0x3e again, now the waveforms are in */
+     if (add(m, 0x3e, NULL, 0, NULL, 0))
+          goto oom;
      return 0;
 oom:
      flx10_media_free(m);

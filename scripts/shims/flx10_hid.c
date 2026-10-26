@@ -292,8 +292,9 @@ static int (*pos_reader)(int deck, int *pos_ms, int *moving);
 static int (*caution_reader)(int deck);
 
 /* Artwork and waveforms (flx10_media.h): one transfer list per deck, sent
- * BULK_PER_TICK packets a tick after the state packets (375 a second;
- * rekordbox sends them in bursts about 1 ms apart, ~300 a second) -- so a long track's detail
+ * BULK_PER_TICK packets a tick after the state packets: an 8 ms tick has
+ * eight 1 ms slots on the endpoint, three taken by the heartbeat and the two
+ * decks (625 a second; rekordbox's bursts are about 1 ms apart) -- so a long track's detail
  * waveform takes a few seconds and the arm never waits for it. Built by
  * media_thread, which owns the file reads; the sender only copies 122 bytes
  * at a time out of it under media_lock. Not sent until BULK_AFTER_OPEN_MS
@@ -301,9 +302,9 @@ static int (*caution_reader)(int deck);
  * the display connect sequence (map_flx10.c, 1 s and 4 s after it is seen),
  * and a unit that is opened again was power cycled and has forgotten them,
  * so they start over. */
-#define BULK_PER_TICK 3
+#define BULK_PER_TICK 5
 #define BULK_AFTER_OPEN_MS 6000
-#define MEDIA_POLL_MS 250
+#define MEDIA_POLL_MS 100
 static struct {
      struct flx10_media m;
      int item, idx;                    /* next packet: m.it[item], idx 1.. */
