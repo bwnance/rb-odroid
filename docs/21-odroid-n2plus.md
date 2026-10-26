@@ -311,6 +311,20 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   surface is found gone (`CTRL_PAUSE_ON_LOSS=1`, any surface; ctrlshim.c's
   `pause_on_loss`). Decks stay paused on reconnect. Works on the unit
   (operator, 2026-10-25).
+* **Splash until rbp is ready** (operator, 2026-10-25). A splash covering the
+  whole screen from launch until rbp has fully initialized, so none of its
+  start-up drawing shows, and no input (FLX10, keyboard, touch) reaching rbp
+  until then. What exists: the Pi's boot screen (`rblive4-boot`, docs/11 "The
+  boot screen") paints stage lines on fb0 and leaves at rbp's FIRST frame
+  (`rbp-drew`) -- too early, and it looks for fb0 named `vc4drmfb`, so on the
+  ODROID (meson's drm_fbdev) it likely never shows. Plan: fb_shim keeps
+  presenting the splash in place of rbp's frames until a "ready" signal, and
+  ctrlshim / pointsrc drop input until the same signal (the FLX10 connect
+  sequence and LEDs can still go out). The ready signal is to be chosen --
+  candidates: rbp's UI reaching the player screen (its screen-mode state),
+  the PlayEngine and LED table populated and the frame unchanged for ~1 s, or
+  a fixed delay after the first frame as a fallback. Needs a look at what the
+  odd start-up drawing actually is.
 * **Later, maybe:** RX3 effects matching the FLX10's (ENIGMA JET, MOBIUS, ...).
 
 ## DDJ-FLX10
