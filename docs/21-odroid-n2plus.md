@@ -189,18 +189,18 @@ session; details further down):
    the rest of rekordbox's load sequence went out too (0x30 empty, 0x2d,
    0x39, 0x3b, 0x3e; flx10_media.h); with it, and 5 transfer packets a tick,
    it comes up by itself and fast (operator, 2026-10-26).
-3. **Album art on rbp's browse screen** (operator, 2026-10-26): every track
-   shows rbp's default blank artwork in the browser (on the HDMI screen; the
-   jog screens show the real art). rbp has its own artwork path for that
-   (RequestArtworkData @0xd3f84 posts to its DB task; a JpegMgrTask thread
-   decodes), so the files are there but something on its way to the screen
-   is not. Possibly related: rbp.log carries `CmnFunc_Error( ... UniNo=
-   0x0000102a, Val=0xffffffee )` about 2.5 times a second from ~15 s after
-   every start, idle or not. 0x102a is a browse message
-   (SendMessage_ToBrowseComm in BrowseListManage @0x10069c); -18 reads as
-   the porting layer's "invalid ID". Once (2026-10-26) rbp also stopped
-   drawing its HDMI waveforms until a restart -- the stick's files were
-   intact.
+3. **Album art on rbp's browse screen -- done** (2026-10-26): every track
+   showed the default cover. rbp's DecodeScalingJpeg @0x176208 decodes with
+   libjpeg and scales to 240x240 through the i.MX GPU (libg2d); with no such
+   GPU g2d_open failed and it returned -2. fbshim.so now exports the seven
+   g2d calls rbp imports, in software (g2d_sw.c). Confirmed on the unit.
+   **Still open, separately:** rbp.log carries `CmnFunc_Error( ... UniNo=
+   0x0000102a, Val=0xffffffee )` about 3 times a second from ~15 s after
+   every start, idle or not, artwork working or not. 0x102a is a browse
+   message (SendMessage_ToBrowseComm in BrowseListManage @0x10069c); -18
+   reads as the porting layer's "invalid ID". Once (2026-10-26) rbp also
+   stopped drawing its HDMI waveforms until a restart -- the stick's files
+   were intact.
 4. **Hot cues on the jog waveform -- done** (2026-10-26, capture_hotcues):
    they are in 0x30, not 0x2d (flx10_media.h): 8 slots of type, colour and
    IN time, built from the EXT's PCO2 at a load, byte for byte rekordbox's
