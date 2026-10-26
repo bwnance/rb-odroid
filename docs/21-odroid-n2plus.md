@@ -178,6 +178,13 @@ session; details further down):
    previous one's; a power cycle brings them back (sent again 6 s after the
    unit is found). Not sent, meaning unknown: 0x2d (cue list?), 0x39,
    0x3b, 0x3c, 0x3e (played part?). `RB_FLX10_MEDIA=0` turns it off.
+   Confirmed on the unit 2026-10-26: artwork, waveforms, a track with no
+   artwork. Stacked waveforms: the tempo % sent is now the deck's real speed
+   (it was the fader, wrong after SYNC off), and state packets go out every
+   8 ms on the clock as rekordbox's do (they were every 15 ms). The scroll
+   still steps a little -- it does under rekordbox too (operator), and the
+   positions sent are within ~1 ms of a straight line (usbmon), smoother than
+   rekordbox's own (12.5 ms steps at 8/16 ms): the unit's rendering, left.
 3. **Album art on rbp's browse screen** (operator, 2026-10-26): every track
    shows rbp's default blank artwork in the browser (on the HDMI screen; the
    jog screens show the real art). rbp has its own artwork path for that
