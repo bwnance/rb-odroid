@@ -1033,6 +1033,25 @@ static void led_refresh(void)
                          led_pad_base[i] = base;
                     }
 
+                    /* rbp's slip flash: its SLIP KEY (not setSlipMode, so not
+                     * SLIP REVERSE) puts all eight pad entries in state 3 for
+                     * ~0.5 s and then back (LED_DUMP, 2026-10-25: ids 18-25
+                     * 1 -> 3 -> 1 with SLIP 0 -> 1, in HOT CUE and in AUTO BEAT
+                     * LOOP alike). Here 3 is otherwise one engaged pad, never
+                     * all eight, and an empty hot cue slot loses its unassigned
+                     * mark in the flash -- so it lit every page: empty hot cue
+                     * pads white, the other modes' pads bright. The pads are
+                     * left exactly as they were until it is over. */
+                    if (base >= 0 && base == led_pad_base[i]) {
+                         int p = 0;
+                         while (p < LED_PAD_COUNT &&
+                                ledstat_state(LED_PAD_FIRST + (unsigned)p,
+                                              (unsigned)i + 1) == 3)
+                              p++;
+                         if (p == LED_PAD_COUNT)
+                              goto pads_done;
+                    }
+
                     /* -1 from a pad_base() hook: the panel's pads are on a
                      * page rbp has nothing for. The old page is cleared above
                      * and nothing more is sent. */
@@ -1054,22 +1073,6 @@ static void led_refresh(void)
                           * State-only rule lights all eight white pads in HOT
                           * CUE -- which is what the operator's panel showed, and
                           * not what an RX3 or this unit's own cues do. */
-                         /* HOT CUE / GATE CUE with slip mode on: rbp turns all
-                          * eight pad entries to state 3, white, full brightness
-                          * (LED_DUMP, 2026-10-25: id 11 SLIP 0 -> 1 and ids
-                          * 18-25 1 -> 3 together), which the state-3 rule below
-                          * -- measured on the BEAT LOOP page, where 3 is the
-                          * engaged loop pad -- blinked white. Here 3 says
-                          * nothing about the pad: an empty slot stays dark, a
-                          * hot cue keeps its own light. */
-                         int cue_mode = (m & 3) == 0;
-                         if (cue_mode && st == 3) {
-                              if (((int (*)(int, unsigned int))UI_GET_HOTCUE_INTIME)
-                                       (i, (unsigned int)p) == -1)
-                                   st = 0;
-                              else
-                                   st = 1;
-                         }
                          if (st <= 0 ||
                              ledstat_unassigned(LED_PAD_FIRST + (unsigned)p,
                                                 (unsigned)i + 1) ||
