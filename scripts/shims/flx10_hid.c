@@ -541,7 +541,9 @@ static void *hid_thread(void *arg)
                     }
                }
                pthread_mutex_unlock(&hd_lock);
-               if (caution_reader && d < 2 && s.loaded)
+               /* only while playing: a paused deck's ring stays lit
+                * (operator, 2026-10-25), whatever rbp's waveform does */
+               if (caution_reader && d < 2 && s.loaded && s.playing && !s.cue_standby)
                     s.end_caution = caution_reader(d);
                flx10_hid_state_pkt(p, d, &s);
                ok = send_pkt(fd, p);
