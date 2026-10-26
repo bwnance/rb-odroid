@@ -365,6 +365,20 @@ echo "start-rb: AUDIO_DEV=$AUDIO_DEV MIDI_MAP=$MIDI_MAP POINT_KIND=$POINT_KIND"
 # whose audio misbehaves: `master dev="…" candidates=2` is the configured device
 # and its plughw twin and nothing else, so any third name there — `default` above
 # all — means a fallback the configuration did not ask for has come back.
+# The ODROID-N2's HDMI audio is OFF until the board card's routing switches
+# connect playback device 0 to the HDMI transmitter: FRDDR_A -> TDMOUT_B ->
+# TOHDMITX (the board's sound-card DT; scripts/odroid/hdmi-audio-probe.sh).
+# Set on every start rather than trusted to a stored mixer state; only the
+# ODROIDN2 card is touched, and a control a kernel lacks only logs.
+case "${AUDIO_MIRROR_DEV:-}" in
+*ODROIDN2*)
+    for c in "FRDDR_A SRC 1 EN Switch|on" "FRDDR_A SINK 1 SEL|OUT 1" \
+             "TDMOUT_B SRC SEL|IN 0" "TOHDMITX I2S SRC|I2S B" "TOHDMITX Switch|on"; do
+        amixer -q -c ODROIDN2 cset name="${c%|*}" "${c#*|}" 2>/dev/null ||
+            echo "start-rb: HDMI audio route: could not set '${c%|*}'"
+    done
+    ;;
+esac
 echo "start-rb: AUDIO_MIRROR_DEV=${AUDIO_MIRROR_DEV:-<off>} fmt=${AUDIO_MIRROR_FMT:-<s24_le>}"
 rb_bootmsg "shims: DFB_PRESENT=${DFB_PRESENT:-<unset>} AUDIO_DEV=${AUDIO_DEV:-<unset>} POINT_KIND=${POINT_KIND:-<unset>}"
 

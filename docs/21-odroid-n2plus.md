@@ -160,9 +160,13 @@ On the unit, Armbian `6.18.43-current-meson64`, with a 1024×768 bench monitor
 **Open, as of the end of 2026-10-25** (the start-here list for the next
 session; details further down):
 
-1. **HDMI audio mirror**: run `scripts/odroid/hdmi-audio-probe.sh`, read
-   `~/hdmi-audio.txt`, then set the mixer route in start-rb.sh and
-   `RB_AUDIO_MIRROR_DEV=hw:CARD=ODROIDN2,DEV=0` with a format that works.
+1. **HDMI audio mirror -- done** (2026-10-26): the board card's device 0
+   (`hw:CARD=ODROIDN2,DEV=0`) as plain PCM, `s24_le` at rbp's 44.1 kHz (it
+   takes S16/S24/S32_LE, 8..192 kHz; the monitor's ELD offers 2 ch LPCM
+   32..192 kHz). start-rb.sh sets the route on every start -- FRDDR_A SRC 1 EN
+   on, FRDDR_A SINK 1 SEL = OUT 1, TDMOUT_B SRC SEL = IN 0, TOHDMITX I2S SRC
+   = I2S B, TOHDMITX on -- and rb.conf makes both the Odroid default.
+   Confirmed by ear on the unit; `RB_AUDIO_MIRROR_DEV=` turns it off.
 2. **Waveforms and album art on the jog screens -- built, to look at on the
    unit** (2026-10-26). rekordbox sends them as HID transfers that are the
    export's own files behind a length: the 80x80 and 240x240 artwork JPEGs,
@@ -269,9 +273,7 @@ captured with MIDI Monitor, `tools/captures/flx10-rekordbox-startup.txt`) and it
 keepalive every 200 ms, so the faders start where they really are rather than
 seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with it.
 
-* **HDMI audio mirror** looks for the Pi's `vc4hdmi0/1` cards, which the Odroid
-  does not have (harmless retry noise in audioshim.log). Point `RB_AUDIO_MIRROR_DEV`
-  at the Odroid's HDMI card (open item 2 above).
+* **HDMI audio mirror**: done -- open item 1 above.
 * **HOT CUE mode switch lag** (parked, low priority). Switching to HOT CUE shows on
   screen a fraction of a second late, even with no track loaded. Not the key
   path: `onKey_HotCue` @0x3030ec switches the mode on the press, and SYNC (the
