@@ -379,11 +379,14 @@ def jog_report(a, t0, ins, hid):
             best = ms
         return best
 
-    gest, cur = [], None
+    # gestures per deck: another deck's message (the unit sends stray single
+    # jog CCs on the other channels) does not end one
+    gest, open_g = [], {}
     for e in ev:
-        if cur and (e[0] - cur["end"] > a.gap or e[1] != cur["deck"]):
+        cur = open_g.get(e[1])
+        if cur and e[0] - cur["end"] > a.gap:
             gest.append(cur)
-            cur = None
+            cur = open_g[e[1]] = None
         if not cur:
             cur = {"deck": e[1], "start": e[0], "end": e[0], "net": 0, "abs": 0, "n": 0,
                    "ccs": collections.Counter()}
@@ -392,7 +395,9 @@ def jog_report(a, t0, ins, hid):
         cur["abs"] += abs(e[3])
         cur["n"] += 1
         cur["ccs"][e[2]] += e[3]
-    gest.append(cur)
+        open_g[e[1]] = cur
+    gest += [g for g in open_g.values() if g]
+    gest.sort(key=lambda g: g["start"])
 
     tot = collections.defaultdict(lambda: [0, 0.0])   # cc -> [net counts, ms]
     print("  %-12s %9s %5s  %-14s %7s %7s %6s %9s %10s" % (
