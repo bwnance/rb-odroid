@@ -457,9 +457,10 @@ MIDI beside the jog screen's position, with no turns counted by hand:
 (Single stray jog CCs on the other deck channels, value 0x58, show up in the
 capture and are ignored.) The map now moves rbp by exactly those: a count is
 `ms_per_count x 720 / RBP_TURN_MS` of rbp's 1/720-turn units, speed and position
-alike, where RBP_TURN_MS is the track one turn of rbp's jog moves -- ~994 ms
-estimated from the arm, to be set from `RB_JOG_CAL=1`'s `jogcal ... rbp_turn_ms=`
-lines (`RB_JOG_RBP_TURN_MS`). `RB_JOG_GAIN` multiplies both controls (default 1);
+alike, where RBP_TURN_MS is the track one turn of rbp's jog moves: **1000 ms**,
+measured on the unit with `RB_JOG_CAL=1` (`jogcal ... rbp_turn_ms=` 1000.3,
+1000.0, 1002.3, 999.1 over three-turn gestures, top and side, both ways;
+`RB_JOG_RBP_TURN_MS` overrides). `RB_JOG_GAIN` multiplies both controls (default 1);
 `RB_JOG_PPR` no longer applies to the FLX10.
 
 ### FLX10 LEDs

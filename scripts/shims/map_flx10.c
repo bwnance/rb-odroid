@@ -195,14 +195,14 @@ static int jog_scale = 1;
  * count (1.8 s a turn -- the jog screen's arm, a record at 33 1/3 -- at
  * ~12950 counts), the side ring 0.1650 (1.8 s a turn at ~10900 counts).
  * rbp takes a position in 1/720 turns of ITS jog, and one of its turns moves
- * the track RBP_TURN_MS: about 994 ms, from the arm running 3.92 turns for
- * three of the platter at the old gain -- to be replaced by a JOG_CAL
- * measurement. So a count is ms_per_count * 720 / RBP_TURN_MS rbp units,
+ * the track RBP_TURN_MS: 1000 ms, measured with JOG_CAL on the unit
+ * (2026-10-25: 1000.3 / 1000.0 / 1002.3 / 999.1 over four three-turn
+ * gestures, top and side, both ways). So a count is ms_per_count * 720 / RBP_TURN_MS rbp units,
  * applied to the position and the speed alike. JOG_RBP_TURN_MS sets rbp's
  * turn, JOG_GAIN multiplies both controls (default 1). */
 #define FLX10_MS_PER_COUNT_TOP  0.1390
 #define FLX10_MS_PER_COUNT_SIDE 0.1650
-#define FLX10_RBP_TURN_MS       994.0
+#define FLX10_RBP_TURN_MS       1000.0
 #define FLX10_JOG_GAIN          1.0
 static double jog_rbp_turn_ms = FLX10_RBP_TURN_MS;
 static double jog_gain = FLX10_JOG_GAIN;

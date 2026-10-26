@@ -501,7 +501,7 @@ int main(void)
           for (int i = 0; i < 10; i++) CC(1, 34, 64 + 10);   /* 100 counts at once */
           CHECK(sent_n == 0, "a burst inside the window sends nothing yet (%d)", sent_n);
           ms(5); CC(1, 34, 64 + 10);                          /* 110 counts, ~5 ms */
-          /* x the jog gain (12960/5484, one turn = 4 beats as rekordbox): ~4 */
+          /* rekordbox's 0.139 ms a count over rbp's 1000 ms turn: ~3 rev/s */
           CHECK(sent_n == 1 && sent[0].key == K_JOG_ROT && sent[0].f > 1.0f && sent[0].f < 7.0f,
                 "burst -> about 4 rev/s with the gain, not the clamp (got %.3f)", sent_n ? sent[0].f : -1.0f);
           float fast = sent_n ? sent[0].f : 0.0f;
@@ -514,8 +514,8 @@ int main(void)
                 "slow turn -> slow (got %.4f)", sent_n ? sent[sent_n - 1].f : -1.0f);
           CHECK(fast > 20.0f * (sent_n ? sent[sent_n - 1].f : 1.0f), "fast is much faster than slow");
           ms(200); map_flx10.tick();
-          /* one full revolution of counts moves rbp's position by 720 x the
-           * gain (12960/5484 = 2.363): ~1702 */
+          /* one turn of the top (12960 counts) moves the track 1.8 s, as
+           * rekordbox: 12960 x 0.139 ms x 720 / rbp's 1000 ms turn = ~1297 */
           reset();
           long before = -1;
           CC(2, 35, 64 + 1); ms(5); CC(2, 35, 64 + 1);
@@ -524,7 +524,16 @@ int main(void)
           ms(5); CC(2, 35, 64 + 1); ms(30); map_flx10.tick();
           long after = sent[sent_n - 1].l;
           long moved = (after - before) & 0xFFFF;
-          CHECK(sent[0].ch == 2 && moved > 1680 && moved < 1725, "one rev moves rbp's position ~1702 (%ld)", moved);
+          CHECK(sent[0].ch == 2 && moved > 1285 && moved < 1310, "one top turn moves rbp's position ~1297 (%ld)", moved);
+          ms(200); map_flx10.tick();
+          /* the side ring: one turn is ~10900 counts and also 1.8 s */
+          reset();
+          CC(2, 33, 64 + 1); ms(5); CC(2, 33, 64 + 1);
+          before = sent_n ? sent[sent_n - 1].l : -1;
+          for (int n = 0; n < 10900; n += 20) { CC(2, 33, 64 + 20); }
+          ms(5); CC(2, 33, 64 + 1); ms(30); map_flx10.tick();
+          moved = (sent[sent_n - 1].l - before) & 0xFFFF;
+          CHECK(moved > 1285 && moved < 1310, "one side-ring turn moves it the same (%ld)", moved);
           ms(200); map_flx10.tick();
      }
 
@@ -812,7 +821,7 @@ int main(void)
                flx10_hid_state_pkt(p, 0, &c);
                CHECK(p[10] == 0x0e, "the length wins when it resolves (%02x)", p[10]);
                c.on_air = 1; flx10_hid_state_pkt(p, 0, &c);
-               CHECK(p[3] == 0x08, "ON AIR not sent while FLX10_ONAIR is unset");
+               CHECK(p[3] == 0x0a, "ON AIR -> [3] 02, the white edges");
                flx10_hid_set_onair(3, 0x04); flx10_hid_state_pkt(p, 0, &c);
                CHECK(p[3] == 0x0c, "FLX10_ONAIR=3:04 -> [3] |= 04 on air");
                c.on_air = 0; flx10_hid_state_pkt(p, 0, &c);
@@ -823,7 +832,7 @@ int main(void)
           hs.master = 1; hs.sync = 1; hs.jog_touch = 1; flx10_hid_state_pkt(p, 0, &hs);
           CHECK(p[5] == 0x91 && p[3] == 0x18, "MASTER + SYNC -> 91, jog touched -> 18 (capture 2)");
           hs.jog_touch = 0; hs.time_remain = 1; flx10_hid_state_pkt(p, 0, &hs);
-          CHECK(p[3] == 0x0a, "rbp's time mode remaining -> [3] 0a");
+          CHECK(p[3] == 0x08, "rbp's time mode not sent ([3] 02 is the white edges)");
           hs.master = 0; hs.sync = 0; hs.jog_touch = 0; hs.time_remain = 0;
           hs.loop_in_ms = hs.loop_out_ms = -1; flx10_hid_state_pkt(p, 0, &hs);
           CHECK(p[25] == 0 && p[27] == 0x80 && p[28] == 0, "no loop -> 00 00 80");
@@ -860,6 +869,13 @@ int main(void)
                flx10_hid_merge(&k, 9000, 1, 0, 0, 0, t += 10);
                flx10_hid_merge(&k, 9000, 1, 0, 0, 0, t += 10);
                CHECK(flx10_hid_merge(&k, 2000, 0, 0, 0, 0, t += 10) == 2000, "CUE back while playing: the cue point");
+          }
+          {
+               struct flx10_hid_deck c = hs;
+               c.loaded = 1; c.total_ms = 200000; c.elapsed_ms = 200040;
+               flx10_hid_state_pkt(p, 0, &c);
+               CHECK(p[11] == 3 && p[12] == 19 && (p[13] | p[14] << 8) == 999,
+                     "past the end: shown 1 ms short of it (arms stay)");
           }
           /* sync + jog: tempo and key held */
           {
@@ -925,8 +941,13 @@ int main(void)
           d1.bpm_raw = 24500; d1.tempo_raw = 0; d1.tempo_range = 3;    /* 2.04%% away */
           n->deck_display(1, &d1);
           reset(); ON(2, 88); OFF(2, 88);
-          CHECK(sent_n == 4 && is(0, K_TEMPO_RANGE, OP_PRESS, 2) && is(2, K_SYNC, OP_PRESS, 2),
-                "2%% from WIDE: one step round to +-6, then SYNC");
+          CHECK(sent_n == 2 && is(0, K_SYNC, OP_PRESS, 2),
+                "2%% away on WIDE: kept (only ever widens), just SYNC");
+          d1.tempo_range = 0; d1.bpm_raw = 22000;                       /* 13.6%% away */
+          n->deck_display(1, &d1);
+          reset(); ON(2, 88); OFF(2, 88);
+          CHECK(sent_n == 6 && is(0, K_TEMPO_RANGE, OP_PRESS, 2) && is(2, K_TEMPO_RANGE, OP_PRESS, 2) &&
+                is(4, K_SYNC, OP_PRESS, 2), "13.6%% on +-6: two steps to +-16, then SYNC");
           d1.sync = 1; n->deck_display(1, &d1);
           reset(); ON(2, 88); OFF(2, 88);
           CHECK(sent_n == 2 && is(0, K_SYNC, OP_PRESS, 2), "turning sync off: no range change");
