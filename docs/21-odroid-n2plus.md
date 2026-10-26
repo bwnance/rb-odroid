@@ -194,11 +194,24 @@ session; details further down):
    jog screens show the real art). rbp has its own artwork path for that
    (RequestArtworkData @0xd3f84 posts to its DB task; a JpegMgrTask thread
    decodes), so the files are there but something on its way to the screen
-   is not.
-4. **Hot cues on the jog waveform**: rekordbox's 0x2d transfer is probably
-   the cue list (both captured tracks had no cues: ten identical entries).
-   Needs a short rekordbox capture of a track with hot cues (and a memory
-   cue) at known times.
+   is not. Possibly related: rbp.log carries `CmnFunc_Error( ... UniNo=
+   0x0000102a, Val=0xffffffee )` about 2.5 times a second from ~15 s after
+   every start, idle or not. 0x102a is a browse message
+   (SendMessage_ToBrowseComm in BrowseListManage @0x10069c); -18 reads as
+   the porting layer's "invalid ID". Once (2026-10-26) rbp also stopped
+   drawing its HDMI waveforms until a restart -- the stick's files were
+   intact.
+4. **Hot cues on the jog waveform -- done** (2026-10-26, capture_hotcues):
+   they are in 0x30, not 0x2d (flx10_media.h): 8 slots of type, colour and
+   IN time, built from the EXT's PCO2 at a load, byte for byte rekordbox's
+   for a track with 4 cues and 2 loops. A cue set or deleted on the unit
+   goes out at once from rbp's own slots (UiGetHotCueINtime / LoopFlg /
+   ColorInfo). Not yet seen: a cue with its own palette colour (sent as its
+   code), and 0x39's cue text ("A", "D 02:35"), still sent as the bare
+   "HOT CUE" label. SHIFT + pad deletes through rbp's own SHIFT key
+   (rbp_abi.h K_SHIFT) -- the direct calls took only on a playing deck and
+   left the cue drawn until the next input -- and under SHIFT the HOT CUE /
+   GATE CUE pads show their colours dimmed (ctrl_map.h pad_shift_mirror).
 5. **/tmp/rb_load did nothing after a restart** (2026-10-26): rbp_load
    logged "watching" and then never acted on a changed line; strace found no
    thread opening the file. Loads by hand work.
