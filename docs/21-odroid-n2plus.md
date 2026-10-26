@@ -473,7 +473,8 @@ MIDI beside the jog screen's position, with no turns counted by hand:
 a turn, the arm exactly), the side ring 125437 (12544 a turn -- the capture's
 hand count was off, and rekordbox's 0.165 runs the side ring ~2.07 s a turn,
 ahead of the arm). The map uses 1.8 s a turn on both: **top 0.1391, side 0.1435
-ms a count**.
+ms a count**. Confirmed on the unit (operator, 2026-10-25): ten turns from
+12:00 end with the arm back at 12:00.
 
 (Single stray jog CCs on the other deck channels, value 0x58, show up in the
 capture and are ignored.) The map now moves rbp by exactly those: a count is
