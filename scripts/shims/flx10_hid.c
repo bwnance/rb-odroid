@@ -261,7 +261,14 @@ void flx10_hid_heartbeat_pkt(unsigned char p[FLX10_HID_PKT], int n)
 
 /* ---- the sender ---- */
 
-#define HID_PERIOD_US 10000          /* 100 Hz, about rekordbox's rate */
+/* rekordbox's rate (capture_jog: 125 Hz, every 8 ms, decks 1 and 2 only).
+ * Timed to the clock, not slept after the writes: each write takes about a
+ * millisecond (the endpoint's 1 ms interval), and sleeping 10 ms after five
+ * of them made it 15 ms -- the jog waveform moved in uneven steps
+ * (operator's slow-motion video, 2026-10-26). Decks 3 and 4 are sent once a
+ * second (rekordbox sends them only at the start). */
+#define HID_PERIOD_US 8000
+#define HID_IDLE_DECK_TICKS 125
 #define EXTRAP_MAX_MS 200
 #define NO_BACKSTEP_MS 100
 #define JOG_ACTIVE_MS 60             /* the jog counts as turning this long after a count */
@@ -285,8 +292,8 @@ static int (*pos_reader)(int deck, int *pos_ms, int *moving);
 static int (*caution_reader)(int deck);
 
 /* Artwork and waveforms (flx10_media.h): one transfer list per deck, sent
- * BULK_PER_TICK packets a tick after the state packets -- rekordbox sends
- * them in bursts about 1 ms apart, ~300 a second -- so a long track's detail
+ * BULK_PER_TICK packets a tick after the state packets (375 a second;
+ * rekordbox sends them in bursts about 1 ms apart, ~300 a second) -- so a long track's detail
  * waveform takes a few seconds and the arm never waits for it. Built by
  * media_thread, which owns the file reads; the sender only copies 122 bytes
  * at a time out of it under media_lock. Not sent until BULK_AFTER_OPEN_MS
@@ -294,7 +301,7 @@ static int (*caution_reader)(int deck);
  * the display connect sequence (map_flx10.c, 1 s and 4 s after it is seen),
  * and a unit that is opened again was power cycled and has forgotten them,
  * so they start over. */
-#define BULK_PER_TICK 4
+#define BULK_PER_TICK 3
 #define BULK_AFTER_OPEN_MS 6000
 #define MEDIA_POLL_MS 250
 static struct {
@@ -632,8 +639,28 @@ static void *hid_thread(void *arg)
      char path[300];
      (void)arg;
 
+     struct timespec next;
+     unsigned tick = 0;
+
+     clock_gettime(CLOCK_MONOTONIC, &next);
      for (;;) {
-          usleep(HID_PERIOD_US);
+          struct timespec now;
+          next.tv_nsec += HID_PERIOD_US * 1000L;
+          if (next.tv_nsec >= 1000000000L) {
+               next.tv_nsec -= 1000000000L;
+               next.tv_sec++;
+          }
+          clock_gettime(CLOCK_MONOTONIC, &now);
+          if (now.tv_sec > next.tv_sec + 1 ||
+              (now.tv_sec - next.tv_sec) * 1000000000L + now.tv_nsec - next.tv_nsec >
+              4L * HID_PERIOD_US * 1000L)
+               next = now;                     /* far behind (a stall): start again */
+          else
+               /* the raw call: glibc 2.13 keeps clock_nanosleep in librt */
+               while (syscall(SYS_clock_nanosleep, CLOCK_MONOTONIC, TIMER_ABSTIME,
+                              &next, NULL) != 0 && errno == EINTR)
+                    ;
+          tick++;
           if (fd < 0) {
                unsigned long long now = shim_now_ms();
                if (now < next_look)
@@ -661,6 +688,8 @@ static void *hid_thread(void *arg)
           flx10_hid_heartbeat_pkt(p, n);
           int ok = send_pkt(fd, p);
           for (int d = 0; ok && d < 4; d++) {
+               if (d >= 2 && tick % HID_IDLE_DECK_TICKS)
+                    continue;
                struct flx10_hid_deck s;
                unsigned long long t;
                int pos = 0, mov = 0, live;
