@@ -314,9 +314,10 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
 * **hid-scan.py round 1** (2026-10-25, bytes 3-10 flipped one bit at a time on
   deck 1): [3] 0x08 is REMAINING time -- rekordbox's default, so every capture
   had it; without it the jog shows elapsed. Now follows rbp's time mode
-  (SHIFT + 4 BEAT flips both). Also seen, step not pinned yet: around byte 8
-  0x80 / byte 9 0x01 the jog's LED ring went dark; around byte 9 0x04..0x10 a
-  cue icon appeared in the waveform position. To be retried step by step.
+  (SHIFT + 4 BEAT flips both). Round 2 (bytes 8-9): [8] 0x80 is the jog's
+  light ring (dark without it -- a candidate for the track-end warning flash);
+  [9] 0x04 is the cue marker on the screen, now cleared when there is no cue
+  point.
 * **Splash until rbp is ready** (operator, 2026-10-25). A splash covering the
   whole screen from launch until rbp has fully initialized, so none of its
   start-up drawing shows, and no input (FLX10, keyboard, touch) reaching rbp

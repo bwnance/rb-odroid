@@ -36,7 +36,9 @@
  *            0x04 master tempo
  *   [5]      0x01, +0x10 SYNC on, +0x80 tempo MASTER (second capture)
  *   [6]      0x02          [7] 0x02 decks 1/3, 0x01 decks 2/4
- *   [8]      0x80          [9] 0xb4 loaded (0x10 empty; 0xbc while looping)
+ *   [8]      0x80 the jog's light ring (dark without it)
+ *   [9]      0xb4 loaded (0x10 empty; 0xbc while looping); 0x04 of it is the
+ *            cue marker, cleared with no cue point
  *   [11..14] position: minutes, seconds, milliseconds (LE16)
  *   [15..18] track length, the same way
  *   [21]     BPM, whole number (low 8 bits)
@@ -214,6 +216,10 @@ void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
           else
                p[27] = 0x80;
      }
+     /* [9] 0x04: the cue marker on the screen (hid-scan.py, 2026-10-25) --
+      * only when there is a cue point */
+     if (s->cue_ms < 0)
+          p[9] &= (unsigned char)~0x04;
      if (s->cue_ms >= 0) {
           put_le24(p + 31, s->cue_ms);
           put_le24(p + 55, s->cue_ms);

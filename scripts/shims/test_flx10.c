@@ -787,7 +787,8 @@ int main(void)
           hs.key_code = 0; flx10_hid_state_pkt(p, 0, &hs);
           CHECK(p[60] == 0x80 && p[61] == 0x0d, "no key -> 80 0d");
           hs.cue_ms = -1; flx10_hid_state_pkt(p, 0, &hs);
-          CHECK(p[31] == 0 && p[55] == 0, "no cue -> zeros");
+          CHECK(p[31] == 0 && p[55] == 0 && p[9] == 0xb0, "no cue -> zeros, cue marker off ([9] b0)");
+          hs.cue_ms = 358;
           /* the loop: in / out ms at [25..30] as captured (12648 -> 14107),
            * looping -> [9] bc, [10] 0e; none -> [27] 80 */
           hs.loop_in_ms = 12648; hs.loop_out_ms = 14107; hs.looping = 1;
