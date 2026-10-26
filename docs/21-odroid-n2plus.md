@@ -253,7 +253,23 @@ session; details further down):
    it to plain ASCII -- returning shape()'s character count, which the toolkit
    dropped and rbp's matchers use as the length. RB_SEARCH_FOLD=0 is off.
    Installs on the unit; untested until something types into rbp's search.
-9. **rx3-toolkit's other track-finding mods -- not ported, for the operator to
+9. **One stretch for the same track on both decks -- done** (2026-10-26).
+   With MASTER TEMPO on, the same track on both decks (instant doubles, loaded
+   twice, or the same file on two sticks) sounded hollow -- a swoosh, gone with
+   MT off, never with two different tracks. rbp stretches each deck on its own
+   (dsp::TimeStretchManager: two foreground stretchers, a background one with a
+   smoothed speed table), and the splices follow each deck's own history: the
+   two decks' stretched output, recorded side by side at the same position and
+   speed, correlated 0.04 with the best lag wandering +-185 samples, and still
+   drifted after both restarted from one cue. Not threads: everything pinned to
+   one core changed nothing. doublelock.c, called from keyshift.c's detour on
+   TimeStretchManager::operate (rbp runs both decks there one after the other,
+   64 frames a callback): when the second deck reads the same track -- the same
+   length to the sample -- within 20 ms of the first, it plays the first's
+   stretched block, crossfaded over 512 frames each way. Further apart is an
+   echo and is left alone. Key shift, EQ, FX and faders stay per deck.
+   RB_DOUBLES_LOCK=0 is off. The operator: "the swoosh is gone".
+10. **rx3-toolkit's other track-finding mods -- not ported, for the operator to
    decide** (2026-10-26). Key Match (yellow / orange / red key icons in BROWSE
    for Energy Boost +2, +7 and +4 matches to the MASTER, beside rbp's own
    green) and Browse Columns (a third BROWSE column -- BPM, key, artist or

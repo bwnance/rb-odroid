@@ -17,10 +17,15 @@
 #include "keyshift.h"
 
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/syscall.h>
+#include <time.h>
 #include <unistd.h>
 
+#include "doublelock.h"     /* the same track on both decks: one stretched copy */
+#include "envutil.h"
 #include "rbp_hook.h"       /* rbp_hook(): the detour */
 #include "rbp_key.h"        /* is_rbp_process() */
 #include "shimutil.h"       /* klog() */
@@ -198,6 +203,17 @@ static long hooked_operate(void *mgr, uint32_t pos, Float2 *out, unsigned int fr
     unsigned int deck;
     struct deck *d;
 
+    /* first, each deck's stretched block as rbp made it: the same track at the
+     * same spot on both decks plays one copy (doublelock.h); a key shift then
+     * applies on top, per deck. The raw syscall: glibc 2.13 keeps clock_gettime
+     * in librt. */
+    if (out && frames && *(const uint32_t *)mgr < 2u) {
+        struct timespec ts;
+        if (syscall(SYS_clock_gettime, CLOCK_MONOTONIC, &ts) == 0)
+            doublelock_block(*(const uint32_t *)mgr, pos, (float *)(void *)out, frames,
+                             (unsigned long long)ts.tv_sec * 1000000ull +
+                             (unsigned long long)ts.tv_nsec / 1000ull);
+    }
     if (!out || !frames || frames > PITCH_MAX_FRAMES || !engines_built)
         return r;
     deck = *(const uint32_t *)mgr;                   /* the manager's first word */
@@ -282,5 +298,6 @@ void keyshift_reload(int deck)
 
 __attribute__((constructor)) static void keyshift_init(void)
 {
+    doublelock_enable(atoi(env_str("DOUBLES_LOCK", "1")) != 0);
     keyshift_install();
 }
