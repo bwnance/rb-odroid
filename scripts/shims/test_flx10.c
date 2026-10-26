@@ -82,6 +82,11 @@ void flx10_toggle_time_mode(int d) { timemode_n[d]++; }
 int flx10_pos_now(int d, int *pos, int *mov) { (void)d; *pos = 0; *mov = 0; return 0; }
 int flx10_track_path(int d, char *b, size_t n) { (void)d; if (n) b[0] = 0; return 0; }
 int flx10_hot_cues(int d, int *i, int *l, unsigned *c) { (void)d; (void)i; (void)l; (void)c; return 0; }
+/* the USB slots, as LINK's eject sees them */
+static int usb_ready[2], usb_mounted[2], usb_ejects[2];
+int flx10_usb_ready(int s) { return usb_ready[s]; }
+int flx10_usb_mounted(int s) { return usb_mounted[s]; }
+void flx10_usb_eject(int s) { usb_ejects[s]++; }
 /* the SETTINGS panel in fbshim.so (settings_remote.h) */
 static int panel_up, panel_cmds[16], panel_cmds_n;
 void shim_settings_remote(int cmd) { if (panel_cmds_n < 16) panel_cmds[panel_cmds_n++] = cmd; }
@@ -769,6 +774,56 @@ int main(void)
      CHECK(sent_n == 0 && panel_cmds_n == 2 && panel_cmds[1] == SR_RELEASE,
            "a push the panel took keeps its release, the panel gone or not");
      panel_up = 0;
+
+     /* LINK: the USB stick's eject. Light on with a stick ready; held 2 s it
+      * ejects and blinks; off once the stick has left the mount table. */
+     usb_ready[0] = usb_mounted[0] = 1; usb_ejects[0] = 0;
+     ms(20); map_flx10.tick();
+     CHECK(dk_note_v[0][74] == 0x7F && dk_note_v[1][74] == 0x00,
+           "LINK lit for the stick in USB1, dark for an empty USB2");
+     reset(); ON(1, 74); ms(10); map_flx10.tick();
+     CHECK(dk_note_v[0][74] == 0x00, "LINK pressed: the blink starts at once, dark half first");
+     ms(300); map_flx10.tick();
+     CHECK(dk_note_v[0][74] == 0x7F, "...and blinks");
+     ms(300); map_flx10.tick(); OFF(1, 74); ms(20); map_flx10.tick();
+     CHECK(usb_ejects[0] == 0 && sent_n == 0 && dk_note_v[0][74] == 0x7F,
+           "let go early: no eject, steady again");
+     ON(1, 74); ms(10); map_flx10.tick();
+     {
+          int flips = 0, last = dk_note_v[0][74];
+          for (int i = 0; i < 9; i++) {              /* 0.01 .. 0.91 s: slow halves */
+               ms(100); map_flx10.tick();
+               flips += dk_note_v[0][74] != last;
+               last = dk_note_v[0][74];
+          }
+          CHECK(flips >= 2 && flips <= 4, "the first second blinks slowly (%d flips)", flips);
+          flips = 0;
+          for (int i = 0; i < 15; i++) {             /* 1.0 .. 1.9 s: fast halves */
+               ms(60); map_flx10.tick();
+               flips += dk_note_v[0][74] != last;
+               last = dk_note_v[0][74];
+          }
+          CHECK(flips >= 6 && flips <= 8, "the second blinks twice as fast (%d flips)", flips);
+     }
+     CHECK(usb_ejects[0] == 0, "not yet at 1.8 s");
+     ms(250); map_flx10.tick();                      /* 2.06 s */
+     CHECK(usb_ejects[0] == 1, "held 2 s: USB1 ejected");
+     OFF(1, 74);
+     {
+          int seen_on = 0, seen_off = 0;
+          for (int i = 0; i < 8; i++) {
+               ms(130); map_flx10.tick();
+               seen_on |= dk_note_v[0][74] == 0x7F;
+               seen_off |= dk_note_v[0][74] == 0x00;
+          }
+          CHECK(seen_on && seen_off, "still blinking after the release, while it ejects");
+     }
+     usb_ready[0] = 0; ms(20); map_flx10.tick();
+     usb_mounted[0] = 0; ms(300); map_flx10.tick(); ms(300); map_flx10.tick();
+     CHECK(dk_note_v[0][74] == 0x00 && usb_ejects[0] == 1,
+           "off once rbp lets go and the stick is unmounted; one eject only");
+     ON(2, 74); ms(10); map_flx10.tick(); ms(2100); map_flx10.tick(); OFF(2, 74);
+     CHECK(usb_ejects[1] == 0, "a hold with no stick in USB2 ejects nothing");
 
      /* Sound Color FX radio group */
      reset(); ON(7, 0);

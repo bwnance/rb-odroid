@@ -483,10 +483,11 @@ are the operator's table, agreed control by control on 2026-10-24:
 | QUANTIZE; SLIP / SHIFT | QUANTIZE; SLIP / nothing (VINYL disabled: no light on the button) |
 | CUE/LOOP CALL < > and SHIFT | not mapped |
 | MIX POINT SELECT < > | < = as SHIFT + CUE, or the previous track when already within 1.5 s of the start / > = next track (TRACK SEARCH tapped 100 ms, no repeat while held; < stamped as rbp's "second press") |
-| SHIFT + MIX POINT, LINK, ACTIVE PART, PAGE, DECK SELECT, SAMPLER, BOOTH | nothing |
+| LINK (deck 1 / deck 2) | that slot's USB stick (USB1 / USB2): lit while rbp has it mounted and ready; held, a slow blink for 1 s then twice as fast for 1 s, and at 2 s rbp's USB STOP for the slot, still blinking until the stick has left rbp's mount table, then dark. Let go before 2 s: no eject |
+| SHIFT + MIX POINT, ACTIVE PART, PAGE, DECK SELECT, SAMPLER, BOOTH | nothing |
 | browse knobs (one shared message) / SHIFT | scroll / 8 steps per detent |
 | browse push (per deck) / held 0.5 s / double | on a track row LOAD that deck, on anything else SELECT (opens the folder/playlist/category) -- the row type is rbp's own `UiBrowseComm_IsTrackList` (@0x105e60) / **rbp's own long press of the selector = FAST SCROLL** (selector PRESS + op 1, held until the knob comes up; TAG TRACK is unmapped) / twice; **on the SOURCE screen with a stick in slot 1: open USB 1** (rbp ignores the knob there) |
-| BACK / VIEW; SHIFT+BACK / SHIFT+VIEW | BACK / SOURCE from the player, SOURCE again on the SOURCE menu (closes it), BROWSE (back to the player) from a browse list; PLAYLIST from the player, back to the player when pressed again from that list, TAG LIST elsewhere / SHORTCUT |
+| BACK / VIEW; SHIFT+BACK / SHIFT+VIEW | BACK / SOURCE from the player, SOURCE again on the SOURCE menu (closes it), BROWSE (back to the player) from a browse list; PLAYLIST from the player, back to the player when pressed again from that list, TAG LIST elsewhere / SHORTCUT (on the release); held 1 s, the shim's SETTINGS panel -- while it is up the browse knobs select a row, the push presses it (held 3 s on a USB STOP row), BACK closes it |
 | SHIFT + deck 1's browse push | TRACK FILTER (deck 2's SHIFT push not yet recorded) |
 | pad modes HOT CUE / PAD FX1 / BEAT JUMP / SAMPLER | HOT CUE / SLIP LOOP / BEAT JUMP / BEAT LOOP 2 |
 | SHIFT + those: KEYBOARD / PAD FX2 / BEAT LOOP / KEY SHIFT | GATE CUE / RELEASE FX / BEAT LOOP / BEAT JUMP 2 (a SHIFT button goes straight to its mode; pressing a main button again does what SHIFT + it does, and a third press comes back -- the FLX10's double-press behaviour) |

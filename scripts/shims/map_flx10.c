@@ -46,6 +46,7 @@
  * second press of the same pad-mode button (see flx10_set_mode()).
  */
 #define _GNU_SOURCE
+#include <fcntl.h>          /* open(), for rbp's mount table */
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -271,6 +272,127 @@ static void pulse(int key, int sch)
 {
      send_rx_key(key, OP_PRESS, sch, 0);
      send_rx_key(key, OP_RELEASE, sch, 0);
+}
+
+/* ---- LINK: the USB stick's eject ------------------------------------------
+ * Each deck's LINK button (note 74, otherwise unused here) stands for that
+ * slot's stick, deck 1 for USB1 and deck 2 for USB2 (operator, 2026-10-26):
+ *   light    on while rbp has the stick mounted and ready
+ *   press    a slow blink for LINK_SLOW_MS (its dark half first, so the press
+ *            shows), then a fast one for the rest of LINK_HOLD_MS -- a count-in
+ *   held     LINK_HOLD_MS: rbp's USB STOP for that slot -- the settings
+ *            panel's eject, the same three keys; still blinking fast, held or not
+ *   off      once the stick is gone from rbp's mount table: safe to pull
+ * Let go before LINK_HOLD_MS and nothing is ejected: the light is steady again.
+ * A press with no stick in the slot does nothing. An eject that has not
+ * unmounted after LINK_EJECT_MAX_MS stops blinking and says so. (The unmount
+ * itself takes ~250 ms on the unit, which is why the blink starts on the press:
+ * started at the eject it was over before its first dark half.) The rbp reads
+ * are WEAK for the host test. */
+#define N_LINK            74
+#define LINK_HOLD_MS      2000
+#define LINK_SLOW_MS      1000      /* the first part of the hold blinks slowly... */
+#define LINK_BLINK_MS     250       /* ...in halves this long */
+#define LINK_FAST_MS      125       /* the rest, and the eject, blink twice as fast */
+#define LINK_EJECT_MAX_MS 20000
+static int link_held[2], link_fired[2], link_ejecting[2], link_armed[2];
+static int link_led_v[2] = { -1, -1 };
+static unsigned long long link_at[2], link_eject_at[2];
+
+/* rbp's own answer for slot 0/1: its UsbStorageManager says media present and
+ * ready -- the walk pointsrc.c's usb_slots_live() makes for the settings panel,
+ * every pointer guarded (rbp allocates them while it starts). */
+__attribute__((weak)) int flx10_usb_ready(int slot)
+{
+     unsigned long objmgr, array, mgr;
+     int count;
+
+     objmgr = *(volatile unsigned long *)(uintptr_t)UI_OBJ_MGR_HOLDER;
+     if (!objmgr)
+          return 0;
+     count = *(volatile int *)(uintptr_t)(objmgr + UIOBJMGR_OFF_MGRNUM);
+     array = *(volatile unsigned long *)(uintptr_t)(objmgr + UIOBJMGR_OFF_MGRARR);
+     if (!array || count < slot + 1 || count > 2)
+          return 0;
+     mgr = ((volatile unsigned long *)(uintptr_t)array)[slot];
+     if (!mgr || *(volatile int *)(uintptr_t)(mgr + USB_MGR_OFF_CHANNEL) != slot + 1)
+          return 0;
+     return *(volatile int *)(uintptr_t)(mgr + USB_MGR_OFF_MEDIA) == USB_MGR_MEDIA_READY;
+}
+
+/* Something of slot 0/1 is still mounted in rbp's view (/media/usbN/...). */
+__attribute__((weak)) int flx10_usb_mounted(int slot)
+{
+     char buf[8192], want[24];
+     int fd = open("/proc/self/mounts", O_RDONLY), n, tot = 0;
+
+     if (fd < 0)
+          return 0;
+     while (tot < (int)sizeof buf - 1 &&
+            (n = (int)read(fd, buf + tot, sizeof buf - 1 - tot)) > 0)
+          tot += n;
+     close(fd);
+     buf[tot] = 0;
+     snprintf(want, sizeof want, " /media/usb%d/", slot + 1);
+     return strstr(buf, want) != NULL;
+}
+
+/* rbp's USB STOP for slot 0/1, on the slot's own channel: press, REPEAT (the edge
+ * that reaches the eject) and release -- rbp_abi.h's K_USBSTOP. */
+__attribute__((weak)) void flx10_usb_eject(int slot)
+{
+     send_rx_key(K_USBSTOP, OP_PRESS, slot + 1, 0);
+     send_rx_key(K_USBSTOP, OP_REPEAT, slot + 1, 0);
+     send_rx_key(K_USBSTOP, OP_RELEASE, slot + 1, 0);
+}
+
+static void flx10_link_tick(unsigned long long t)
+{
+     for (int d = 0; d < 2; d++) {
+          int ready = flx10_usb_ready(d), v;
+
+          /* a press on a ready slot arms (blinking); let go early and it disarms */
+          if (link_held[d] && !link_fired[d] && !link_armed[d] && !link_ejecting[d]) {
+               link_fired[d] = 1;               /* one decision per press */
+               if (ready)
+                    link_armed[d] = 1;
+               else
+                    klog("knobshim2: flx10 deck%d LINK: no stick ready in USB%d\n",
+                         d + 1, d + 1);
+          }
+          if (link_armed[d] && !link_held[d]) {
+               link_armed[d] = 0;
+               klog("knobshim2: flx10 deck%d LINK let go after %llu ms: no eject\n",
+                    d + 1, t - link_at[d]);
+          }
+          if (link_armed[d] && t - link_at[d] >= LINK_HOLD_MS) {
+               link_armed[d] = 0;
+               flx10_usb_eject(d);
+               link_ejecting[d] = 1;
+               link_eject_at[d] = t;
+               klog("knobshim2: flx10 deck%d LINK held: ejecting USB%d\n", d + 1, d + 1);
+          }
+          if (link_ejecting[d]) {
+               if (!ready && !flx10_usb_mounted(d)) {
+                    link_ejecting[d] = 0;
+                    klog("knobshim2: flx10 USB%d ejected (%llu ms)\n", d + 1,
+                         t - link_eject_at[d]);
+               } else if (t - link_eject_at[d] > LINK_EJECT_MAX_MS) {
+                    link_ejecting[d] = 0;
+                    klog("knobshim2: flx10 USB%d still %s %d ms after the eject\n",
+                         d + 1, ready ? "ready" : "mounted", LINK_EJECT_MAX_MS);
+               }
+          }
+          if (link_armed[d] || link_ejecting[d]) {
+               unsigned long long e = t - link_at[d];
+               v = (e < LINK_SLOW_MS ? (e / LINK_BLINK_MS) & 1
+                                     : ((e - LINK_SLOW_MS) / LINK_FAST_MS) & 1) ? 0x7F : 0x00;
+          } else {
+               v = ready ? 0x7F : 0x00;
+          }
+          if (v != link_led_v[d] && midi_note(d, N_LINK, v))
+               link_led_v[d] = v;
+     }
 }
 
 /* ---- the SETTINGS panel ---------------------------------------------------
@@ -1840,6 +1962,14 @@ static void flx10_note(int ch, int note, int on)
                flx10_jog_touched[deck] = on;     /* and on to its table row */
           if (note == N_SLIP && on)
                rev_slip_check_at[deck] = 0;      /* the operator's own SLIP: hands off */
+          if (note == N_LINK && deck < 2) {      /* the USB stick's eject (LINK above) */
+               link_held[deck] = on;
+               if (on) {
+                    link_at[deck] = shim_now_ms();
+                    link_fired[deck] = 0;
+               }
+               return;
+          }
           switch (note) {
           case N_SHIFT:
                shift_down[deck] = on;
@@ -2304,6 +2434,7 @@ static void flx10_tick(void)
      flx10_push_tick(t);
      flx10_scfx_tick(t);
      flx10_panel_tick(t);
+     flx10_link_tick(t);
 }
 
 static void flx10_unit_setting(int ch, int is_cc, int num, int val);
@@ -2607,6 +2738,7 @@ static void flx10_display_init(unsigned long long now)
      midi_note(0, N_KEYSYNC, 0x00);        /* KEY SYNC: dark, whatever MT is */
      midi_note(1, N_KEYSYNC, 0x00);
      rev_led_v[0] = rev_led_v[1] = -1;     /* the tick re-sends them */
+     link_led_v[0] = link_led_v[1] = -1;
      /* Every pad page dark, as rekordbox does (all 128 notes on both pad
       * channels in the capture). The unit keeps each page's lights itself and
       * the bridge paints only the page shown, so a page not visited since the
