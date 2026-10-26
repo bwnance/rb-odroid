@@ -115,6 +115,8 @@ static int bpm_auto_n;
 void flx10_bfx_bpm_auto(void) { bpm_auto_n++; }
 /* the FX screen reads nothing of rbp's here: its messages are tested as bytes */
 int flx10_fx_read(int sel, void *v) { (void)sel; (void)v; return 0; }
+static int fx_on;
+int flx10_fx_on(void) { return fx_on; }
 void flx10_beat_jump(int d, int type) { if (bj_n < 16) { bj_deck[bj_n] = d; bj_t[bj_n] = type; } bj_n++; }
 static int pj_n, pj_deck[16]; static float pj_b[16];
 int flx10_plain_jump(int d, float b) { if (pj_n < 16) { pj_deck[pj_n] = d; pj_b[pj_n] = b; } pj_n++; return 1; }
@@ -946,17 +948,20 @@ int main(void)
           flx10_fx_beat_text(5, -50, 1, t, sizeof t);
           CHECK(!strcmp(t, "-50%"), "PITCH reads a signed percent (got %s)", t);
      }
-     reset(); ON(5, 70); OFF(5, 70);
-     CHECK(sent_n == 1 && is(0, K_BFX, OP_PRESS, 1),
-           "Beat FX ON/OFF is note 70: the first push is the BFX key down (one toggle)");
-     ON(5, 70); OFF(5, 70);
-     CHECK(sent_n == 1, "a second press within 300 ms: one push, nothing more");
-     ms(400); query_at = shim_now_ms(); ms(100); ON(5, 70); OFF(5, 70);
-     CHECK(sent_n == 1, "note 70 inside the answer to the controls query: a report, not a push");
-     query_at = 0;
-     ms(400); ON(5, 70); OFF(5, 70);
-     CHECK(sent_n == 2 && is(1, K_BFX, OP_RELEASE, 1),
-           "...the next push the key up (one toggle); the button's own releases send nothing");
+     reset(); fx_on = 0; ON(5, 70);
+     CHECK(sent_n == 2 && is(0, K_BFX, OP_PRESS, 1) && is(1, K_BFX, OP_RELEASE, 1),
+           "Beat FX ON/OFF is note 70: 7f with rbp's FX off is a tap of rbp's BFX key");
+     fx_on = 1; OFF(5, 70);
+     CHECK(sent_n == 4 && is(2, K_BFX, OP_PRESS, 1), "00 with rbp's FX on: another tap");
+     fx_on = 0; OFF(5, 70);
+     CHECK(sent_n == 4, "00 with rbp's FX already off: nothing");
+     fx_on = 1; ON(5, 70);
+     CHECK(sent_n == 4, "7f with rbp's FX already on: nothing");
+     fx_on = -1; ON(5, 70); OFF(5, 70);
+     CHECK(sent_n == 4, "rbp not up: nothing");
+     fx_on = 0; ms(400); query_at = shim_now_ms(); ms(100); ON(5, 70);
+     CHECK(sent_n == 4, "note 70 inside the answer to the controls query: a report, not a push");
+     query_at = 0; fx_on = 0;
      reset(); ON(5, 71); OFF(5, 71);
      CHECK(sent_n == 0, "note 71 on the FX channel: nothing");
      reset(); CC(5, 2, 64);

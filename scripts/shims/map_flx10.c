@@ -1963,6 +1963,20 @@ __attribute__((weak)) int flx10_fx_read(int sel_pos, struct fxs_view *v)
      return 1;
 }
 
+/* Is rbp's Beat FX on: 1, 0, or -1 when rbp is not up. WEAK for the host test. */
+__attribute__((weak)) int flx10_fx_on(void)
+{
+     unsigned int mixer, bem;
+
+     mixer = *(volatile unsigned int *)(uintptr_t)ME_SINGLETON;
+     if (!mixer)
+          return -1;
+     bem = *(volatile unsigned int *)(uintptr_t)(mixer + BEM_IN_MIXER);
+     if (!bem)
+          return -1;
+     return *(volatile unsigned int *)(uintptr_t)(bem + BEM_OFF_TYPE) != BFX_TYPE_OFF;
+}
+
 static struct fxs_view fxs_sent;
 static int fxs_valid;                 /* fxs_sent is what the unit shows */
 static int fxs_ready;                 /* the connect sequence has gone out */
@@ -2368,35 +2382,27 @@ static void flx10_note(int ch, int note, int on)
      }
 
      if (ch == CH_FX) {
-          /* ON/OFF: rbp's BFX key DOWN on one push and UP on the next.
-           * uif::MixerSkeleton::onKeyEvent @0x2c9f0c hands the BFX key to
-           * MasterInnards::onEv_BeatEffectEnable as 2 = toggle for a press AND for
-           * a release, so the button's own press/release turned the effect on and
-           * straight off again (watched on the unit 2026-10-26: on at the press,
-           * off 0.2 s later), and a down+up pair is no change at all; an OP_VALUE
-           * of 2, which that same code would take, never reaches it for this key
-           * (also watched). In MIDI mode the FLX10 behaved as a latching switch --
-           * one message on, the other off -- which is why it worked before the
-           * HID connect sequence; this rebuilds that: one edge, one toggle. */
+          /* ON/OFF: the FLX10 latches this button itself -- each push sends ONE
+           * message, 7f when its light goes to flashing and 00 when it stops,
+           * never a press and a release (MIDI dump on the unit, 2026-10-26:
+           * 00, 7f, 00, 7f, ... one per push). So the velocity is the state
+           * wanted, and rbp's BFX key -- whose down TOGGLES:
+           * MasterInnards::onEv_BeatEffectEnable gets 2 from
+           * uif::MixerSkeleton::onKeyEvent @0x2c9f0c -- is tapped only when rbp
+           * is not already there. Button and rbp then agree after every push,
+           * whatever happened before. */
           if (note == N_FX_ONOFF) {
-               static int fx_key_down;
-               static unsigned long long fx_last_ms;
                unsigned long long now = shim_now_ms();
-               if (on && fx_last_ms && now - fx_last_ms < 300)
-                    return;                    /* one push, however it bounces */
-               /* ...and not a push at all inside the unit's answer to the
-                * controls query, which REPORTS the button (94 46 7f) -- every 2 s
-                * for rbp_vu.c's first 30 s, and each one toggled the effect
-                * (MIDI dump on the unit, 2026-10-26) */
-               if (on && midi_query_at_ms() && now - midi_query_at_ms() < 300)
+               int is_on = flx10_fx_on();
+               /* not a push at all inside the unit's answer to the controls
+                * query, which REPORTS the button (94 46 7f) -- every 2 s for
+                * rbp_vu.c's first 30 s */
+               if (midi_query_at_ms() && now - midi_query_at_ms() < 300)
                     return;
-               if (on) {
-                    fx_last_ms = now ? now : 1;
-                    send_rx_key(K_BFX, fx_key_down ? OP_RELEASE : OP_PRESS, CH_GLOBAL, 0);
-                    fx_key_down = !fx_key_down;
-                    klog("knobshim2: flx10 Beat FX ON/OFF -> toggle (key %s)\n",
-                         fx_key_down ? "down" : "up");
-               }
+               if (is_on < 0 || is_on == on)
+                    return;
+               pulse(K_BFX, CH_GLOBAL);
+               klog("knobshim2: flx10 Beat FX ON/OFF -> %s\n", on ? "on" : "off");
                return;
           }
           if (note >= N_FX_SEL_FIRST && note <= N_FX_SEL_LAST) {
