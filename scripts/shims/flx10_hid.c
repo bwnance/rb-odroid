@@ -239,7 +239,10 @@ void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
      }
      p[45] = 0x02;
      p[58] = 0x01;
-     k = s->mt ? 0 : flx10_key_shift(tempo);
+     /* the key the deck PLAYS in: the tempo's shift with MASTER TEMPO off, and
+      * KEY SYNC's (operator, 2026-10-26: "update the jog display with the key we've
+      * switched to, along with the number to the left of the key") */
+     k = (s->mt ? 0 : flx10_key_shift(tempo)) + s->key_semis;
      if (k > 12) k = 12;
      if (k < -12) k = -12;
      code = flx10_key_shifted(s->key_code, k);

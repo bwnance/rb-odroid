@@ -1310,6 +1310,11 @@ int main(void)
           CHECK(p[60] == 0x83 && p[61] == 0x0e && p[4] == 0x20, "+3.38%% -> 3B, +1 (capture)");
           hs.tempo_x100 = 205; flx10_hid_state_pkt(p, 0, &hs);
           CHECK(p[60] == 0x81 && p[61] == 0x0d, "+2.05%% -> 8B, no shift (capture)");
+          hs.key_semis = -2; flx10_hid_state_pkt(p, 0, &hs);
+          CHECK(p[60] == 0x95 && p[61] == 0x0b, "KEY SYNC -2 on 8B -> 6B, -2 (%02x %02x)", p[60], p[61]);
+          hs.mt = 0; hs.tempo_x100 = 338; hs.key_semis = 2; flx10_hid_state_pkt(p, 0, &hs);
+          CHECK(p[61] == 0x0d + 3, "tempo +1 and KEY SYNC +2 -> +3 beside the key (%02x)", p[61]);
+          hs.key_semis = 0; hs.tempo_x100 = 205;
           hs.playing = 0; hs.cue_standby = 0; hs.bpm_x100 = 38056; flx10_hid_state_pkt(p, 0, &hs);
           CHECK(p[2] == 0x02 && p[21] == 0x7c && p[22] == 0x51 && p[49] == 0x60,
                 "paused off the cue -> 02; 380.56 BPM -> 7c 51 / 60");
@@ -1639,6 +1644,16 @@ int main(void)
           CHECK(dk_note_v[1][101] == 0x7F, "latched again");
           ON(2, 101); OFF(2, 101); map_flx10.tick();
           CHECK(ks_shift[1] == 0 && dk_note_v[1][101] == 0, "a second press lets go");
+          /* a track loaded already on the master's key lights KEY SYNC, no shift */
+          strcpy(b.key, "9B"); b.total_ms = 170000;          /* G major, the master's 9A's root */
+          n->deck_display(1, &b); map_flx10.tick();
+          CHECK(dk_note_v[1][101] == 0x7F && ks_shift[1] == 0,
+                "a load already on the master's key: KEY SYNC lit, no shift");
+          strcpy(a.key, "10A");
+          n->deck_display(0, &a); map_flx10.tick();
+          CHECK(ks_shift[1] == -5, "...and follows the master like any latch: 9B -5 onto 10A (%d)",
+                ks_shift[1]);
+          ON(2, 101); OFF(2, 101); map_flx10.tick();
           a.master = 0;
           n->deck_display(0, &a);
           ON(2, 101); OFF(2, 101); map_flx10.tick();

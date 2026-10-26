@@ -35,13 +35,25 @@ import zlib
 
 KEY = 0xF81F
 
-# The records this uses, and what they must look like for the patch to apply.
-REC_TRANS = (1059, 1060)          # normal, selected
-REC_VINYL = (1069, 1070)
-TRANS_RUNS = [(30, 40), (41, 51), (52, 63), (64, 74), (76, 86)]   # T R A N S
+# THE TRANS PICTURES, family by family, and where each finds a Y in its own letters.
+# Every family is checked against the letter runs measured before anything is written;
+# a picture identical to one of these elsewhere in the file is patched with it.
+#   the selector lists (120x28): Y from VINYL BRAKE, columns 34..43
+#   the BEAT FX window's name (160x40: gray, white, faded, blue -- operator,
+#     2026-10-26: "it just shows TRANS on the beat fx window"): Y from DELAY's last letter
+TRANS_RUNS = [(30, 40), (41, 51), (52, 63), (64, 74), (76, 86)]   # T R A N S, 120x28
 VINYL_Y = (34, 44)                # the Y of VINYL BRAKE
+BG_COL = 3                        # a column of tile margin in every family, row by row
+FAMILIES = [
+    {"size": (120, 28), "trans": (1059, 1060), "ysrc": (1069, 1070),
+     "runs": TRANS_RUNS, "y": VINYL_Y},
+    {"size": (160, 40), "trans": (5225, 5226, 5227, 5228), "ysrc": (5177, 5178, 5179, 5180),
+     "runs": [(41, 54), (57, 70), (71, 86), (88, 101), (104, 118)], "y": (102, 116)},
+]
 REC_LOGO = 1598                   # the white rekordbox logo, 492 x 70
-LOGO_SHIFT = 295                  # its pixels start this many after the record says
+LOGO_SHIFT = 300                  # its pixels start this many after the record says: the
+                                  # x's tail ends in two blank columns here (295 wrapped
+                                  # it round as two white dots left of the icon)
 
 
 class ImageData:
@@ -71,10 +83,15 @@ class ImageData:
         return self.recs[i][2]
 
 
-def ink_runs(px, w, h, bg=KEY):
+def ink_runs(px, w, h, bg=KEY, bgcol=None):
+    """Columns with ink, as runs. With `bgcol`, a pixel is ink when it is not that
+    column's pixel on its row -- for pictures with an opaque, shaded background."""
     runs, start = [], None
     for x in range(w):
-        ink = any(px[y * w + x] != bg for y in range(h))
+        if bgcol is None:
+            ink = any(px[y * w + x] != bg for y in range(h))
+        else:
+            ink = any(px[y * w + x] != px[y * w + bgcol] for y in range(h))
         if ink and start is None:
             start = x
         if not ink and start is not None:
@@ -85,27 +102,34 @@ def ink_runs(px, w, h, bg=KEY):
     return runs
 
 
-def tranny(trans, vinyl, w, h):
-    """TRANNY from TRANS's T R A N and VINYL's Y, 1 px apart, centred. None if
-    the pictures are not the ones measured."""
-    if ink_runs(trans, w, h) != TRANS_RUNS:
+def tranny(trans, ysrc, w, h, runs=TRANS_RUNS, ycols=VINYL_Y):
+    """TRANNY from TRANS's T R A N and a Y from `ysrc`'s columns `ycols`, at TRANS's
+    own letter gaps, centred. The background is TRANS's own: the text's columns are
+    cleared to column BG_COL, row by row, so a shaded tile stays shaded. None if
+    TRANS is not the picture measured."""
+    bgcol = BG_COL
+    if ink_runs(trans, w, h, bgcol=bgcol) != runs:
         return None
-    glyphs = [TRANS_RUNS[0], TRANS_RUNS[1], TRANS_RUNS[2], TRANS_RUNS[3], TRANS_RUNS[3]]
+    gaps = [runs[i + 1][0] - runs[i][1] for i in range(4)]       # T-R R-A A-N N-S
+    glyphs = [("t", runs[0]), ("t", runs[1]), ("t", runs[2]), ("t", runs[3]),
+              ("t", runs[3]), ("y", ycols)]
+    sep = [gaps[0], gaps[1], gaps[2], gaps[3], gaps[2]]
     cols = []
-    for i, (a, b) in enumerate(glyphs):
+    for i, (src, (a, b)) in enumerate(glyphs):
         if i:
-            cols.append(None)                        # the 1 px gap
-        cols += [("t", x) for x in range(a, b)]
-    cols.append(None)
-    cols += [("v", x) for x in range(*VINYL_Y)]
-    if len(cols) > w:
+            cols += [None] * sep[i - 1]
+        cols += [(src, x) for x in range(a, b)]
+    if len(cols) > w - 2 * 2:
         return None
-    out = [KEY] * (w * h)
+    out = list(trans)
+    for y in range(h):
+        for x in range(runs[0][0], runs[-1][1]):
+            out[y * w + x] = trans[y * w + bgcol]
     x0 = (w - len(cols)) // 2
     for i, c in enumerate(cols):
         if c is None:
             continue
-        src = trans if c[0] == "t" else vinyl
+        src = trans if c[0] == "t" else ysrc
         for y in range(h):
             out[y * w + x0 + i] = src[y * w + c[1]]
     return out
@@ -113,27 +137,41 @@ def tranny(trans, vinyl, w, h):
 
 def patch_trans(path):
     img = ImageData(path)
-    if len(img.recs) <= max(REC_TRANS + REC_VINYL):
-        return "imagedata.dat has %d records; TRANS left alone" % len(img.recs)
-    writes = []
-    for rt, rv in zip(REC_TRANS, REC_VINYL):
-        w, h = img.size(rt)
-        if (w, h) != img.size(rv) or (w, h) != (120, 28):
-            return "TRANS is %dx%d, not 120x28; left alone" % (w, h)
-        cur = img.pixels(rt)
-        if len(ink_runs(cur, w, h)) == 6:
-            continue                                  # TRANNY already
-        new = tranny(cur, img.pixels(rv), w, h)
-        if new is None:
-            return "TRANS is not the picture measured; left alone"
-        writes.append((img.offset(rt), struct.pack("<%dH" % len(new), *new)))
-    if not writes:
-        return "TRANS already reads TRANNY"
-    with open(path, "r+b") as f:
-        for off, data in writes:
-            f.seek(off)
-            f.write(data)
-    return "TRANS -> TRANNY in %d picture(s)" % len(writes)
+    writes, notes, already = [], [], 0
+    for fam in FAMILIES:
+        size = fam["size"]
+        if len(img.recs) <= max(fam["trans"] + fam["ysrc"]):
+            notes.append("%dx%d: not in this file" % size)
+            continue
+        for rt, ry in zip(fam["trans"], fam["ysrc"]):
+            if img.size(rt) != size or img.size(ry) != size:
+                notes.append("%d is not %dx%d" % ((rt,) + size))
+                continue
+            cur = img.pixels(rt)
+            if len(ink_runs(cur, size[0], size[1], bgcol=BG_COL)) == 6:
+                already += 1                          # TRANNY already
+                continue
+            new = tranny(cur, img.pixels(ry), size[0], size[1], fam["runs"], fam["y"])
+            if new is None:
+                notes.append("%d is not the TRANS measured" % rt)
+                continue
+            data = struct.pack("<%dH" % len(new), *new)
+            old = struct.pack("<%dH" % len(cur), *cur)
+            # the picture itself, and every byte-identical copy of it in the file
+            for i in range(len(img.recs)):
+                if img.size(i) == size and img.b[img.offset(i):img.offset(i) + len(old)] == old:
+                    writes.append((img.offset(i), data))
+    if writes:
+        with open(path, "r+b") as f:
+            for off, data in writes:
+                f.seek(off)
+                f.write(data)
+    msg = "TRANS -> TRANNY in %d picture(s)" % len(writes)
+    if already:
+        msg += ", %d already" % already
+    if notes:
+        msg += " (left alone: %s)" % "; ".join(notes)
+    return msg
 
 
 # ---- the splash -------------------------------------------------------------

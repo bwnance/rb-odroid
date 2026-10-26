@@ -52,11 +52,11 @@ int main(void)
     CHECK(shim_splash_active(), "up from load");
     CHECK(splash_frame(p16, 8, 8, 6, 16, 100000) == 0 && shim_splash_active(),
           "first frame: nothing painted with rbp's framebuffer not diverted, but up");
-    CHECK(splash_frame(NULL, 0, 0, 0, 0, 104999) == 0 && shim_splash_active(),
-          "still up at 4.999 s, a frame with no page keeping the clock");
-    CHECK(splash_frame(p16, 8, 8, 6, 16, 105000) == 0 && !shim_splash_active(),
-          "over at 5 s, and the controller is let go");
-    CHECK(splash_frame(p16, 8, 8, 6, 16, 105001) == 0, "and stays over");
+    CHECK(splash_frame(NULL, 0, 0, 0, 0, 106999) == 0 && shim_splash_active(),
+          "still up at 6.999 s, a frame with no page keeping the clock");
+    CHECK(splash_frame(p16, 8, 8, 6, 16, 107000) == 0 && !shim_splash_active(),
+          "over at 7 s, and the controller is let go");
+    CHECK(splash_frame(p16, 8, 8, 6, 16, 107001) == 0, "and stays over");
 
     printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);
     return failures ? 1 : 0;

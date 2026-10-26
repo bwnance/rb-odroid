@@ -74,5 +74,23 @@ check(abs(runs[0][0] - (W - width - runs[0][0])) <= 1, "centred (%r)" % runs)
 check(all(out[10 * W + x] == 0x2222 for x in range(*runs[-1])), "the last letter is VINYL's Y")
 check(A.tranny([A.KEY] * (W * H), vinyl, W, H) is None, "a TRANS picture not as measured is refused")
 
+# on an opaque, row-shaded tile: the shading stays, the letters are replaced
+W2, H2 = 160, 40
+runs2 = A.FAMILIES[1]["runs"]
+shade = [0x1000 + y for y in range(H2)]
+t2 = [shade[i // W2] for i in range(W2 * H2)]
+for a, b in runs2:
+    for x in range(a, b):
+        t2[20 * W2 + x] = 0xFFFF
+d2 = list(t2)
+for x in range(*A.FAMILIES[1]["y"]):
+    d2[20 * W2 + x] = 0xEEEE
+out2 = A.tranny(t2, d2, W2, H2, runs2, A.FAMILIES[1]["y"])
+r2 = A.ink_runs(out2, W2, H2, bgcol=A.BG_COL) if out2 else []
+check(out2 is not None and len(r2) == 6, "160x40: six letters (%r)" % r2)
+check(out2 is not None and all(out2[y * W2 + 5] == shade[y] for y in range(H2)) and
+      out2[3 * W2 + 80] == shade[3], "160x40: the tile's own shading kept")
+check(out2 is not None and any(out2[20 * W2 + x] == 0xEEEE for x in range(W2)), "160x40: DELAY's Y")
+
 print("%s: rbassets" % ("FAIL" if failures else "all checks passed"))
 sys.exit(1 if failures else 0)

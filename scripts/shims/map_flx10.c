@@ -47,7 +47,6 @@
  */
 #define _GNU_SOURCE
 #include <fcntl.h>          /* open(), for rbp's mount table */
-#include <math.h>           /* lround, log2: KEY SYNC's tempo semitones */
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1090,6 +1089,7 @@ static int deck_loaded[2], deck_elapsed_ms[2], deck_total_ms[2];
 /* for BEAT SYNC's range fit: what deck_display last showed */
 static int deck_bpm[2], deck_tempo[2], deck_range[2], deck_sync[2], deck_master[2];
 static int deck_mt[2];                     /* MASTER TEMPO on (struct deck_info's mt) */
+static int deck_speed[2];                  /* the speed it plays at, % x100 (flx10_shown_tempo) */
 static char deck_key[2][16];               /* rbp's key text for the deck, "" = none */
 
 /* BEAT SYNC turned on: the tempo range set first to the smallest that holds
@@ -2700,8 +2700,8 @@ __attribute__((weak)) void keyshift_reload(int deck);
 
 static int ks_latched[2];
 static int ks_led[2] = { -1, -1 };
-static char ks_track[2][16];               /* the key the latch was taken on */
-static int ks_total[2];                    /* ...and the track's length */
+static char ks_seen_key[2][16];            /* the track on the deck: its key... */
+static int ks_seen_total[2];               /* ...and its length */
 
 int flx10_key_code(const char *k);
 
@@ -2713,13 +2713,12 @@ int flx10_key_root(const char *k)
      return c ? (c - 1) / 2 : -1;
 }
 
-/* Semitones a tempo of `tempo_x100` % moves the pitch by, with MASTER TEMPO off. */
+/* Semitones a tempo of `tempo_x100` % moves the pitch by, with MASTER TEMPO off --
+ * the jog's own rounding (flx10_key_shift), so the key the jog shows and the key
+ * KEY SYNC matches are one key. */
 int flx10_tempo_semis(int tempo_x100, int mt)
 {
-     double r = 1.0 + (double)tempo_x100 / 10000.0;
-     if (mt || r <= 0.0)
-          return 0;
-     return (int)lround(12.0 * log2(r));
+     return mt ? 0 : flx10_key_shift(tempo_x100);
 }
 
 /* The shift that puts a deck whose root is `root` (tempo moving it `t` semitones)
@@ -2746,8 +2745,8 @@ static int ks_wanted(int deck)
      mroot = flx10_key_root(deck_key[m]);
      if (mroot < 0)
           return 99;
-     mroot += (keyshift_get ? keyshift_get(m) : 0) + flx10_tempo_semis(deck_tempo[m], deck_mt[m]);
-     return flx10_keysync_shift(root, flx10_tempo_semis(deck_tempo[deck], deck_mt[deck]),
+     mroot += (keyshift_get ? keyshift_get(m) : 0) + flx10_tempo_semis(deck_speed[m], deck_mt[m]);
+     return flx10_keysync_shift(root, flx10_tempo_semis(deck_speed[deck], deck_mt[deck]),
                                 ((mroot % 12) + 12) % 12);
 }
 
@@ -2784,30 +2783,45 @@ static void flx10_keysync_press(int deck)
           return;
      }
      ks_latched[deck] = 1;
-     snprintf(ks_track[deck], sizeof ks_track[deck], "%s", deck_key[deck]);
-     ks_total[deck] = deck_total_ms[deck];
+     /* the track it latched on, so the tick does not take it for a new one */
+     memcpy(ks_seen_key[deck], deck_key[deck], sizeof ks_seen_key[deck]);
+     ks_seen_total[deck] = deck_total_ms[deck];
      klog("knobshim2: flx10 deck%d KEY SYNC on: %s %+d -> deck%d's %s\n", deck + 1,
           deck_key[deck], n, ks_master_of(deck) + 1, deck_key[ks_master_of(deck)]);
 }
 
+/* A NEW TRACK -- its key or its length differ from the last one seen -- lets a latch
+ * go, and if the track is ALREADY on the master's key, KEY SYNC lights at once with no
+ * shift (operator, 2026-10-26: "when we load a track with a key that's already
+ * matched: light key sync up"), and follows the master from there like any latch. */
 static void flx10_keysync_tick(void)
 {
      for (int d = 0; d < 2; d++) {
-          int v;
+          int v, fresh = deck_loaded[d] && deck_key[d][0] &&
+                         (strcmp(ks_seen_key[d], deck_key[d]) ||
+                          ks_seen_total[d] != deck_total_ms[d]);
 
-          if (ks_latched[d]) {
-               if (!deck_loaded[d] || strcmp(ks_track[d], deck_key[d]) ||
-                   ks_total[d] != deck_total_ms[d]) {
+          if (fresh) {
+               memcpy(ks_seen_key[d], deck_key[d], sizeof ks_seen_key[d]);
+               ks_seen_total[d] = deck_total_ms[d];
+               if (ks_latched[d]) {
                     ks_release(d, "a new track");
                     if (keyshift_reload)
                          keyshift_reload(d);
-               } else {
-                    int n = ks_wanted(d);
-                    if (n != 99 && keyshift_get && n != keyshift_get(d)) {
-                         keyshift_set(d, n);
-                         klog("knobshim2: flx10 deck%d KEY SYNC follows the master: %+d\n",
-                              d + 1, n);
-                    }
+               }
+               if (keyshift_set && ks_wanted(d) == 0) {
+                    ks_latched[d] = 1;
+                    klog("knobshim2: flx10 deck%d KEY SYNC on: %s already matches deck%d's %s\n",
+                         d + 1, deck_key[d], ks_master_of(d) + 1, deck_key[ks_master_of(d)]);
+               }
+          } else if (ks_latched[d] && !deck_loaded[d]) {
+               ks_release(d, "the deck is empty");
+          } else if (ks_latched[d]) {
+               int n = ks_wanted(d);
+               if (n != 99 && keyshift_get && n != keyshift_get(d)) {
+                    keyshift_set(d, n);
+                    klog("knobshim2: flx10 deck%d KEY SYNC follows the master: %+d\n",
+                         d + 1, n);
                }
           }
           v = ks_latched[d] ? 0x7F : 0x00;
@@ -3203,6 +3217,7 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
      deck_sync[deck] = di->sync;
      deck_master[deck] = di->master;
      deck_mt[deck] = di->mt;
+     deck_speed[deck] = flx10_shown_tempo(di);
      snprintf(deck_key[deck], sizeof deck_key[deck], "%s", di->key);
      if (deck == 0) {
           flx10_display_init(now);
@@ -3222,6 +3237,7 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
                .tempo_x100 = flx10_shown_tempo(di), .range = di->tempo_range,
                .mt = di->mt, .sync = di->sync,
                .key_code = flx10_key_code(di->key),
+               .key_semis = keyshift_get ? keyshift_get(deck) : 0,
                .cue_ms = di->loaded ? flx10_cue_ms(deck, di->total_ms) : -1,
                .looping = di->looping, .master = di->master,
                .jog_touch = flx10_jog_touched[deck],

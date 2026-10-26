@@ -31,6 +31,7 @@ struct flx10_hid_deck {
      int range;             /* getTempoRange: 0 = 6%, 1 = 10%, 2 = 16%, 3 = WIDE */
      int mt, sync;
      int key_code;          /* the track's key, flx10_key_code()'s 1..24, 0 = none */
+     int key_semis;         /* KEY SYNC's own shift (keyshift.c), added to the tempo's */
      int cue_ms;            /* the main cue, ms; -1 = none */
      int looping;           /* a loop is playing */
      int loop_in_ms, loop_out_ms;   /* the current loop, ms; -1 = none */

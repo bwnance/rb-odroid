@@ -226,7 +226,10 @@ session; details further down):
    master's Camelot number (its key or the relative major/minor), counting
    the semitones a tempo moves the pitch with MASTER TEMPO off; it follows the
    master's key, lets go on a new track or a second press, and its LED shows
-   the latch (map_flx10.c, flx10_keysync_*). The shift itself is rx3-toolkit's
+   the latch (map_flx10.c, flx10_keysync_*). A track loaded already on the
+   master's key lights it with no shift. The jog shows the key the deck plays
+   in -- the tempo's shift and KEY SYNC's together -- with the +N beside it
+   (flx10_hid.c, key_semis). Heard working by the operator 2026-10-26. The shift itself is rx3-toolkit's
    (github.com/Tratosca/rx3-toolkit at cc17a1f, MPL-2.0): a detour on
    dsp::TimeStretchManager::operate @0xa0e54 (guard f0412de9 0040a0e1) that
    shifts each deck's block in place, down through rbp's own BeatEffectPitch
@@ -260,7 +263,7 @@ session; details further down):
 10. Parked: HOT CUE mode switch lag.
 
 Done 2026-10-26 (start-up splash, rbp's TRANS picture):
-- For RB_SPLASH_MS (5000) after rbp's first frame the screen shows a picture on
+- For RB_SPLASH_MS (7000) after rbp's first frame the screen shows a picture on
   black (RB_SPLASH_IMAGE, a PNG, or rbp's own white rekordbox logo from
   imagedata.dat), the FLX10's LEDs are held and its input dropped; then the unit
   is asked for its controls again. rbp draws into a private buffer meanwhile:
@@ -273,7 +276,12 @@ Done 2026-10-26 (start-up splash, rbp's TRANS picture):
 - rbassets.py (start-rb.sh, before the launch) writes the splash picture to
   /run/rblive4 and rebuilds rbp's two TRANS pictures in imagedata.dat (records
   1059/1060, RGB565, 0xF81F transparent) as TRANNY from rbp's own letters --
-  T R A N from TRANS, Y from VINYL BRAKE. RB_FX_TRANNY=0 leaves them alone.
+  T R A N from TRANS, Y from VINYL BRAKE -- and the BEAT FX window's four
+  160x40 name tiles (5225..5228: gray, white, faded, blue; opaque, so the text
+  is cleared to the tile's own margin column) with DELAY's Y, plus any
+  byte-identical copy of either. Seen on the unit's BEAT FX window 2026-10-26.
+  RB_FX_TRANNY=0 leaves them alone. The 132x38 tiles of rbp's touch FX list
+  (5570..5572) are not patched: patterned backgrounds and merged letters.
 
 Done and confirmed 2026-10-26 (rbp's UTILITY menu):
 - HDMI AUDIO is a row of rbp's own UTILITY menu, after MIXER MODE
