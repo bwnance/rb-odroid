@@ -40,12 +40,14 @@ int aloop_is_looping(int deck) { return looping[deck]; }
 int led_loop_flash[2];
 /* the last value sent on ch 16 per note / CC number, -1 = never */
 static int jd_note_v[128], jd_cc_v[128], note70_n;
+static int pad_note_v[2][128];              /* pad channels 7 / 9 */
 static int dk_note_v[2][128];                 /* last note value on deck ch 1/2 */
 int midi_cc(int ch, int cc, int v) { if (ch == 15 && cc >= 0 && cc < 128) jd_cc_v[cc] = v; return 1; }
 int midi_note(int ch, int n, int v)
 {
      if (ch == 15 && n >= 0 && n < 128) { jd_note_v[n] = v; if (n == 0x70) note70_n++; }
      if ((ch == 0 || ch == 1) && n >= 0 && n < 128) dk_note_v[ch][n] = v;
+     if ((ch == 7 || ch == 9) && n >= 0 && n < 128) pad_note_v[ch == 9][n] = v;
      return 1;
 }
 int midi_sysex_out(const unsigned char *b, unsigned n) { (void)b; (void)n; return 1; }
@@ -147,6 +149,7 @@ int main(void)
 {
      setenv("FLX10_HID", "0", 1);          /* no sender thread in the tests */
      memset(jd_note_v, 0xff, sizeof jd_note_v);
+     memset(pad_note_v, 0xff, sizeof pad_note_v);
      memset(jd_cc_v, 0xff, sizeof jd_cc_v);
      build(NULL);
 
@@ -212,9 +215,6 @@ int main(void)
      for (int i = 0; i < 5 && slipmode[0]; i++) { ms(100); map_flx10.tick(); }
      CHECK(slipmode[0] == 0, "slip found still on after the restore: sent off again");
      for (int i = 0; i < 40; i++) { ms(100); map_flx10.tick(); }
-     /* a tap released before a quantized reverse began: the late reverse is
-      * ended when it turns up, then slip goes off */
-     reset(); ON(1, 21); OFF(1, 21);
      /* quantize on: the release clears getReverse at once and the deck goes
       * on reversing to the beat. Slip put off then left it reversing for good
       * (operator, 2026-10-25): slip stays on until it is really over. */
@@ -240,6 +240,9 @@ int main(void)
      CHECK(slipmode[0] == 0, "stuck reverse: slip off after 10 s");
      rev_effect[0] = 0;
      for (int i = 0; i < 40; i++) { ms(100); map_flx10.tick(); }
+     /* a tap released before a quantized reverse began: the late reverse is
+      * ended when it turns up, then slip goes off */
+     reset(); ON(1, 21); OFF(1, 21);
      ms(250); map_flx10.tick();
      CHECK(slipmode[0] == 1, "tap: slip kept while a late reverse may still come");
      reversing[0] = 1; rev_sets = 0; ms(20); map_flx10.tick();
@@ -1070,6 +1073,22 @@ int main(void)
                 "unreported ones: the captured values");
           CHECK(note70_n == 1, "9F 70 not sent twice");
           CHECK(dk_note_v[0][101] == 0 && dk_note_v[1][101] == 0, "KEY SYNC LED sent dark on connect");
+     }
+     /* ...and every pad page dark but the one the bridge is on */
+     for (int d = 0; d < 2; d++) {
+          int dark = 0, first_left = -1, left = 0;
+          for (int k = 0; k < 128; k++) {
+               if (pad_note_v[d][k] == 0)
+                    dark++;
+               else if (pad_note_v[d][k] < 0) {
+                    if (first_left < 0)
+                         first_left = k;
+                    left++;
+               }
+          }
+          CHECK(dark == 120 && left == 8 && first_left % 16 == 0,
+                "deck %d: 120 pad notes sent dark, the current page's 8 left (%d / %d at %d)",
+                d + 1, dark, left, first_left);
      }
 
      /* BEAT SYNC fits the tempo range first (after the connect test: deck_display

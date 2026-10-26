@@ -2467,6 +2467,20 @@ static void flx10_display_init(unsigned long long now)
      midi_note(0, N_KEYSYNC, 0x00);        /* KEY SYNC: dark, whatever MT is */
      midi_note(1, N_KEYSYNC, 0x00);
      rev_led_v[0] = rev_led_v[1] = -1;     /* the tick re-sends them */
+     /* Every pad page dark, as rekordbox does (all 128 notes on both pad
+      * channels in the capture). The unit keeps each page's lights itself and
+      * the bridge paints only the page shown, so a page not visited since the
+      * last session showed that session's lights on its first visit until the
+      * bridge caught up (operator, 2026-10-25). The page the bridge is on is
+      * left alone: its cache would not send it again. */
+     for (int d = 0; d < 2; d++) {
+          int m = flx10_pad_mode(d);
+          int cur = flx10_page[d] >= 0 ? flx10_page[d]
+                  : (m >= 0 && m < 8) ? flx10_page_for_rbp[m] : -1;
+          for (int note = 0; note < 128; note++)
+               if (cur < 0 || note < cur || note >= cur + 8)
+                    midi_note(d ? CH_PADS2 : CH_PADS1, note, 0x00);
+     }
      /* everything the display shows goes out again right after */
      jd[0].refresh = jd[1].refresh = 0;
 }
