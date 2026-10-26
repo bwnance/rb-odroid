@@ -35,7 +35,7 @@ struct flx10_hid_deck {
      int loop_num, loop_den;        /* its size in beats as rbp shows it; 0 = unknown */
      int master;            /* this deck is the tempo MASTER */
      int jog_touch;         /* the platter is pressed */
-     int time_remain;       /* rbp shows remaining time (not sent: no byte found) */
+     int time_remain;       /* rbp shows remaining time: [3] 0x08 */
      int on_air;            /* rbp's ON AIR icon for the deck: the white edges */
 };
 

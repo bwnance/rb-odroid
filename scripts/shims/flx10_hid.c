@@ -29,8 +29,9 @@
  *   [0]      deck 0x10/0x20/0x30/0x40          [1] 0x21
  *   [2]      0x02 paused away from the cue point; 0x00 playing, or paused on
  *            it (cue standby) -- the capture shows 0x00 after a load and a cue
- *   [3]      0x08, +0x10 while the jog is touched, +0x02 the white edges
- *            (sent for rbp's ON AIR; rekordbox sent 0x08)
+ *   [3]      0x08 remaining time (elapsed without it; rekordbox's default is
+ *            remaining), +0x10 while the jog is touched, +0x02 the white
+ *            edges (sent for rbp's ON AIR)
  *   [4]      tempo range box 0x10 +-6, 0x20 +-10, 0x30 +-16, 0x40 WIDE;
  *            0x04 master tempo
  *   [5]      0x01, +0x10 SYNC on, +0x80 tempo MASTER (second capture)
@@ -177,8 +178,11 @@ void flx10_hid_state_pkt(unsigned char p[FLX10_HID_PKT], int deck,
      p[2] = (!s->playing && !s->cue_standby) ? 0x02 : 0x00;
      if (s->jog_touch)
           p[3] |= 0x10;
-     /* (rbp's time mode is not sent: [3] 0x02, once read as "remaining",
-      * is the white edges -- operator, 2026-10-25 -- see on_air below) */
+     /* [3] 0x08 is REMAINING time (rekordbox's default, so every capture
+      * had it); without it the screen shows elapsed -- found with
+      * hid-scan.py, 2026-10-25. Follows rbp's own time mode. */
+     if (!s->time_remain)
+          p[3] &= (unsigned char)~0x08;
      if (s->sync)
           p[5] |= 0x10;
      if (s->master)

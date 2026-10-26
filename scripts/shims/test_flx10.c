@@ -749,6 +749,7 @@ int main(void)
           CHECK(same && rest, "empty deck 2 = rekordbox's empty packet, byte for byte");
 
           hs.loaded = 1; hs.cue_standby = 1; hs.elapsed_ms = 358; hs.total_ms = 152869;
+          hs.time_remain = 1;                /* rekordbox's default: remaining */
           hs.bpm_x100 = 13905; hs.key_code = 7; hs.cue_ms = 358;
           flx10_hid_state_pkt(p, 1, &hs);
           same = 1;
@@ -820,7 +821,7 @@ int main(void)
                c.loop_in_ms = 100000; c.loop_out_ms = 101459; c.loop_num = 8;
                flx10_hid_state_pkt(p, 0, &c);
                CHECK(p[10] == 0x0e, "the length wins when it resolves (%02x)", p[10]);
-               c.on_air = 1; flx10_hid_state_pkt(p, 0, &c);
+               c.on_air = 1; c.time_remain = 1; flx10_hid_state_pkt(p, 0, &c);
                CHECK(p[3] == 0x0a, "ON AIR -> [3] 02, the white edges");
                flx10_hid_set_onair(3, 0x04); flx10_hid_state_pkt(p, 0, &c);
                CHECK(p[3] == 0x0c, "FLX10_ONAIR=3:04 -> [3] |= 04 on air");
@@ -829,10 +830,12 @@ int main(void)
                flx10_hid_set_onair(-1, 0);
           }
           CHECK(flx10_loop_code(1459, 16456 * 11 / 10, 1000) == 0x0e, "track-time loop at +10%% still 4 beats");
-          hs.master = 1; hs.sync = 1; hs.jog_touch = 1; flx10_hid_state_pkt(p, 0, &hs);
+          hs.master = 1; hs.sync = 1; hs.jog_touch = 1; hs.time_remain = 1; flx10_hid_state_pkt(p, 0, &hs);
           CHECK(p[5] == 0x91 && p[3] == 0x18, "MASTER + SYNC -> 91, jog touched -> 18 (capture 2)");
           hs.jog_touch = 0; hs.time_remain = 1; flx10_hid_state_pkt(p, 0, &hs);
-          CHECK(p[3] == 0x08, "rbp's time mode not sent ([3] 02 is the white edges)");
+          CHECK(p[3] == 0x08, "rbp's time mode remaining -> [3] 08");
+          hs.time_remain = 0; flx10_hid_state_pkt(p, 0, &hs);
+          CHECK(p[3] == 0x00, "rbp's time mode elapsed -> [3] 00");
           hs.master = 0; hs.sync = 0; hs.jog_touch = 0; hs.time_remain = 0;
           hs.loop_in_ms = hs.loop_out_ms = -1; flx10_hid_state_pkt(p, 0, &hs);
           CHECK(p[25] == 0 && p[27] == 0x80 && p[28] == 0, "no loop -> 00 00 80");

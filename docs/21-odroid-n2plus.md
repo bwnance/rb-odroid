@@ -311,6 +311,12 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   surface is found gone (`CTRL_PAUSE_ON_LOSS=1`, any surface; ctrlshim.c's
   `pause_on_loss`). Decks stay paused on reconnect. Works on the unit
   (operator, 2026-10-25).
+* **hid-scan.py round 1** (2026-10-25, bytes 3-10 flipped one bit at a time on
+  deck 1): [3] 0x08 is REMAINING time -- rekordbox's default, so every capture
+  had it; without it the jog shows elapsed. Now follows rbp's time mode
+  (SHIFT + 4 BEAT flips both). Also seen, step not pinned yet: around byte 8
+  0x80 / byte 9 0x01 the jog's LED ring went dark; around byte 9 0x04..0x10 a
+  cue icon appeared in the waveform position. To be retried step by step.
 * **Splash until rbp is ready** (operator, 2026-10-25). A splash covering the
   whole screen from launch until rbp has fully initialized, so none of its
   start-up drawing shows, and no input (FLX10, keyboard, touch) reaching rbp
