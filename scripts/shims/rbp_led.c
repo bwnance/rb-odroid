@@ -55,6 +55,7 @@
 #include "rbp_bridge.h"
 #include "midi_io.h"
 #include "rbp_led.h"
+#include "keydisp.h"         /* the deck panel's key under KEY SYNC */
 #include "rbp_transport.h"   /* the reading the drawers read back (see its header) */
 #include "led_table.h"  /* the settled view of the table, and the blink phase */
 #include "ctrl_map.h"   /* struct led_notes, and ctrl_sel_leds() */
@@ -823,18 +824,11 @@ static void led_deck_display(const struct led_notes *n, void *pe)
            * slider sets, whatever is loaded) */
           di.tempo_raw   = ((int (*)(void *, int))PE_GETTEMPOX100)(pe, i);
           di.tempo_range = ((int (*)(void *, int))PE_GETTEMPORANGE)(pe, i);
-          /* the key text the deck panel last drew (rbp_abi.h), UTF-16 */
-          {
-               const unsigned short *w = (const unsigned short *)
-                    (UI_DECK_KEYTEXT_GLOBAL + (unsigned long)i * UI_DECK_KEYTEXT_STRIDE);
-               unsigned k;
-               for (k = 0; k < sizeof di.key - 1 && w[k]; k++) {
-                    unsigned short c = w[k];
-                    di.key[k] = c == 0x266F ? '#' : c == 0x266D ? 'b' :
-                                (c >= 0x20 && c < 0x7f) ? (char)c : '?';
-               }
-               di.key[k] = '\0';
-          }
+          /* the TRACK's key, from the deck panel's own key line -- and the panel
+           * brought into line with any KEY SYNC shift (keydisp.c), so rbp's screen
+           * shows the key the deck plays in while everything here reasons from the
+           * track's */
+          keydisp_deck(i, di.loaded ? di.total_ms : 0, di.key, (int)sizeof di.key);
           if (verbose && now - last_log >= 1000)
                klog("knobshim2: jogdisp deck%d key='%s'\n", i + 1, di.key);
           if (verbose && now - last_log >= 1000)

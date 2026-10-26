@@ -1600,8 +1600,9 @@ int main(void)
           n->deck_display(0, &d0); n->deck_display(1, &d1);
      }
      media_tests();
-     /* KEY SYNC: latched; the non-master deck onto the master's Camelot number by
-      * the fewest semitones, following the master, let go on a new track */
+     /* KEY SYNC: the CDJ-3000's rule -- the least shift to a key compatible with the
+      * master's (its Camelot number or one either side, either letter); lit while
+      * compatible; a press undoes only a shift of ours; new tracks counted once settled */
      {
           extern int flx10_key_root(const char *);
           extern int flx10_tempo_semis(int, int);
@@ -1615,9 +1616,23 @@ int main(void)
           CHECK(flx10_tempo_semis(5946, 0) == 8 && flx10_tempo_semis(5946, 1) == 0 &&
                 flx10_tempo_semis(300, 0) == 1 && flx10_tempo_semis(-200, 0) == 0,
                 "tempo semitones: +59.46%% is 8 without MASTER TEMPO, none with it");
-          CHECK(flx10_keysync_shift(2, 0, 0) == -2 && flx10_keysync_shift(0, 0, 6) == 6 &&
-                flx10_keysync_shift(0, 0, 7) == -5 && flx10_keysync_shift(0, 1, 1) == 0,
-                "shifts: the fewest semitones, -5..+6");
+          CHECK(flx10_keysync_shift(2, 0, 0) == -2, "10A onto 8A: -2 (not compatible: two numbers)");
+          CHECK(flx10_keysync_shift(flx10_key_root("11B"), 0, flx10_key_root("10B")) == 0 &&
+                flx10_keysync_shift(flx10_key_root("9A"), 0, flx10_key_root("10A")) == 0 &&
+                flx10_keysync_shift(flx10_key_root("10A"), 0, flx10_key_root("10B")) == 0,
+                "one number apart, or relative: already compatible, no shift");
+          CHECK(flx10_keysync_shift(flx10_key_root("4B"), 0, flx10_key_root("9A")) == -1,
+                "4B onto 9A: -1 to the same key");
+          {
+               int worst = 0;
+               for (int r = 0; r < 12; r++)
+                    for (int m = 0; m < 12; m++) {
+                         int k = flx10_keysync_shift(r, 0, m);
+                         if (k < 0) k = -k;
+                         if (k > worst) worst = k;
+                    }
+               CHECK(worst == 2, "no key ever needs more than 2 semitones (%d)", worst);
+          }
 
           memset(&a, 0, sizeof a);
           a.loaded = 1; a.master = 1; a.mt = 1; a.total_ms = 200000;
@@ -1628,36 +1643,42 @@ int main(void)
           n->deck_display(0, &a);
           n->deck_display(1, &b);
           ks_shift[0] = ks_shift[1] = 0; ks_reloads = 0;
+          map_flx10.tick(); ms(450); map_flx10.tick();
+          CHECK(dk_note_v[1][101] == 0, "10A against 8A: not compatible, dark");
           reset(); ON(2, 101); OFF(2, 101); map_flx10.tick();
           CHECK(ks_shift[1] == -2 && dk_note_v[1][101] == 0x7F,
                 "KEY SYNC on deck 2: 10A -2 onto deck 1's 8A, LED lit (%d)", ks_shift[1]);
-          strcpy(a.key, "9A");
+          strcpy(a.key, "12A");                               /* E's relative: root 4 */
           n->deck_display(0, &a); map_flx10.tick();
-          CHECK(ks_shift[1] == 5, "the master moves to 9A: deck 2 follows, +5 (%d)", ks_shift[1]);
-          ON(1, 101); OFF(1, 101); map_flx10.tick();
-          CHECK(ks_shift[0] == 0, "KEY SYNC on the master deck itself: nothing");
-          strcpy(b.key, "4B"); b.total_ms = 150000;
-          n->deck_display(1, &b); map_flx10.tick();
-          CHECK(ks_shift[1] == 0 && ks_reloads == 1 && dk_note_v[1][101] == 0,
-                "a new track on deck 2: let go, back to its own key, LED dark");
-          ON(2, 101); OFF(2, 101); map_flx10.tick();
-          CHECK(dk_note_v[1][101] == 0x7F, "latched again");
-          ON(2, 101); OFF(2, 101); map_flx10.tick();
-          CHECK(ks_shift[1] == 0 && dk_note_v[1][101] == 0, "a second press lets go");
-          /* a track loaded already on the master's key lights KEY SYNC, no shift */
-          strcpy(b.key, "9B"); b.total_ms = 170000;          /* G major, the master's 9A's root */
-          n->deck_display(1, &b); map_flx10.tick();
-          CHECK(dk_note_v[1][101] == 0x7F && ks_shift[1] == 0,
-                "a load already on the master's key: KEY SYNC lit, no shift");
-          strcpy(a.key, "10A");
-          n->deck_display(0, &a); map_flx10.tick();
-          CHECK(ks_shift[1] == -5, "...and follows the master like any latch: 9B -5 onto 10A (%d)",
+          CHECK(ks_shift[1] == 2, "the master moves to 12A: deck 2 follows, +2 onto 12A itself (%d)",
                 ks_shift[1]);
           ON(2, 101); OFF(2, 101); map_flx10.tick();
-          a.master = 0;
-          n->deck_display(0, &a);
+          CHECK(ks_shift[1] == 0 && dk_note_v[1][101] == 0, "a press undoes our shift: dark");
+          ON(1, 101); OFF(1, 101); map_flx10.tick();
+          CHECK(ks_shift[0] == 0, "KEY SYNC on the master deck itself: nothing");
+
+          /* a load already compatible lights it once, after it settles, with no shift */
+          strcpy(b.key, "11A"); b.total_ms = 150000;          /* one from 12A */
+          n->deck_display(1, &b); map_flx10.tick();
+          CHECK(dk_note_v[1][101] == 0x7F, "11A against 12A: compatible, lit");
+          strcpy(b.key, ""); n->deck_display(1, &b); map_flx10.tick();
+          strcpy(b.key, "11A"); n->deck_display(1, &b); map_flx10.tick();
+          ms(450); map_flx10.tick();
+          CHECK(dk_note_v[1][101] == 0x7F && ks_shift[1] == 0, "...and stays lit through the load");
           ON(2, 101); OFF(2, 101); map_flx10.tick();
-          CHECK(dk_note_v[1][101] == 0, "no master: nothing to match, nothing latched");
+          CHECK(dk_note_v[1][101] == 0x7F && ks_shift[1] == 0,
+                "a press with nothing of ours to undo: still lit, nothing shifted");
+          strcpy(a.key, "2A");                                /* far from 11A */
+          n->deck_display(0, &a); map_flx10.tick();
+          CHECK(dk_note_v[1][101] == 0x7F && ks_shift[1] != 0,
+                "latched, it follows the master (%d)", ks_shift[1]);
+          strcpy(b.key, "5B"); b.total_ms = 160000;
+          n->deck_display(1, &b); map_flx10.tick(); ms(450); map_flx10.tick();
+          CHECK(ks_shift[1] == 0 && ks_reloads >= 1, "a new track lets it go and resets the shift");
+          a.master = 0;
+          n->deck_display(0, &a); map_flx10.tick();
+          ON(2, 101); OFF(2, 101); map_flx10.tick();
+          CHECK(dk_note_v[1][101] == 0, "no master: nothing to match, dark");
      }
 
      printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);

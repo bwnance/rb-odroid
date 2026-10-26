@@ -227,7 +227,16 @@ session; details further down):
    the semitones a tempo moves the pitch with MASTER TEMPO off; it follows the
    master's key, lets go on a new track or a second press, and its LED shows
    the latch (map_flx10.c, flx10_keysync_*). A track loaded already on the
-   master's key lights it with no shift. The jog shows the key the deck plays
+   master's key lights it with no shift. Revised the same day to the CDJ-3000's
+   rule as its documentation describes it: compatible is the master's Camelot
+   number or one either side, either letter (same key, dominant, subdominant
+   and their relatives), the shift is the least that gets there (never more
+   than 2 semitones), the LED is lit whenever the deck is compatible, and a
+   press undoes only a shift of ours. A load counts once its key and length
+   have held 400 ms (the LED had lit, cleared and relit through a load). rbp's
+   own deck panel shows the shifted key too (keydisp.c: the panel's key line
+   at 0x03268bf0 + deck * 0x238, UTF-16 at +34, which ui_Deck_Update redraws
+   on change; the original is remembered and put back). The jog shows the key the deck plays
    in -- the tempo's shift and KEY SYNC's together -- with the +N beside it
    (flx10_hid.c, key_semis). Heard working by the operator 2026-10-26. The shift itself is rx3-toolkit's
    (github.com/Tratosca/rx3-toolkit at cc17a1f, MPL-2.0): a detour on

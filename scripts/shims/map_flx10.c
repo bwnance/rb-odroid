@@ -2683,25 +2683,44 @@ static void flx10_unit_setting(int ch, int is_cc, int num, int val);
 
 /* ---- KEY SYNC ---------------------------------------------------------------
  * rbp has no key sync; keyshift.c (rx3-toolkit's key shift) shifts a deck's key
- * by whole semitones in rbp's audio path, and this decides by how much. Latched,
- * like a CDJ (operator, 2026-10-26): a press on the deck that is NOT the tempo
- * MASTER shifts it by the fewest semitones that put it on the master's Camelot
- * number -- the same key, or its relative major/minor -- and keeps it there while
- * the master's key changes; a second press, or a new track on the deck, lets go
- * and returns it to its own key. The LED is lit while it holds.
+ * by whole semitones in rbp's audio path, and this decides by how much -- the
+ * CDJ-3000's rule as its documentation describes it: the deck goes to whichever
+ * key HARMONICALLY COMPATIBLE with the MASTER's needs the least change, where
+ * compatible is the same key, the dominant, the subdominant, the relative, and
+ * the relatives of the dominant and subdominant -- on the Camelot wheel, the
+ * master's number or one either side, either letter (operator, 2026-10-26: "10B
+ * and 11B should count as synced"). So no shift is ever more than 2 semitones.
  *
- * WHAT A DECK PLAYS IN is its key's root (flx10_key_code's pairs: a major key
- * and its relative minor share one, and one Camelot number), plus any shift of
- * ours, plus -- with MASTER TEMPO off -- the semitones its tempo moves the pitch.
- * WEAK, so a build or a test without keyshift.o has no key sync. */
+ *   the LED is lit while the deck is compatible -- by its own key, or by a shift
+ *     of ours -- and latched; a track loaded already compatible lights it with
+ *     no shift (operator: "when we load a track with a key that's already
+ *     matched: light key sync up")
+ *   a press on an unlit deck shifts it and latches; a press on a lit one undoes a
+ *     shift of ours, and does nothing when there is none to undo (operator: "i can
+ *     turn key sync off in this state which i don't think should be possible")
+ *   a latched deck follows the master's key; a new track lets the latch go
+ *
+ * A NEW TRACK is a key or length that differs from the last one seen and has held
+ * for KS_SETTLE_MS: rbp fills a load in in stages, and acting on each stage lit,
+ * cleared and relit the LED (operator, 2026-10-26).
+ *
+ * WHAT A DECK PLAYS IN is its key's root (flx10_key_code's pairs: a major key and
+ * its relative minor share one, and one Camelot number), plus any shift of ours,
+ * plus -- with MASTER TEMPO off -- the semitones its speed moves the pitch. WEAK,
+ * so a build or a test without keyshift.o has no key sync. */
 __attribute__((weak)) int keyshift_set(int deck, int semitones);
 __attribute__((weak)) int keyshift_get(int deck);
 __attribute__((weak)) void keyshift_reload(int deck);
+
+#define KS_SETTLE_MS 400
 
 static int ks_latched[2];
 static int ks_led[2] = { -1, -1 };
 static char ks_seen_key[2][16];            /* the track on the deck: its key... */
 static int ks_seen_total[2];               /* ...and its length */
+static char ks_pend_key[2][16];            /* a change not yet held KS_SETTLE_MS */
+static int ks_pend_total[2];
+static unsigned long long ks_pend_at[2];
 
 int flx10_key_code(const char *k);
 
@@ -2721,12 +2740,34 @@ int flx10_tempo_semis(int tempo_x100, int mt)
      return mt ? 0 : flx10_key_shift(tempo_x100);
 }
 
-/* The shift that puts a deck whose root is `root` (tempo moving it `t` semitones)
- * on the master playing in `target`: the smallest, -5..+6. Pure. */
+/* A root `d` semitones from the master's: 0 the same Camelot number (the key or
+ * its relative), 7 and 5 one number up and down (dominant, subdominant). */
+static int ks_compatible(int d)
+{
+     d = ((d % 12) + 12) % 12;
+     return d == 0 || d == 5 || d == 7;
+}
+
+/* The least shift that makes a deck whose root is `root` (its speed moving it `t`)
+ * compatible with a master playing in `target`: 0 when it already is; at each
+ * distance the same or relative key before a neighbour, + before -. Pure. */
 int flx10_keysync_shift(int root, int t, int target)
 {
-     int n = ((target - root - t) % 12 + 12) % 12;
-     return n > 6 ? n - 12 : n;
+     for (int dist = 0; dist <= 6; dist++) {
+          int fallback = 99;
+          for (int sign = 1; sign >= -1; sign -= 2) {
+               int n = sign * dist, d = root + t + n - target;
+               if (((d % 12) + 12) % 12 == 0)
+                    return n;
+               if (fallback == 99 && ks_compatible(d))
+                    fallback = n;
+               if (!dist)
+                    break;
+          }
+          if (fallback != 99)
+               return fallback;
+     }
+     return 0;
 }
 
 static int ks_master_of(int deck)
@@ -2735,7 +2776,8 @@ static int ks_master_of(int deck)
      return deck_master[m] && !deck_master[deck] && deck_loaded[m] ? m : -1;
 }
 
-/* The shift deck `deck` needs now, or 99 when there is nothing to match. */
+/* The shift deck `deck` needs from its own key, or 99 when there is nothing to
+ * match: no master, or a key not known. */
 static int ks_wanted(int deck)
 {
      int m = ks_master_of(deck), root = flx10_key_root(deck_key[deck]), mroot;
@@ -2764,8 +2806,13 @@ static void flx10_keysync_press(int deck)
 
      if (deck > 1)
           return;
-     if (ks_latched[deck]) {
-          ks_release(deck, "pressed again");
+     if (ks_latched[deck] || (ks_wanted(deck) == 0 && !(keyshift_get && keyshift_get(deck)))) {
+          if (keyshift_get && keyshift_get(deck)) {
+               ks_release(deck, "pressed again");
+          } else if (!ks_latched[deck] && keyshift_set) {
+               ks_latched[deck] = 1;          /* compatible already: lit, now latched */
+               klog("knobshim2: flx10 deck%d KEY SYNC: already compatible\n", deck + 1);
+          }
           return;
      }
      if (!keyshift_set) {
@@ -2790,20 +2837,37 @@ static void flx10_keysync_press(int deck)
           deck_key[deck], n, ks_master_of(deck) + 1, deck_key[ks_master_of(deck)]);
 }
 
-/* A NEW TRACK -- its key or its length differ from the last one seen -- lets a latch
- * go, and if the track is ALREADY on the master's key, KEY SYNC lights at once with no
- * shift (operator, 2026-10-26: "when we load a track with a key that's already
- * matched: light key sync up"), and follows the master from there like any latch. */
+/* Has deck `d` got a new track, held KS_SETTLE_MS? */
+static int ks_new_track(int d, unsigned long long t)
+{
+     if (!deck_loaded[d] || !deck_key[d][0] ||
+         (!strcmp(ks_seen_key[d], deck_key[d]) && ks_seen_total[d] == deck_total_ms[d])) {
+          ks_pend_at[d] = 0;
+          return 0;
+     }
+     if (!ks_pend_at[d] || strcmp(ks_pend_key[d], deck_key[d]) ||
+         ks_pend_total[d] != deck_total_ms[d]) {
+          memcpy(ks_pend_key[d], deck_key[d], sizeof ks_pend_key[d]);
+          ks_pend_total[d] = deck_total_ms[d];
+          ks_pend_at[d] = t ? t : 1;
+          return 0;
+     }
+     if (t - ks_pend_at[d] < KS_SETTLE_MS)
+          return 0;
+     memcpy(ks_seen_key[d], deck_key[d], sizeof ks_seen_key[d]);
+     ks_seen_total[d] = deck_total_ms[d];
+     ks_pend_at[d] = 0;
+     return 1;
+}
+
 static void flx10_keysync_tick(void)
 {
-     for (int d = 0; d < 2; d++) {
-          int v, fresh = deck_loaded[d] && deck_key[d][0] &&
-                         (strcmp(ks_seen_key[d], deck_key[d]) ||
-                          ks_seen_total[d] != deck_total_ms[d]);
+     unsigned long long t = shim_now_ms();
 
-          if (fresh) {
-               memcpy(ks_seen_key[d], deck_key[d], sizeof ks_seen_key[d]);
-               ks_seen_total[d] = deck_total_ms[d];
+     for (int d = 0; d < 2; d++) {
+          int v, want;
+
+          if (ks_new_track(d, t)) {
                if (ks_latched[d]) {
                     ks_release(d, "a new track");
                     if (keyshift_reload)
@@ -2811,8 +2875,9 @@ static void flx10_keysync_tick(void)
                }
                if (keyshift_set && ks_wanted(d) == 0) {
                     ks_latched[d] = 1;
-                    klog("knobshim2: flx10 deck%d KEY SYNC on: %s already matches deck%d's %s\n",
-                         d + 1, deck_key[d], ks_master_of(d) + 1, deck_key[ks_master_of(d)]);
+                    klog("knobshim2: flx10 deck%d KEY SYNC on: %s already compatible with "
+                         "deck%d's %s\n", d + 1, deck_key[d], ks_master_of(d) + 1,
+                         deck_key[ks_master_of(d)]);
                }
           } else if (ks_latched[d] && !deck_loaded[d]) {
                ks_release(d, "the deck is empty");
@@ -2824,7 +2889,8 @@ static void flx10_keysync_tick(void)
                          d + 1, n);
                }
           }
-          v = ks_latched[d] ? 0x7F : 0x00;
+          want = ks_wanted(d);
+          v = ks_latched[d] || (want == 0 && !(keyshift_get && keyshift_get(d))) ? 0x7F : 0x00;
           if (fxs_ready && v != ks_led[d] && midi_note(d, N_KEYSYNC, v))
                ks_led[d] = v;          /* only once the connect sequence is out */
      }
