@@ -671,6 +671,13 @@ int surface_has_query(void)
             strcmp(c->id, JP21_CONTROLLER_ID) != 0;
 }
 
+static volatile unsigned long long query_at_ms;
+
+unsigned long long midi_query_at_ms(void)
+{
+     return query_at_ms;
+}
+
 int led_query_absolute(void)
 {
      const struct controller *jp = controllers_find(JP21_CONTROLLER_ID);
@@ -689,6 +696,8 @@ int led_query_absolute(void)
           if (c && c->init && c->init_len) {
                static int said;
                int ok = midi_sysex_out(c->init, c->init_len);
+               if (ok)
+                    query_at_ms = shim_now_ms();
                if (ok && !said) {
                     said = 1;
                     klog("knobshim2: asked '%s' for its absolute controls "

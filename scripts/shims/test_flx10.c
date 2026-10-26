@@ -58,7 +58,9 @@ int midi_surface_generation(void) { return 1; }
 int midi_out_ready(void) { return 1; }
 volatile int led_kick;
 static int query_n, splash_up;
+static unsigned long long query_at;
 int led_query_absolute(void) { query_n++; return 1; }
+unsigned long long midi_query_at_ms(void) { return query_at; }
 int shim_splash_active(void) { return splash_up; }
 static int ks_shift[2], ks_reloads;
 int keyshift_set(int d, int n) { ks_shift[d] = n; return 0; }
@@ -944,11 +946,17 @@ int main(void)
           flx10_fx_beat_text(5, -50, 1, t, sizeof t);
           CHECK(!strcmp(t, "-50%"), "PITCH reads a signed percent (got %s)", t);
      }
-     reset(); ON(5, 70);
-     CHECK(sent_n == 2 && is(0, K_BFX, OP_PRESS, 1) && is(1, K_BFX, OP_RELEASE, 1),
-           "Beat FX ON/OFF is note 70 (rekordbox's capture): a tap of rbp's BFX key, at the press");
-     OFF(5, 70);
-     CHECK(sent_n == 2, "...and nothing at the release (rbp takes a held key as momentary)");
+     reset(); ON(5, 70); OFF(5, 70);
+     CHECK(sent_n == 1 && is(0, K_BFX, OP_PRESS, 1),
+           "Beat FX ON/OFF is note 70: the first push is the BFX key down (one toggle)");
+     ON(5, 70); OFF(5, 70);
+     CHECK(sent_n == 1, "a second press within 300 ms: one push, nothing more");
+     ms(400); query_at = shim_now_ms(); ms(100); ON(5, 70); OFF(5, 70);
+     CHECK(sent_n == 1, "note 70 inside the answer to the controls query: a report, not a push");
+     query_at = 0;
+     ms(400); ON(5, 70); OFF(5, 70);
+     CHECK(sent_n == 2 && is(1, K_BFX, OP_RELEASE, 1),
+           "...the next push the key up (one toggle); the button's own releases send nothing");
      reset(); ON(5, 71); OFF(5, 71);
      CHECK(sent_n == 0, "note 71 on the FX channel: nothing");
      reset(); CC(5, 2, 64);
@@ -1061,9 +1069,8 @@ int main(void)
                      "loop LED notes");
                CHECK(n->n_vinyl == -1 && n->master_ch_first < 0 &&
                      n->meter_master_ch < 0, "unanswered LEDs stay dark");
-               CHECK(n->fx_ch == 4 && n->n_fx[LED_FX_BFX_ONOFF] == 70 &&
-                     n->n_fx[LED_FX_CFX_FILTER] == -1,
-                     "Beat FX ON/OFF lit on ch 5 note 70, as rekordbox lights it");
+               CHECK(n->fx_ch < 0 && n->n_fx[LED_FX_BFX_ONOFF] == -1,
+                     "no Beat FX ON/OFF LED: the FLX10 echoes it back as a press");
                CHECK(n->n_quantize == 53, "QUANTIZE LED on 53");
                CHECK(n->loop_style == LED_LOOP_REKORDBOX, "rekordbox loop LEDs");
                CHECK(n->mode_banks == 1 && n->n_mode[0] == 27 && n->n_mode[1] == 109 &&

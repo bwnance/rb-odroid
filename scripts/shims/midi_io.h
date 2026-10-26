@@ -54,6 +54,9 @@ int midi_cc(int midi_ch, int cc, int val);
  * channel faders at zero, so a surface that cannot answer leaves rbp silent
  * until something seeds them -- see rbp_vu.c's vu_thread. */
 int led_query_absolute(void);
+/* When the surface's own query last went out (shim_now_ms), 0 = never: the answer
+ * is a burst of state REPORTS that a map can tell from presses by this. */
+unsigned long long midi_query_at_ms(void);
 
 /* 1 when the selected surface answers a position query of its own over the
  * sequencer (the FLX10): rbp_vu.c then never seeds the faders, even on a tick

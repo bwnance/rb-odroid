@@ -2368,14 +2368,35 @@ static void flx10_note(int ch, int note, int on)
      }
 
      if (ch == CH_FX) {
-          /* ON/OFF: a press and a release BACK TO BACK, on the button's press. rbp
-           * takes a held key as momentary -- watched on the unit 2026-10-26: the
-           * effect came on at the press (type 14, on) and went off 0.2 s later at
-           * the release -- and a tap as a toggle, which is what the touch panel's
-           * button sends (pointsrc.c) and what this button means. */
+          /* ON/OFF: rbp's BFX key DOWN on one push and UP on the next.
+           * uif::MixerSkeleton::onKeyEvent @0x2c9f0c hands the BFX key to
+           * MasterInnards::onEv_BeatEffectEnable as 2 = toggle for a press AND for
+           * a release, so the button's own press/release turned the effect on and
+           * straight off again (watched on the unit 2026-10-26: on at the press,
+           * off 0.2 s later), and a down+up pair is no change at all; an OP_VALUE
+           * of 2, which that same code would take, never reaches it for this key
+           * (also watched). In MIDI mode the FLX10 behaved as a latching switch --
+           * one message on, the other off -- which is why it worked before the
+           * HID connect sequence; this rebuilds that: one edge, one toggle. */
           if (note == N_FX_ONOFF) {
-               if (on)
-                    pulse(K_BFX, CH_GLOBAL);
+               static int fx_key_down;
+               static unsigned long long fx_last_ms;
+               unsigned long long now = shim_now_ms();
+               if (on && fx_last_ms && now - fx_last_ms < 300)
+                    return;                    /* one push, however it bounces */
+               /* ...and not a push at all inside the unit's answer to the
+                * controls query, which REPORTS the button (94 46 7f) -- every 2 s
+                * for rbp_vu.c's first 30 s, and each one toggled the effect
+                * (MIDI dump on the unit, 2026-10-26) */
+               if (on && midi_query_at_ms() && now - midi_query_at_ms() < 300)
+                    return;
+               if (on) {
+                    fx_last_ms = now ? now : 1;
+                    send_rx_key(K_BFX, fx_key_down ? OP_RELEASE : OP_PRESS, CH_GLOBAL, 0);
+                    fx_key_down = !fx_key_down;
+                    klog("knobshim2: flx10 Beat FX ON/OFF -> toggle (key %s)\n",
+                         fx_key_down ? "down" : "up");
+               }
                return;
           }
           if (note >= N_FX_SEL_FIRST && note <= N_FX_SEL_LAST) {
@@ -3427,15 +3448,12 @@ static const struct led_notes flx10_leds = {
      .master_ch_first = -1,        /* master CUE: no LED answered */
      .master_ch_count = 0,
      .n_master_cue = -1,
-     .fx_ch = CH_FX,               /* Beat FX ON/OFF, on its own note (rekordbox's
-                                    * capture); the SCFX buttons answered no LED */
-     .n_fx = {
-          [LED_FX_BFX_ONOFF]   = N_FX_ONOFF,
-          [LED_FX_CFX_FILTER]  = -1,
-          [LED_FX_CFX_DUBECHO] = -1,
-          [LED_FX_CFX_NOISE]   = -1,
-          [LED_FX_CFX_SWEEP]   = -1,
-     },
+     /* NO Beat FX ON/OFF LED, though rekordbox lights it on note 70: the FLX10
+      * hands every 94 46 sent to it straight back as a press -- the bridge's
+      * resend every 2 s and the active-effect blink arrived as presses and
+      * toggled the effect on and off (MIDI dump on the unit, 2026-10-26). */
+     .fx_ch = -1,
+     .n_fx = { -1, -1, -1, -1, -1 },
      .meter_ch_first = 0,
      .n_meter_cc = 2,
      .meter_enc = METER_ENC_FLX4_LEVEL,
