@@ -9,7 +9,14 @@
  * byte for byte, both decks, against what this file builds from the same
  * tracks on the export stick (2026-10-26). In rekordbox's order:
  *   0x30  empty (all zero), as a load starts
- *   0x30  track length: minutes, seconds, ms (LE16)
+ *   0x30  track length: minutes, seconds, ms (LE16), then the hot cues:
+ *         8 slots (A..H) of 6 bytes -- type (1 cue, 2 loop), colour, the IN
+ *         point as minutes, seconds, ms (LE16) -- all zero when empty. From
+ *         the EXT's PCO2 (the DAT's PCOB without one). The colour is the
+ *         cue's palette code; a cue with none (code 0, rekordbox's default
+ *         colour) goes out 0x16 (a cue) / 0x24 (a loop), as rekordbox sent
+ *         them (capture_hotcues: a track with 4 cues and 2 loops, every
+ *         entry checked against the stick, 2026-10-26)
  *   0x2d  the length again, then 0a 00 and ten 5-byte entries -- the cue
  *         list, by the look of it; sent as rekordbox sent it for tracks with
  *         no cues ("9e 2f 27 01 00" each), the format of a real cue unknown
@@ -60,6 +67,7 @@ struct flx10_media {
 struct flx10_media_src {
      const unsigned char *ex2;  size_t ex2_len;   /* ANLZ0000.2EX */
      const unsigned char *dat;  size_t dat_len;   /* ANLZ0000.DAT */
+     const unsigned char *ext;  size_t ext_len;   /* ANLZ0000.EXT */
      const unsigned char *art;  size_t art_len;   /* aID.jpg */
      const unsigned char *artm; size_t artm_len;  /* aID_m.jpg */
      int total_ms;
@@ -71,6 +79,10 @@ struct flx10_media_src {
  * Returns 0, or -1 when out of memory. */
 int flx10_media_from_src(const struct flx10_media_src *src, struct flx10_media *m);
 void flx10_media_free(struct flx10_media *m);
+
+/* A cue list on its own, for a cue set or deleted on the unit: the 0x30
+ * payload (52 bytes) and a 0x3e after it, as after a load. 0 or -1 (memory). */
+int flx10_media_cue_update(const unsigned char pay[52], struct flx10_media *m);
 
 /* Reads a loaded track's files and builds its payloads. `track_path` is the
  * audio file as rbp has it (/media/usb1/sda1/Contents/...); the export is
@@ -86,6 +98,15 @@ int flx10_media_load(const char *track_path, int total_ms, struct flx10_media *m
  * rekordbox_pdb.ksy; strings are converted to UTF-8. */
 int flx10_pdb_find(const unsigned char *pdb, size_t n, const char *rel,
                    char *art, size_t art_n, char *anlz, size_t anlz_n);
+
+/* The 0x30 payload: the length, then the 8 hot cue slots (52 bytes). */
+void flx10_cue_payload(const struct flx10_media_src *src, unsigned char out[52]);
+
+/* One slot of it: type 1 cue / 2 loop, the colour code (0 = rekordbox's
+ * default for the type, 0x16 / 0x24), the IN point in ms. */
+#define FLX10_CUE_DEFAULT_COLOUR  0x16
+#define FLX10_LOOP_DEFAULT_COLOUR 0x24
+void flx10_cue_slot(unsigned char e[6], int type, int colour, unsigned ms);
 
 /* An ANLZ file's tagged section (e.g. "PWV7"): returns the offset of its body
  * and sets the header's offset and both lengths, or -1 when absent. */

@@ -311,6 +311,7 @@ static struct {
 } bulk[2];
 static pthread_mutex_t media_lock = PTHREAD_MUTEX_INITIALIZER;
 static int (*path_reader)(int deck, char *buf, size_t n);
+static int (*cue_reader)(int deck, int in_ms[8], int loop[8], unsigned colour[8]);
 static int send_pkt(int fd, const unsigned char *p);
 
 static int moving(const struct flx10_hid_deck *s)
@@ -485,6 +486,12 @@ void flx10_hid_set_path_reader(int (*fn)(int deck, char *buf, size_t n))
      path_reader = fn;
 }
 
+void flx10_hid_set_cue_reader(int (*fn)(int deck, int in_ms[8], int loop[8],
+                                        unsigned colour[8]))
+{
+     cue_reader = fn;
+}
+
 /* Hands one deck's transfers to the sender (taking `m`), in place of any
  * still going out: a new track's data replaces the old one's at once. */
 static void media_set(int d, struct flx10_media *m)
@@ -534,8 +541,78 @@ static int bulk_send(int fd, int budget)
      return 1;
 }
 
+/* The hot cues a deck's jog was last sent (0x30's slots), and a different
+ * reading waiting to be seen twice. */
+static unsigned char cues_sent[2][48], cues_seen[2][48];
+static int cues_pending[2];
+
+/* Nothing of the deck's transfers still to go out. */
+static int bulk_idle(int d)
+{
+     int idle;
+     pthread_mutex_lock(&media_lock);
+     idle = bulk[d].item >= bulk[d].m.n;
+     pthread_mutex_unlock(&media_lock);
+     return idle;
+}
+
+/* rbp's hot cues against what the jog has: a cue set or deleted on the unit
+ * goes out as a new 0x30 (then 0x3e, as after a load), once the same reading
+ * has been seen on two polls -- not while a load's transfers are going out,
+ * and not for a reading caught half way through rbp's own update. A slot that
+ * keeps its type keeps the colour the jog has for it; a new one gets
+ * rekordbox's default for the type. */
+static void cue_watch(int d, int total)
+{
+     int in_ms[8], loop[8];
+     unsigned colour[8];
+     unsigned char now[48], pay[52];
+     struct flx10_media m;
+
+     if (!cue_reader || !bulk_idle(d) || !cue_reader(d, in_ms, loop, colour))
+          return;
+     memset(now, 0, sizeof now);
+     for (int k = 0; k < 8; k++) {
+          int type = loop[k] ? 2 : 1;
+          const unsigned char *was = cues_sent[d] + 6 * k;
+          if (in_ms[k] < 0)
+               continue;
+          flx10_cue_slot(now + 6 * k, type, was[0] == type ? was[1] : 0,
+                         (unsigned)in_ms[k]);
+     }
+     if (!memcmp(now, cues_sent[d], sizeof now)) {
+          cues_pending[d] = 0;
+          return;
+     }
+     if (!cues_pending[d] || memcmp(now, cues_seen[d], sizeof now)) {
+          memcpy(cues_seen[d], now, sizeof now);
+          cues_pending[d] = 1;
+          return;
+     }
+     cues_pending[d] = 0;
+     {
+          char line[400];
+          int w = 0;
+          for (int k = 0; k < 8 && w < (int)sizeof line - 40; k++)
+               w += snprintf(line + w, sizeof line - w, " %c:%d%s/%06x", 'A' + k,
+                             in_ms[k], loop[k] ? "L" : "", colour[k] >> 8);
+          klog("knobshim2: FLX10 HID: deck%d hot cues changed on the unit;%s\n",
+               d + 1, line);
+     }
+     pay[0] = (unsigned char)(total / 60000 > 255 ? 255 : total / 60000);
+     pay[1] = (unsigned char)(total / 1000 % 60);
+     pay[2] = (unsigned char)(total % 1000 & 0xff);
+     pay[3] = (unsigned char)(total % 1000 >> 8);
+     memcpy(pay + 4, now, sizeof now);
+     memset(&m, 0, sizeof m);
+     if (flx10_media_cue_update(pay, &m) == 0) {
+          memcpy(cues_sent[d], now, sizeof now);
+          media_set(d, &m);
+     }
+}
+
 /* Watches what each deck has loaded and builds its transfers when it
- * changes. The file reads happen here, off the 100 Hz sender. */
+ * changes, and its hot cues. The file reads happen here, off the sender. */
 static void *media_thread(void *arg)
 {
      static char last[2][1024], cur[1024];
@@ -557,7 +634,11 @@ static void *media_thread(void *arg)
                     last[d][0] = 0;
                     continue;
                }
-               if (total <= 0 || !strcmp(cur, last[d]))
+               if (total > 0 && !strcmp(cur, last[d])) {
+                    cue_watch(d, total);
+                    continue;
+               }
+               if (total <= 0)
                     continue;                  /* (no length from rbp yet) */
                snprintf(last[d], sizeof last[d], "%s", cur);
                if (flx10_media_load(cur, total, &m) == 0) {
@@ -575,6 +656,11 @@ static void *media_thread(void *arg)
                     if (flx10_media_from_src(&none, &m))
                          continue;
                }
+               /* the cue list just built is what the jog will have */
+               for (int i = 0; i < m.n; i++)
+                    if (m.it[i].type == 0x30 && m.it[i].len == 52)
+                         memcpy(cues_sent[d], m.it[i].data + 4, sizeof cues_sent[d]);
+               cues_pending[d] = 0;
                media_set(d, &m);
           }
      }

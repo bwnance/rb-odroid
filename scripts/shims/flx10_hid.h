@@ -111,6 +111,14 @@ void flx10_hid_set_pos_reader(int (*fn)(int deck, int *pos_ms, int *moving));
  * there is none. FLX10_MEDIA=0 turns that thread off. See flx10_media.h. */
 void flx10_hid_set_path_reader(int (*fn)(int deck, char *buf, size_t n));
 
+/* Where the artwork / waveform thread reads a deck's hot cues as rbp holds
+ * them (map_flx10.c sets it): 8 slots, in_ms -1 = empty, loop non-zero = a
+ * loop cue, colour = rbp's raw colour info. Returns 0 when it cannot read.
+ * A change -- a cue set or deleted on the unit -- goes out as a new cue list
+ * (flx10_media.h, 0x30). */
+void flx10_hid_set_cue_reader(int (*fn)(int deck, int in_ms[8], int loop[8],
+                                        unsigned colour[8]));
+
 /* Where the sender reads rbp's track-end warning phase (map_flx10.c sets it):
  * non-zero during the warning flash's "on" half. */
 void flx10_hid_set_caution_reader(int (*fn)(int deck));

@@ -809,6 +809,14 @@ static const signed char bfx_type_to_pos[15] = {
  * +0xe9c set until the slip end lands on the beat (endSlippingFromCallback
  * @0x79500 clears both). */
 #define PLAYER_REVERSE_ON_OFF 0xe9c
+/* A deck's hot cue slot (0..7 = A..H), as rbp's own screens read it --
+ * exported C functions over ui::StatWatcher's 52-byte slot records, (deck,
+ * slot): UiGetHotCueINtime @0xfd750 (+0x7c; -1 when the slot is empty),
+ * UiGetHotCueLoopFlg @0xfd7d0 (+0x7a non-zero = a loop) and
+ * UiGetHotCueColorInfo @0xfd808 (+0xa8..+0xaa as b0<<24 | b1<<16 | b2<<8). */
+#define UI_GET_HOTCUE_INTIME   0x000fd750
+#define UI_GET_HOTCUE_LOOPFLG  0x000fd7d0
+#define UI_GET_HOTCUE_COLORINF 0x000fd808
 /* djengine::DjEngineIF setters that ignore `this` (each reloads the PlayEngine
  * singleton itself, as ADDR_ENGINE_CLEAR_HOTCUE does), called (NULL, ch, ...) */
 #define DJE_SET_SLIPMODE   0x4ae10   /* setSlipMode(EnPlayerChannel, bool) */

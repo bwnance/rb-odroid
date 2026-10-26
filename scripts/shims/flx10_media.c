@@ -289,6 +289,89 @@ int flx10_pdb_find(const unsigned char *pdb, size_t n, const char *rel,
      return 0;
 }
 
+/* ---- hot cues ----------------------------------------------------------- */
+
+
+static void put_time(unsigned char *b, unsigned ms)
+{
+     unsigned m = ms / 60000;
+     b[0] = (unsigned char)(m > 255 ? 255 : m);
+     b[1] = (unsigned char)(ms / 1000 % 60);
+     b[2] = (unsigned char)(ms % 1000 & 0xff);
+     b[3] = (unsigned char)(ms % 1000 >> 8);
+}
+
+void flx10_cue_slot(unsigned char e[6], int type, int colour, unsigned ms)
+{
+     e[0] = (unsigned char)type;
+     e[1] = (unsigned char)(colour ? colour : type == 2 ?
+                            FLX10_LOOP_DEFAULT_COLOUR : FLX10_CUE_DEFAULT_COLOUR);
+     put_time(e + 2, ms);
+}
+
+/* The hot-cue list of an ANLZ file: the PCO2 (or PCOB) section whose header
+ * says type 1 (hot cues; type 0 is the memory cues). Fills slots 0..7. */
+static int cues_from(const unsigned char *d, size_t n, int ext, unsigned char slots[8][6])
+{
+     size_t o, hl, tl;
+     int found = 0;
+
+     if (!d || n < 12 || memcmp(d, "PMAI", 4))
+          return 0;
+     o = be32(d + 4);
+     while (o + 12 <= n) {
+          hl = be32(d + o + 4);
+          tl = be32(d + o + 8);
+          if (tl < 12 || hl < 12 || hl > tl || tl > n - o)
+               return found;
+          if (!memcmp(d + o, ext ? "PCO2" : "PCOB", 4) && hl >= 16 && be32(d + o + 12) == 1) {
+               size_t p = o + hl;
+               while (p + 12 <= o + tl) {
+                    size_t el = be32(d + p + 8);
+                    unsigned hc, type, ms, code = 0;
+                    if (el < 12 || el > o + tl - p)
+                         break;
+                    if (ext && el >= 44 && !memcmp(d + p, "PCP2", 4)) {
+                         size_t lc = be32(d + p + 40);
+                         hc = be32(d + p + 12);
+                         type = d[p + 16];
+                         ms = be32(d + p + 20);
+                         if (44 + lc < el)
+                              code = d[p + 44 + lc];
+                    } else if (!ext && el >= 40 && !memcmp(d + p, "PCPT", 4)) {
+                         hc = be32(d + p + 12);
+                         type = d[p + 28];
+                         ms = be32(d + p + 32);
+                    } else {
+                         p += el;
+                         continue;
+                    }
+                    if (hc >= 1 && hc <= 8 && (type == 1 || type == 2)) {
+                         flx10_cue_slot(slots[hc - 1], (int)type, (int)code, ms);
+                         found = 1;
+                    }
+                    p += el;
+               }
+          }
+          o += tl;
+     }
+     return found;
+}
+
+void flx10_cue_payload(const struct flx10_media_src *s, unsigned char out[52])
+{
+     unsigned char slots[8][6];
+
+     memset(out, 0, 52);
+     put_time(out, (unsigned)(s->total_ms > 0 ? s->total_ms : 0));
+     memset(slots, 0, sizeof slots);
+     if (!cues_from(s->ext, s->ext_len, 1, slots)) {
+          memset(slots, 0, sizeof slots);
+          cues_from(s->dat, s->dat_len, 0, slots);
+     }
+     memcpy(out + 4, slots, sizeof slots);
+}
+
 /* ---- payloads ------------------------------------------------------------- */
 
 static int add(struct flx10_media *m, int type, const unsigned char *hdr, size_t hl,
@@ -316,6 +399,16 @@ void flx10_media_free(struct flx10_media *m)
      memset(m, 0, sizeof *m);
 }
 
+int flx10_media_cue_update(const unsigned char pay[52], struct flx10_media *m)
+{
+     memset(m, 0, sizeof *m);
+     if (add(m, 0x30, pay, 52, NULL, 0) || add(m, 0x3e, NULL, 0, NULL, 0)) {
+          flx10_media_free(m);
+          return -1;
+     }
+     return 0;
+}
+
 int flx10_media_from_src(const struct flx10_media_src *s, struct flx10_media *m)
 {
      unsigned char h[4];
@@ -328,13 +421,17 @@ int flx10_media_from_src(const struct flx10_media_src *s, struct flx10_media *m)
      memset(h, 0, 4);
      if (add(m, 0x30, h, 4, NULL, 0))
           goto oom;
-     /* 0x30: the length, as the state packet's [15..18] */
+     /* 0x30: the length, as the state packet's [15..18], and the hot cues */
+     {
+          unsigned char c[52];
+          flx10_cue_payload(s, c);
+          if (add(m, 0x30, c, sizeof c, NULL, 0))
+               goto oom;
+     }
      h[0] = (unsigned char)(t / 60000 > 255 ? 255 : t / 60000);
      h[1] = (unsigned char)(t / 1000 % 60);
      h[2] = (unsigned char)(t % 1000 & 0xff);
      h[3] = (unsigned char)(t % 1000 >> 8);
-     if (add(m, 0x30, h, 4, NULL, 0))
-          goto oom;
 
      /* 0x2d: the length, then ten empty entries, as rekordbox sent them */
      {
@@ -496,7 +593,7 @@ int flx10_media_load(const char *track_path, int total_ms, struct flx10_media *m
      unsigned char *pdb = NULL;
      size_t pdb_len = 0, k;
      struct flx10_media_src src;
-     unsigned char *ex2 = NULL, *dat = NULL, *a = NULL, *am = NULL;
+     unsigned char *ex2 = NULL, *dat = NULL, *ext = NULL, *a = NULL, *am = NULL;
      int rc;
 
      memset(m, 0, sizeof *m);
@@ -529,6 +626,8 @@ int flx10_media_load(const char *track_path, int total_ms, struct flx10_media *m
           if ((dot = strrchr(p, '.')) != NULL && strlen(dot) == 4) {
                strcpy(dot, ".2EX");
                ex2 = slurp(p, &src.ex2_len);
+               strcpy(dot, ".EXT");
+               ext = slurp(p, &src.ext_len);
           }
      }
      if (art[0]) {
@@ -544,11 +643,13 @@ int flx10_media_load(const char *track_path, int total_ms, struct flx10_media *m
      }
      src.ex2 = ex2;
      src.dat = dat;
+     src.ext = ext;
      src.art = a;
      src.artm = am;
      rc = flx10_media_from_src(&src, m);
      free(ex2);
      free(dat);
+     free(ext);
      free(a);
      free(am);
      return rc;

@@ -1005,6 +1005,25 @@ __attribute__((weak)) int flx10_track_path(int deck, char *buf, size_t n)
      return 1;
 }
 
+/* A deck's 8 hot cue slots as rbp holds them now, for the jog screens' cue
+ * marks (flx10_hid.h): in_ms -1 = empty, loop 1 = a loop cue, colour = rbp's
+ * colour info, raw. Cues set or deleted on the unit show here at once, where
+ * the export's files keep the list the track was loaded with. WEAK for the
+ * host test. */
+__attribute__((weak)) int flx10_hot_cues(int deck, int in_ms[8], int loop[8], unsigned colour[8])
+{
+     void *pe = *(void **)PLAYENGINE_GLOBAL;
+
+     if (!pe || !((int (*)(void *, int))PE_ISLOADED)(pe, deck))
+          return 0;
+     for (unsigned k = 0; k < 8; k++) {
+          in_ms[k] = ((int (*)(int, unsigned))UI_GET_HOTCUE_INTIME)(deck, k);
+          loop[k] = ((int (*)(int, unsigned))UI_GET_HOTCUE_LOOPFLG)(deck, k) != 0;
+          colour[k] = ((unsigned (*)(int, unsigned))UI_GET_HOTCUE_COLORINF)(deck, k);
+     }
+     return 1;
+}
+
 /* rbp's time mode for the deck, flipped (elapsed <-> remaining): what the
  * RX3's TIME MODE shortcut sets, there being no touch screen or mouse here
  * (operator, 2026-10-25). The jog screen follows rbp's mode. WEAK for the
@@ -2554,6 +2573,7 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
                .tempo_x100 = flx10_shown_tempo(di), .range = di->tempo_range,
                .mt = di->mt, .sync = di->sync,
                .key_code = flx10_key_code(di->key),
+          flx10_hid_set_cue_reader(flx10_hot_cues);
                .cue_ms = di->loaded ? flx10_cue_ms(deck, di->total_ms) : -1,
                .looping = di->looping, .master = di->master,
                .jog_touch = flx10_jog_touched[deck],

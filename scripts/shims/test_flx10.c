@@ -80,6 +80,7 @@ static int timemode_n[2];
 void flx10_toggle_time_mode(int d) { timemode_n[d]++; }
 int flx10_pos_now(int d, int *pos, int *mov) { (void)d; *pos = 0; *mov = 0; return 0; }
 int flx10_track_path(int d, char *b, size_t n) { (void)d; if (n) b[0] = 0; return 0; }
+int flx10_hot_cues(int d, int *i, int *l, unsigned *c) { (void)d; (void)i; (void)l; (void)c; return 0; }
 int flx10_end_caution(int d) { (void)d; return 0; }
 static int loop_primes[2];
 void flx10_loop_prime(int d) { loop_primes[d]++; }
@@ -246,9 +247,9 @@ static void media_tests(void)
           CHECK(m.it[2].type == 0x2d && m.it[2].len == 56 && m.it[2].data[4] == 10 &&
                 m.it[2].data[6] == 0x9e && m.it[2].data[55] == 0 && m.it[5].type == 0x3e &&
                 m.it[5].len == 0 && m.it[11].type == 0x3e, "0x2d (no cues) and 0x3e, as rekordbox");
-          CHECK(m.it[1].type == 0x30 && m.it[1].len == 4 && m.it[1].data[0] == 3 &&
+          CHECK(m.it[1].type == 0x30 && m.it[1].len == 52 && m.it[1].data[0] == 3 &&
                 m.it[1].data[1] == 6 && m.it[1].data[2] == 0xe9 && m.it[1].data[3] == 1,
-                "0x30: 3:06.489 as 03 06 e9 01 (the capture's)");
+                "0x30: 3:06.489 as 03 06 e9 01 (the capture's), then the cue slots");
           CHECK(m.it[6].type == 0x2b && m.it[6].len == 7 && m.it[6].data[0] == 5 &&
                 m.it[6].data[1] == 0 && !memcmp(m.it[6].data + 2, jpg, 5), "0x2b: LE16 + JPEG");
           CHECK(m.it[7].type == 0x33 && m.it[7].len == 10 && m.it[7].data[0] == 7 &&
@@ -269,6 +270,70 @@ static void media_tests(void)
                 m.it[6].len == 2 && m.it[7].len == 3 && m.it[8].len == 3601 &&
                 m.it[9].len == 2 && m.it[10].len == 4,
                 "nothing found: empty artwork, a flat overview, no detail");
+          flx10_media_free(&m);
+     }
+
+     /* the hot cue slots in 0x30, from the EXT's PCO2 or the DAT's PCOB */
+     {
+          static unsigned char ext[1024], dat2[1024];
+          unsigned char sec[400], out[52];
+          struct flx10_media_src src;
+          size_t ne, nd2, k = 0;
+          /* PCO2 (type 1 = hot cues): cue A at 27 ms, default colour; loop C at
+           * 70.616 s, palette code 0x2a */
+          memset(sec, 0, sizeof sec);
+          be32w(sec, 1);                               /* list type: hot cues */
+          for (int e = 0; e < 2; e++) {
+               unsigned char *q = sec + 8 + 88 * e;
+               memcpy(q, "PCP2", 4); be32w(q + 4, 16); be32w(q + 8, 88);
+               be32w(q + 12, e ? 3 : 1);
+               q[16] = (unsigned char)(e ? 2 : 1);
+               be32w(q + 20, e ? 70616 : 27);
+               be32w(q + 40, 0);                       /* no comment */
+               q[44] = (unsigned char)(e ? 0x2a : 0);  /* palette code */
+          }
+          ne = anlz_start(ext);
+          ne = anlz_sec(ext, ne, "PCO2", 20, sec, 8, sec + 8, 176);
+          /* the DAT's PCOB: cue B at 42.380 s (used only without a PCO2) */
+          memset(sec, 0, sizeof sec);
+          be32w(sec, 1);
+          {
+               unsigned char *q = sec + 12;
+               memcpy(q, "PCPT", 4); be32w(q + 4, 28); be32w(q + 8, 56);
+               be32w(q + 12, 2); q[28] = 1; be32w(q + 32, 42380);
+          }
+          nd2 = anlz_start(dat2);
+          nd2 = anlz_sec(dat2, nd2, "PCOB", 24, sec, 12, sec + 12, 56);
+
+          memset(&src, 0, sizeof src);
+          src.ext = ext; src.ext_len = ne; src.dat = dat2; src.dat_len = nd2;
+          src.total_ms = 225960;
+          flx10_cue_payload(&src, out);
+          {
+               static const unsigned char want[52] = {
+                    0x03, 0x2d, 0xc0, 0x03,
+                    0x01, 0x16, 0x00, 0x00, 0x1b, 0x00,        /* A: cue, default green */
+                    0, 0, 0, 0, 0, 0,                          /* B: empty */
+                    0x02, 0x2a, 0x01, 0x0a, 0x68, 0x02 };      /* C: loop, its own colour */
+               for (k = 0; k < 52 && out[k] == want[k]; k++)
+                    ;
+          }
+          CHECK(k == 52, "0x30: length, then slots by hot cue number (differs at %d)", (int)k);
+          src.ext = NULL; src.ext_len = 0;
+          flx10_cue_payload(&src, out);
+          CHECK(out[4] == 0 && out[10] == 1 && out[11] == 0x16 && out[12] == 0 &&
+                out[13] == 0x2a && out[14] == 0x7c && out[15] == 1,
+                "no EXT: the DAT's PCOB (B at 0:42.380)");
+     }
+     /* a cue set on the unit: one slot, then the update transfers */
+     {
+          unsigned char e[6], pay[52] = { 0 };
+          struct flx10_media m;
+          flx10_cue_slot(e, 2, 0, 196934);
+          CHECK(e[0] == 2 && e[1] == 0x24 && e[2] == 3 && e[3] == 16 && e[4] == 0xa6 && e[5] == 3,
+                "a new loop cue: default orange, 3:16.934");
+          CHECK(flx10_media_cue_update(pay, &m) == 0 && m.n == 2 && m.it[0].type == 0x30 &&
+                m.it[0].len == 52 && m.it[1].type == 0x3e, "cue update: 0x30 then 0x3e");
           flx10_media_free(&m);
      }
 
