@@ -269,7 +269,22 @@ session; details further down):
    stretched block, crossfaded over 512 frames each way. Further apart is an
    echo and is left alone. Key shift, EQ, FX and faders stay per deck.
    RB_DOUBLES_LOCK=0 is off. The operator: "the swoosh is gone".
-10. **rx3-toolkit's other track-finding mods -- not ported, for the operator to
+10. **rbp's renderer, a third of what it was -- done** (2026-10-26). gui_task
+   (rbp's render loop) ran at ~82% of a core. No hardware draws here: rbp's
+   DirectFB has no gfxdriver at all (directfbrc: no-hardware), as on the RX3, and
+   the mainline kernel has no GE2D driver. Sampled, 302 of 500 samples were
+   DirectFB's generic two-stage blit of rbp's RGB565 colour-keyed images onto the
+   RGB32 layer (Sop_rgb16_Kto_Dacc, Sacc_to_Aop_rgb32): the RX3 draws 16 onto 16.
+   A 16-bpp trial (the depth pair at 16) cut rbp to 75% but broke the active deck
+   strip frame's right edge again (dotted, a pixel over, stray pixels) -- back to
+   32. blitfast.c (fbshim) detours the first stage: for exactly that pipeline,
+   forwards, it writes the 32-bit pixels straight to the layer, NEON, eight at a
+   time, and the second stage skips the span. Its first 2000 spans are checked
+   against DirectFB's own and it turns itself off on any difference ("2000 spans
+   matched DirectFB exactly -- trusted" in pointsrc.log). gui_task 82% -> 29%, rbp
+   104% -> 39% of a core; the renderer now mostly waits for vblank.
+   RB_BLIT_FAST=0 is off.
+11. **rx3-toolkit's other track-finding mods -- not ported, for the operator to
    decide** (2026-10-26). Key Match (yellow / orange / red key icons in BROWSE
    for Energy Boost +2, +7 and +4 matches to the MASTER, beside rbp's own
    green) and Browse Columns (a third BROWSE column -- BPM, key, artist or

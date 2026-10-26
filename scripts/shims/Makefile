@@ -387,7 +387,7 @@ FBSHIM_OBJS := fb_shim.o tscfake.o pointsrc.o point_xform.o touch_zone.o \
                deckbadge_zone.o deckbadge_paint.o deckbadge_plane.o bpmbox_zone.o \
                settings_zone.o settings_paint.o \
                controllers.o usb_devices.o \
-               vidmask.o g2d_sw.o utility_rows.o splash.o
+               vidmask.o g2d_sw.o utility_rows.o splash.o blitfast.o fbhook.o
 # controllers.o and usb_devices.o are here for ONE question the settings panel asks:
 # whether a recognised digital mixer is on the USB bus, which is what makes the MIXER
 # ROUTE row operable ("refuse the tap", settings_zone.h). It is the same pair audioshim.so
@@ -407,7 +407,7 @@ FBSHIM_HDRS := tscfake.h pointsrc.h point_xform.h touch_zone.h syscalls.h \
                fx_zone.h fx_paint.h hc_zone.h usb_label.h \
                fxpad_zone.h fxpad_paint.h pitch_state.h \
                settings_zone.h settings_paint.h controllers.h usb_devices.h \
-               g2d_sw.h settings_remote.h utility_rows.h splash.h
+               g2d_sw.h settings_remote.h utility_rows.h splash.h blitfast.h rbp_hook.h
 
 fbshim.so: $(FBSHIM_OBJS) rbp_key.o fader_state.o rbp_transport.o pitch_state.o \
            keylog.o keylog_state.o $(FBSHIM_HDRS) rbp_transport.h pitch_state.h \
@@ -416,6 +416,14 @@ fbshim.so: $(FBSHIM_OBJS) rbp_key.o fader_state.o rbp_transport.o pitch_state.o 
 	$(CC) $(CFLAGS) -shared -o $@ $(FBSHIM_OBJS) rbp_key.o fader_state.o \
 	    rbp_transport.o pitch_state.o keylog.o keylog_state.o -lpthread -lm -lc \
 	    $(LDFLAGS)
+
+# blitfast.c fuses DirectFB's RGB16-keyed -> RGB32 blit on rbp's render thread:
+# NEON, softfp so the calls in and out of DirectFB keep its soft-float convention.
+blitfast.o: CFLAGS += -march=armv7-a -mfpu=neon -mfloat-abi=softfp
+# rbp_hook.c's detour, fbshim's own copy (knobshim's is in CTRL_OBJS), hidden like
+# rbp_key.o so neither library offers the name to the other.
+fbhook.o: rbp_hook.c rbp_hook.h
+	$(CC) $(CFLAGS) -fvisibility=hidden -c -o $@ $<
 
 fb_shim.o: fb_shim.c pointsrc.h $(FBSHIM_HDRS)
 tscfake.o: tscfake.c tscfake.h pointsrc.h
@@ -662,7 +670,7 @@ TESTS := test_point test_g2d test_audio test_midi test_flx4 test_flx10 test_kbd 
          test_led_table test_plinn_scan test_controllers test_usblabel test_netalias \
          test_pitch test_keylog test_padmode test_deckbadge test_bpmbox \
          test_settings test_utility test_splash test_searchfold test_keydisp \
-         test_doublelock
+         test_doublelock test_blitfast
 
 # test_g2d links the PRODUCTION g2d_sw.c: the rescale rbp's artwork goes
 # through, and the calls as DecodeScalingJpeg makes them (g2d_sw.h).
@@ -674,6 +682,12 @@ test_g2d: test_g2d.c g2d_sw.c g2d_sw.h
 test_keydisp: test_keydisp.c keydisp.c keydisp.h
 	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
 	    -Wall -Wextra -static -o $@ test_keydisp.c keydisp.c
+
+# test_blitfast links the PRODUCTION blitfast.c, NEON as it ships: the fused blit
+# against DirectFB's two stages, as read off their code.
+test_blitfast: test_blitfast.c blitfast.c blitfast.h
+	$(CC) -O2 -march=armv7-a -mfpu=neon -mfloat-abi=softfp -fno-stack-protector \
+	    -Wall -Wextra -static -o $@ test_blitfast.c blitfast.c
 
 # test_doublelock links the PRODUCTION doublelock.c: who plays whose stretched block.
 test_doublelock: test_doublelock.c doublelock.c doublelock.h
