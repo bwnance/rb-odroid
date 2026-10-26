@@ -32,9 +32,10 @@ struct ut_entry {
 
 #define UT_FN_SETLINE 1
 #define UT_FN_ENTER   5
+#define UT_FN_ISGREY  6
 
 /* The bigger table: the count, then the rows, exactly the shape of rbp's. */
-#define UT_ROWS_MAX 40
+#define UT_ROWS_MAX 48
 struct ut_table {
     uint32_t count;
     struct ut_entry rows[UT_ROWS_MAX];
@@ -53,6 +54,13 @@ int ut_build(struct ut_table *dst, const struct ut_entry *src, int n, int after,
  * is OFF and 1 ON, the order of the value strings it borrows. */
 int ut_mirror_setline(struct ut_entry *e, unsigned char **lines);
 int ut_mirror_enter(struct ut_entry *e);
+
+/* The DJM and VNC rows (RB_SETTINGS_DJM / RB_SETTINGS_VNC), by the panel's row number
+ * (settings_zone.h's ST_ROW_*): the value index the unit is on, and the word choosing
+ * index `v` writes (NULL: refused). Pure, for the test. */
+struct settings_state;
+int ut_row_current(int st_row, const struct settings_state *S);
+const char *ut_row_word(int st_row, int v, const struct settings_state *S, char *out, int max);
 
 /* Build the table and point rbp at it, in rbp only and only if every word it is
  * about to change still holds what it was measured to hold. 0 = done. */

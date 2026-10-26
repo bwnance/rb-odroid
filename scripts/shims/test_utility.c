@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include "utility_rows.h"
+#include "settings_zone.h"
 
 static int checks, failures;
 #define CHECK(cond, ...) do { checks++; if (!(cond)) { failures++;           \
@@ -18,6 +19,9 @@ static int checks, failures;
 /* what utility_rows.c needs from the rest of fbshim.so */
 int is_rbp_process(void) { return 0; }
 void pointsrc_log(const char *fmt, ...) { (void)fmt; }
+void pointsrc_settings_state(struct settings_state *S) { (void)S; }
+int pointsrc_settings_write(int row, const char *word) { (void)row; (void)word; return 0; }
+const char *settings_row_label(int row) { (void)row; return "row"; }
 
 static const uint16_t w_off[] = { 'O', 'F', 'F', 0 }, w_on[] = { 'O', 'N', 0 };
 static const uint16_t *const offon[2] = { w_off, w_on };
@@ -123,6 +127,44 @@ int main(void)
         e.edit = 2;
         CHECK(ut_mirror_enter(&e) == 0 && file_is(path, "off\n"), "a value past the list: refused");
         unlink(path);
+    }
+
+    /* the DJM and VNC rows: where the unit is, and what a choice writes */
+    {
+        struct settings_state S;
+        char buf[48];
+        const char *w;
+
+        memset(&S, 0, sizeof S);
+        CHECK(ut_row_current(ST_ROW_MIXER, &S) == 0 &&
+              ut_row_word(ST_ROW_MIXER, 1, &S, buf, sizeof buf) == NULL,
+              "no mixer: INTERNAL, and EXTERNAL refused");
+        S.mixer_present = 1;
+        S.mixer_external = 1;
+        CHECK(ut_row_current(ST_ROW_MIXER, &S) == 1 &&
+              !strcmp(ut_row_word(ST_ROW_MIXER, 0, &S, buf, sizeof buf), "internal"),
+              "a mixer, external: EXTERNAL, and INTERNAL writes internal");
+        S.share_on = 1;
+        S.encode_hw = 0;
+        CHECK(ut_row_current(ST_ROW_SHARE, &S) == 1 && ut_row_current(ST_ROW_ENCODE, &S) == 0 &&
+              !strcmp(ut_row_word(ST_ROW_ENCODE, 1, &S, buf, sizeof buf), "hwjpeg") &&
+              !strcmp(ut_row_word(ST_ROW_POINTER, 0, &S, buf, sizeof buf), "off"),
+              "the viewer rows read and write their words");
+        /* decks: unread state is the shim's default, 2-3 and 4-5 */
+        CHECK(ut_row_current(ST_ROW_DECK1, &S) == 1 && ut_row_current(ST_ROW_DECK2, &S) == 2,
+              "unread decks sit on 2-3 and 4-5");
+        w = ut_row_word(ST_ROW_DECK1, 3, &S, buf, sizeof buf);
+        CHECK(w && !strcmp(w, "deck1=6,7;deck2=4,5"), "DECK 1 to 6-7 names both decks (%s)",
+              w ? w : "NULL");
+        CHECK(ut_row_word(ST_ROW_DECK1, 2, &S, buf, sizeof buf) == NULL,
+              "DECK 1 onto DECK 2's pair is refused");
+        S.audio_channels = 4;
+        CHECK(ut_row_word(ST_ROW_DECK2, 3, &S, buf, sizeof buf) == NULL &&
+              ut_row_word(ST_ROW_DECK2, 0, &S, buf, sizeof buf) != NULL,
+              "a 4-channel card offers no 6-7");
+        S.deck_a[0] = 8;
+        S.deck_b[0] = 9;
+        CHECK(ut_row_current(ST_ROW_DECK1, &S) == -1, "a pair not on the list reads as none");
     }
 
     printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);

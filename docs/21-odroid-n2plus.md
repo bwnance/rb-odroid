@@ -251,6 +251,14 @@ Done and confirmed 2026-10-26 (rbp's UTILITY menu):
   short press is still SHORTCUT. The drawn settings panel is no longer raised
   from the controller.
 - The FX screen calls TRANS "TRANNY" (the operator's own flavour).
+- With RB_SETTINGS_DJM=1 / RB_SETTINGS_VNC=1, UTILITY also has a DJM section
+  (MIXER ROUTE, DECK 1 PAIR, DECK 2 PAIR) and a VNC section (SHARE, ENCODE,
+  POINTER INJECT) after HDMI AUDIO, each a blank row and a heading (rbp's own
+  Util_SetLine_Blank / Util_SetLine_MixerCategory) like rbp's sections. The
+  rows read the drawn panel's state and write its switch files
+  (pointsrc_settings_state / pointsrc_settings_write); MIXER ROUTE greys with
+  no mixer on the bus, and a deck refuses the other deck's pair. Read back from
+  rbp's live table on the unit; not yet seen on the glass.
 How the rows work, for the next row:
 - The rows are `stUtilityObjects` @0x5140bc in .data, 33 entries of 56
   bytes, with their count `ulUtilityItemNum` @0x5140b8 just before them

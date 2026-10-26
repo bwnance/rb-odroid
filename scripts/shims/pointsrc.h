@@ -52,6 +52,10 @@ void pointsrc_log(const char *fmt, ...);
  * A NULL S is legal and does nothing, so a caller cannot fault here by accident. */
 void pointsrc_settings_state(struct settings_state *S);
 
+/* Write `word` to settings row `row`'s switch file (the panel's own path for that row, and
+ * the same write), for rbp's UTILITY rows (utility_rows.c). 0 if the row has a file. */
+int pointsrc_settings_write(int row, const char *word);
+
 
 /* Is rbp on the PERFORMANCE screen -- the one it draws the deck badges and the pads on?
  *

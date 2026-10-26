@@ -1235,6 +1235,17 @@ void pointsrc_settings_state(struct settings_state *S)
         settings_state_fill(S);
 }
 
+int pointsrc_settings_write(int row, const char *word)
+{
+    const char *path = settings_row_path(row);
+
+    if (!path || !word)
+        return -1;
+    switch_word_write(path, word);
+    pointsrc_log("utility: '%s' -> %s (wrote %s)", settings_row_label(row), word, path);
+    return 0;
+}
+
 /* WHY A ROW REFUSED, in the row's own words -- the log line for a tap on a dim value,
  * which is otherwise total silence: settings_zone.c answers nothing there, so without this
  * nothing would say a tap had even happened. */

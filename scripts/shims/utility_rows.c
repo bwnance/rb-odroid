@@ -14,6 +14,7 @@
 #include "envutil.h"
 #include "pointsrc.h"      /* pointsrc_log() */
 #include "rbp_key.h"       /* is_rbp_process() */
+#include "settings_zone.h" /* ST_ROW_*, struct settings_state: the panel's rows and state */
 
 /* ---- rbp's side, measured on the RX3 binary 2026-10-26 (docs/21) ---------- */
 #define UT_RBP_COUNT     0x005140b8u      /* ulUtilityItemNum, the rows after it */
@@ -35,6 +36,10 @@ static const uint32_t ut_lit_rows = 0x0013d9e4;
 #define UT_ROW_MIXERMODE    23            /* ours go after it, at the MIXER section's end */
 #define UT_STRSET_OFF_ON    0x00513db8u   /* SLIP FLASHING's values: OFF, ON */
 #define UTIL_SETLINE_MIXERMODE 0x0013b118u /* checked, not called */
+#define UT_ROW_MIXERCAT     15            /* MIXER: its heading row, copied for ours */
+#define UT_ROW_BLANK        24            /* the blank row before GENERAL, copied */
+#define UTIL_SETLINE_MIXERCATEGORY 0x0013aae8u
+#define UTIL_SETLINE_BLANK  0x0013a9b4u
 
 #define MIRROR_FILE_DEFAULT "/run/rblive4/mirror.mode"
 #define UT_LINE_LEN   32                  /* +32 the length, +34 the text */
@@ -142,6 +147,200 @@ int ut_mirror_enter(struct ut_entry *e)
     return 1;
 }
 
+/* ---- the DJM and VNC sections ----------------------------------------------
+ * The shim's drawn panel had MIXER ROUTE and the two DECK PAIR rows (an external
+ * digital mixer, a DJM) and SHARE / ENCODE / POINTER INJECT (the screen viewer),
+ * each group behind its own config value; in UTILITY they are two sections of
+ * their own, each a blank row, a heading and its rows (operator, 2026-10-26), and
+ * still only with RB_SETTINGS_DJM=1 / RB_SETTINGS_VNC=1. A UTILITY row CHOOSES a
+ * value from a list where the panel's row cycled to the next, so each row here is
+ * its list, the index the unit is on now (the panel's own state,
+ * pointsrc_settings_state()) and the word a choice writes (the panel's own file,
+ * pointsrc_settings_write()). */
+#define W(...) ((const uint16_t[]){ __VA_ARGS__, 0 })
+static const uint16_t *const v_mixer[]   = { W('I','N','T','E','R','N','A','L'),
+                                             W('E','X','T','E','R','N','A','L') };
+static const uint16_t *const v_offon[]   = { W('O','F','F'), W('O','N') };
+static const uint16_t *const v_encode[]  = { W('R','A','W'), W('H','W','J','P','E','G') };
+static const uint16_t *const v_pairs[]   = { W('0','-','1'), W('2','-','3'), W('4','-','5'),
+                                             W('6','-','7') };
+static const int pair_a[4] = { 0, 2, 4, 6 };
+
+#define SP6 ' ', ' ', ' ', ' ', ' ', ' '
+static const uint16_t l_djm[]     = { 'D', 'J', 'M', 0 };
+static const uint16_t l_vnc[]     = { 'V', 'N', 'C', 0 };
+static const uint16_t l_route[]   = { SP6, 'M','I','X','E','R',' ','R','O','U','T','E', 0 };
+static const uint16_t l_deck1[]   = { SP6, 'D','E','C','K',' ','1',' ','P','A','I','R', 0 };
+static const uint16_t l_deck2[]   = { SP6, 'D','E','C','K',' ','2',' ','P','A','I','R', 0 };
+static const uint16_t l_share[]   = { SP6, 'S','H','A','R','E', 0 };
+static const uint16_t l_encode[]  = { SP6, 'E','N','C','O','D','E', 0 };
+static const uint16_t l_pointer[] = { SP6, 'P','O','I','N','T','E','R',' ','I','N','J','E','C','T', 0 };
+
+struct ut_def {
+    const uint16_t *label;
+    int st_row;                          /* the panel's row number (settings_zone.h) */
+    const uint16_t *const *values;
+    int nvalues;
+};
+static const struct ut_def ut_defs[] = {
+    { l_route,   ST_ROW_MIXER,   v_mixer,  2 },
+    { l_deck1,   ST_ROW_DECK1,   v_pairs,  4 },
+    { l_deck2,   ST_ROW_DECK2,   v_pairs,  4 },
+    { l_share,   ST_ROW_SHARE,   v_offon,  2 },
+    { l_encode,  ST_ROW_ENCODE,  v_encode, 2 },
+    { l_pointer, ST_ROW_POINTER, v_offon,  2 },
+};
+
+static const struct ut_def *ut_def_of(const struct ut_entry *e)
+{
+    for (unsigned i = 0; i < sizeof ut_defs / sizeof ut_defs[0]; i++)
+        if (ut_defs[i].label == e->label)
+            return &ut_defs[i];
+    return NULL;
+}
+
+/* The pair deck `slot` is on, the shim's own default for a state not read (the panel's
+ * deck_pair_of(), settings_zone.c). */
+static void ut_deck_pair(const struct settings_state *S, int slot, int *a, int *b)
+{
+    *a = S->deck_a[slot];
+    *b = S->deck_b[slot];
+    if (*a == 0 && *b == 0) {
+        *a = slot ? 4 : 2;
+        *b = slot ? 5 : 3;
+    }
+}
+
+/* The value index the unit is on now, -1 for a deck on a pair the list does not hold. */
+int ut_row_current(int st_row, const struct settings_state *S)
+{
+    int a, b;
+
+    switch (st_row) {
+    case ST_ROW_MIXER:   return S->mixer_present && S->mixer_external ? 1 : 0;
+    case ST_ROW_SHARE:   return S->share_on ? 1 : 0;
+    case ST_ROW_ENCODE:  return S->encode_hw ? 1 : 0;
+    case ST_ROW_POINTER: return S->pointer_on ? 1 : 0;
+    case ST_ROW_DECK1:
+    case ST_ROW_DECK2:
+        ut_deck_pair(S, st_row == ST_ROW_DECK2, &a, &b);
+        for (int i = 0; i < 4; i++)
+            if (pair_a[i] == a && b == a + 1)
+                return i;
+        return -1;
+    }
+    return -1;
+}
+
+/* The word choosing index `v` writes, into `out`; NULL when the choice is refused -- the
+ * mixer route with no mixer on the bus (the panel's "refuse the tap"), a pair past the
+ * card's width, or the pair the other deck is on (the panel's rule: two decks on one pair
+ * would sum them). A deck word names both decks, as the panel's does (settings_zone.c's
+ * deck_pair_next: the live map is authoritative for what it names). */
+const char *ut_row_word(int st_row, int v, const struct settings_state *S, char *out, int max)
+{
+    int slot, oa, ob;
+
+    switch (st_row) {
+    case ST_ROW_MIXER:
+        if (!S->mixer_present)
+            return NULL;
+        return v ? "external" : "internal";
+    case ST_ROW_SHARE:   return v ? "on" : "off";
+    case ST_ROW_ENCODE:  return v ? "hwjpeg" : "raw";
+    case ST_ROW_POINTER: return v ? "on" : "off";
+    case ST_ROW_DECK1:
+    case ST_ROW_DECK2:
+        slot = st_row == ST_ROW_DECK2;
+        if (v < 0 || v > 3)
+            return NULL;
+        if (S->audio_channels > 0 && pair_a[v] + 1 >= S->audio_channels)
+            return NULL;
+        ut_deck_pair(S, !slot, &oa, &ob);
+        if (oa == pair_a[v] && ob == pair_a[v] + 1)
+            return NULL;
+        snprintf(out, (size_t)max, "deck%d=%d,%d;deck%d=%d,%d", slot + 1, pair_a[v],
+                 pair_a[v] + 1, !slot + 1, oa, ob);
+        return out;
+    }
+    return NULL;
+}
+
+static int ut_gen_setline(struct ut_entry *e, unsigned char **lines)
+{
+    const struct ut_def *d = ut_def_of(e);
+    struct settings_state S;
+    int idx = e->edit;
+
+    line_put(lines[0], e->label);
+    if (d && idx == -1) {
+        memset(&S, 0, sizeof S);
+        pointsrc_settings_state(&S);
+        idx = ut_row_current(d->st_row, &S);
+        e->cur = idx;
+    }
+    line_put(lines[1], d && idx >= 0 && idx < d->nvalues ? d->values[idx] : 0);
+    return 0;
+}
+
+static int ut_gen_enter(struct ut_entry *e)
+{
+    const struct ut_def *d = ut_def_of(e);
+    struct settings_state S;
+    const char *word;
+    char buf[48];
+    int v = e->edit;
+
+    if (!d || (e->nvalues & 0xffff) <= (uint32_t)(uint16_t)v || v == e->cur)
+        return 0;
+    memset(&S, 0, sizeof S);
+    pointsrc_settings_state(&S);
+    word = ut_row_word(d->st_row, v, &S, buf, sizeof buf);
+    if (!word || pointsrc_settings_write(d->st_row, word) != 0) {
+        pointsrc_log("utility: '%s' -> value %d refused", settings_row_label(d->st_row), v);
+        return 0;
+    }
+    e->cur = v;
+    return 1;
+}
+
+/* Grey: the mixer route with no recognised mixer on the bus, as the panel dims it. */
+static int ut_gen_isgrey(struct ut_entry *e)
+{
+    const struct ut_def *d = ut_def_of(e);
+    struct settings_state S;
+
+    if (!d || d->st_row != ST_ROW_MIXER)
+        return 0;
+    memset(&S, 0, sizeof S);
+    pointsrc_settings_state(&S);
+    return !S.mixer_present;
+}
+
+/* A section: rbp's blank row, MIXER's heading with our label, then the rows of `defs`.
+ * Answers how many entries it wrote. */
+static int ut_section(struct ut_entry *out, const struct ut_entry *src, const uint16_t *heading,
+                      const struct ut_def *defs, int n, const struct ut_entry *model)
+{
+    int k = 0;
+
+    out[k++] = src[UT_ROW_BLANK];
+    out[k] = src[UT_ROW_MIXERCAT];
+    out[k++].label = heading;
+    for (int i = 0; i < n; i++) {
+        out[k] = *model;
+        out[k].label = defs[i].label;
+        out[k].values = defs[i].values;
+        out[k].nvalues = (uint32_t)defs[i].nvalues;
+        out[k].fn[UT_FN_SETLINE] = (uint32_t)(uintptr_t)ut_gen_setline;
+        out[k].fn[UT_FN_ENTER] = (uint32_t)(uintptr_t)ut_gen_enter;
+        if (defs[i].st_row == ST_ROW_MIXER)
+            out[k].fn[UT_FN_ISGREY] = (uint32_t)(uintptr_t)ut_gen_isgrey;
+        k++;
+    }
+    return k;
+}
+
 /* Is rbp's own text mapped where it was measured? rbp runs under ld-linux.so.3,
  * so /proc/self/exe is the loader; the maps line for the binary is the check,
  * and it is what makes the reads below safe in any process that gets here. */
@@ -182,8 +381,8 @@ int utility_rows_install(void)
 {
     const struct ut_entry *src = (const struct ut_entry *)(uintptr_t)UT_RBP_ROWS;
     const struct ut_entry *slip;
-    struct ut_entry ours;
-    int i, n;
+    struct ut_entry ours[1 + 2 * 5];
+    int i, n, k;
 
     if (!is_rbp_process() || !rbp_text_mapped())
         return -1;
@@ -201,26 +400,33 @@ int utility_rows_install(void)
         slip->fn[3] != UTIL_SELMENU || slip->fn[4] != UTIL_ISMODIFIED ||
         slip->fn[6] != UTIL_ISGREY || slip->fn[7] != UTIL_RESET ||
         (uintptr_t)slip->values != UT_STRSET_OFF_ON || slip->nvalues != 2 ||
-        src[UT_ROW_MIXERMODE].fn[UT_FN_SETLINE] != UTIL_SETLINE_MIXERMODE)
+        src[UT_ROW_MIXERMODE].fn[UT_FN_SETLINE] != UTIL_SETLINE_MIXERMODE ||
+        src[UT_ROW_MIXERCAT].fn[UT_FN_SETLINE] != UTIL_SETLINE_MIXERCATEGORY ||
+        src[UT_ROW_BLANK].fn[UT_FN_SETLINE] != UTIL_SETLINE_BLANK)
         goto refuse;
 
-    memset(&ours, 0, sizeof ours);
-    ours.label = ut_label_mirror;
-    ours.values = slip->values;
-    ours.nvalues = 2;
-    ours.cur = -1;
-    ours.edit = -1;
-    ours.editable = 1;
-    ours.fn[0] = UTIL_INITITEM_DUMMY;
-    ours.fn[UT_FN_SETLINE] = (uint32_t)(uintptr_t)ut_mirror_setline;
-    ours.fn[2] = UTIL_STARTEDIT;
-    ours.fn[3] = UTIL_SELMENU;
-    ours.fn[4] = UTIL_ISMODIFIED;
-    ours.fn[UT_FN_ENTER] = (uint32_t)(uintptr_t)ut_mirror_enter;
-    ours.fn[6] = UTIL_ISGREY;
-    ours.fn[7] = UTIL_RESET;
+    memset(ours, 0, sizeof ours);
+    ours[0].label = ut_label_mirror;
+    ours[0].values = slip->values;
+    ours[0].nvalues = 2;
+    ours[0].cur = -1;
+    ours[0].edit = -1;
+    ours[0].editable = 1;
+    ours[0].fn[0] = UTIL_INITITEM_DUMMY;
+    ours[0].fn[UT_FN_SETLINE] = (uint32_t)(uintptr_t)ut_mirror_setline;
+    ours[0].fn[2] = UTIL_STARTEDIT;
+    ours[0].fn[3] = UTIL_SELMENU;
+    ours[0].fn[4] = UTIL_ISMODIFIED;
+    ours[0].fn[UT_FN_ENTER] = (uint32_t)(uintptr_t)ut_mirror_enter;
+    ours[0].fn[UT_FN_ISGREY] = UTIL_ISGREY;
+    ours[0].fn[7] = UTIL_RESET;
+    k = 1;
+    if (atoi(env_str("SETTINGS_DJM", "0")))
+        k += ut_section(ours + k, src, l_djm, ut_defs, 3, &ours[0]);
+    if (atoi(env_str("SETTINGS_VNC", "0")))
+        k += ut_section(ours + k, src, l_vnc, ut_defs + 3, 3, &ours[0]);
 
-    n = ut_build(&ut_table, src, UT_RBP_N, UT_ROW_MIXERMODE, &ours, 1);
+    n = ut_build(&ut_table, src, UT_RBP_N, UT_ROW_MIXERMODE, ours, k);
     if (n < 0)
         goto refuse;
     for (i = 0; i < 6; i++)
@@ -228,7 +434,9 @@ int utility_rows_install(void)
             goto failed;
     if (patch_word(ut_lit_rows, (uint32_t)(uintptr_t)ut_table.rows) != 0)
         goto failed;
-    pointsrc_log("utility: %d rows (HDMI AUDIO after MIXER MODE), table at %p", n,
+    pointsrc_log("utility: %d rows (HDMI AUDIO after MIXER MODE%s%s), table at %p", n,
+                 atoi(env_str("SETTINGS_DJM", "0")) ? ", the DJM section" : "",
+                 atoi(env_str("SETTINGS_VNC", "0")) ? ", the VNC section" : "",
                  (void *)&ut_table);
     return 0;
 
