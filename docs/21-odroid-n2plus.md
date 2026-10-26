@@ -157,6 +157,44 @@ On the unit, Armbian `6.18.43-current-meson64`, with a 1024×768 bench monitor
 
 ## To revisit (operator's list)
 
+**Open, as of the end of 2026-10-25** (the start-here list for the next
+session; details further down):
+
+1. **To confirm on the unit** (built and committed, not yet tested):
+   - SLIP REVERSE with quantize ON ends the reverse on release and puts slip
+     off right after (slip is set with DjEngineIF::setSlipMode again, so the
+     REV key sees it; quantize OFF already confirmed perfect). A tap released
+     before a quantized reverse began waits up to 1 s for it.
+   - Slip mode no longer blinks the HOT CUE / GATE CUE pads white (rbp puts
+     all eight pad entries in state 3 with slip on; an empty slot is dark now,
+     rbp_led.c). Check a hot cue pad keeps its colour with slip on -- if rbp
+     makes those white too, keep the pre-slip colour.
+2. **HDMI audio mirror**: run `scripts/odroid/hdmi-audio-probe.sh`, read
+   `~/hdmi-audio.txt`, then set the mixer route in start-rb.sh and
+   `RB_AUDIO_MIRROR_DEV=hw:CARD=ODROIDN2,DEV=0` with a format that works.
+3. **Waveforms on the jog screens**: the unit caches waveform data it is sent
+   (rekordbox's showed up after a capture session until a power cycle). Decode
+   rekordbox's waveform HID packets from the captures in ~/Downloads on the
+   Mac (capture, capture_2, capture_jog; tools/flx10-pcap-decode.py --dump
+   <type>), then feed rbp's own waveform per loaded track.
+4. **Album art on the jog screens**: same route, image data (rbp has
+   sendJogArtworkData / UiSetJogArtwork for the RX3's own jog screens).
+5. **Splash until rbp is ready**, input held until then (item below). Needs
+   the operator's description of the start-up glitches first.
+6. **Booth and master outputs**, by ear.
+7. Parked: HOT CUE mode switch lag; RX3 effects matching the FLX10's.
+
+Done and confirmed 2026-10-25 (HID jog screens): arm tracks the platter (top
+and side ring, ten turns land back on 12:00), smooth while playing, paused,
+held, jogged, bent and reversed; MASTER, SYNC, key + shift, BPM decimals,
+tempo/range, loop size 1/128..512, cue marker, remaining/elapsed (follows
+rbp's time mode; SHIFT + 4 BEAT flips it), white edges = ON AIR, SLIP icon
+(empty decks too), track-end warning on the jog ring (rbp's own, slow at 30 s,
+fast at 15, not while paused); synced non-master deck shows its playing tempo
+and holds % / key while jogged; BEAT SYNC range fit (only widens); BEAT SYNC
+button's off-beat blink slowed. The centre BEAT SYNC text: nothing lights it
+(full scan) -- dropped.
+
 *Fixed 2026-10-25:* **mount table explosion.** `fix-dev.sh` bound `/dev` over the
 chroot's mounted `/dev` on every redeploy, and with Debian's shared propagation each
 stacked bind also landed on the host's `/dev` -- the table roughly doubled per
@@ -176,18 +214,16 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
 
 * **HDMI audio mirror** looks for the Pi's `vc4hdmi0/1` cards, which the Odroid
   does not have (harmless retry noise in audioshim.log). Point `RB_AUDIO_MIRROR_DEV`
-  at the Odroid's HDMI card.
+  at the Odroid's HDMI card (open item 2 above).
 * **HOT CUE mode switch lag** (parked, low priority). Switching to HOT CUE shows on
   screen a fraction of a second late, even with no track loaded. Not the key
   path: `onKey_HotCue` @0x3030ec switches the mode on the press, and SYNC (the
   only other key with HOT CUE's 1 s long-press time) reacts instantly. Likely
   the hot cue grid's redraw. `scripts/odroid/modelag.py` times it if revisited.
 * **Booth and master outputs**, by ear, once on the audio system.
-* **Jog wheel displays.** Phase 1 done (vendor unlock + MIDI ch 16: BPM, tempo %,
-  time remaining, marker, MT, MASTER, SYNC). Phase 1 is complete (key included).
-  The HID phase has started (per-deck state, flx10_hid.c). Left: tempo range
-  box, waveform, cue marker, two-decimal BPM, artwork -- see "FLX10 jog
-  displays" above.
+* **Jog wheel displays.** Phase 1 (MIDI ch 16) done; under HID the unit draws
+  none of it. The HID phase (flx10_hid.c) is done but for waveform and
+  artwork (open items 3-4).
 * **Controls, done and confirmed on the unit 2026-10-25:** TEMPO RESET toggle with
   its LED; MASTER TEMPO on the KEY SYNC hold (KEY SYNC itself does nothing: rbp
   has no key sync or key shift); SLIP REVERSE momentary + always slipping and
@@ -204,12 +240,7 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   quantize on; crossfader assign switches; loop cache refreshed before loop
   keys (fresh-track IN / OUT loops); empty-deck range box and tempo %. See
   the table above.
-* **Track-end warning on the jog ring** (operator, 2026-10-25): flash the jog
-  wheel's colour ring when the track is about to end, faster as it gets closer --
-  what the RX3 and its HDMI screen do. rbp's own warning state (the RX3 flashes
-  its jog ring from it) is the thing to read rather than recomputing from
-  total/elapsed; then find the FLX10's ring-colour/flash message (the HID phase
-  may carry it).
+* **Track-end warning on the jog ring**: done -- see "Track-end warning" below.
 * **Waveform smoothness** (parked, good enough 2026-10-25). Fixed the main cause: rbp
   paced on FBIO_WAITFORVSYNC, which meson's drm_fbdev answers ENOTTY, so its own
   limiter ran it at 57.7 fps against 60 Hz (~2 repeated refreshes a second). fb_shim
@@ -277,23 +308,20 @@ seeded at unity. Confirmed on the unit; the odd hot cue start-up state went with
   carry the range box and tempo % too -- byte 4 and 23..24 of the empty packet.)
   - SYNC icon lit when the deck is synced (done). The centre BEAT SYNC text:
     no bit lights it in the full scan -- dropped.
-  - White edges = rbp's ON AIR icons per deck: the state is sent
-    (rbp_led.c, as OnAirIndicator reads it), its place in the packet is set by
-    `RB_FLX10_ONAIR="byte:mask"` until it is found (below).
+  - White edges = rbp's ON AIR icons per deck: done ([3] 0x02, default of
+    `RB_FLX10_ONAIR`).
   - BEAT SYNC **button** flashing when sync is lost. rbp has the two states
     the RX3's BEAT SYNC LED uses: DjEngineIF::isOutOfBeatSync(ch) @0x4b910
     (sync on but off the beat, e.g. after a jog nudge; FALSE / STAGE_1 /
     STAGE_2 in SyncInfo) and DjEngineIF::isOutOfRange(ch) @0x4b860 (the
     master's tempo beyond the deck's range; counted only while the sync
     master is valid). ui::PlayerInnards::getStat @0x301848 puts them in
-    tPlayerStat byte 47 bits 3 and 4. To do: flash note 88 (BEAT SYNC) while
-    either is set, solid while sync is on.
-  - BPM decimals (stuck at .03).
-  - Key (blank).
-  - Album art; waveforms (maybe).
-  - Arm: rotate like a record at 33 1/3 rpm (one turn per 1.8 s). The second
-    arm (blue, sometimes orange) sits at the cue point once a cue is set; in a
-    loop, the arm jumps back to the loop start each time the loop wraps.
+    tPlayerStat byte 47 bits 3 and 4. Done differently: rbp's own SYNC LED
+    already blinks off-beat (LEDSTAT_SYNC state 2); the blink is slowed to
+    twice rbp's period (`RB_SYNC_BLINK_MS`).
+  - BPM decimals, key: done (rekordbox capture).
+  - Album art; waveforms: open items 3-4.
+  - Arm: done (1.8 s a turn, cue arm at the cue point).
 * **Finding a jog-screen byte with hid-loaded.py** (ON AIR edges, the
   centre BEAT SYNC icon). Set `RB_FLX10_HID=0` in rb.local.conf and restart rb
   (or the two senders fight), load a track on deck 1, then
