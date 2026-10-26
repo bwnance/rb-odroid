@@ -12,7 +12,14 @@ Windows USBPcap or Linux usbmon) and prints:
      time and which bytes changed from what to what, deck by deck -- line these
      up with the notes taken during the capture;
   4. with --midi, the MIDI rekordbox sends (USB-MIDI event packets) in time
-     order, so a HID change can be read beside the MIDI around it.
+     order, so a HID change can be read beside the MIDI around it;
+  5. with --jog, the jog: the platter's counts (the MIDI the FLX10 sends,
+     CC 31/33/34/35/38 on the deck channels, 0x40 +- n) gathered into
+     gestures (a gap of --gap seconds ends one), each beside how far
+     rekordbox moved that deck's position on the jog screen (the state
+     packet's [11..14]) -- so track ms per count, and counts per turn at the
+     screen's 1.8 s a turn, come from rekordbox itself, with no turns counted
+     by hand.
 
 Times are shown as the capture's wall clock (local time) and seconds from the
 start.
@@ -22,6 +29,7 @@ start.
     python3 tools/flx10-pcap-decode.py capture.pcapng --type 0x21 --deck 1
     python3 tools/flx10-pcap-decode.py capture.pcapng --dump 0x2c   # every packet of a type
     python3 tools/flx10-pcap-decode.py capture.pcapng --ep 0x05     # pick the HID endpoint
+    python3 tools/flx10-pcap-decode.py capture.pcapng --jog         # jog counts vs position
 
 Standard library only.
 """
@@ -150,6 +158,42 @@ def usb_out(lt, d):
     return None
 
 
+def usb_in(lt, d):
+    """The device->host data in one captured record, or None: (dev, ep, ept,
+    payload). IN data arrives with the completion."""
+    if lt == LINKTYPE_USB_DARWIN:
+        if len(d) < 32:
+            return None
+        hlen, req = d[2], d[3]
+        io_len = struct.unpack("<I", d[4:8])[0]
+        dev, ep, ept = d[29], d[30], d[31]
+        if not ep & 0x80 or req != 1:
+            return None
+        return dev, ep, ept, d[hlen:hlen + io_len] if io_len else d[hlen:]
+    if lt == LINKTYPE_USBPCAP:
+        if len(d) < 27:
+            return None
+        hlen = struct.unpack("<H", d[0:2])[0]
+        info = d[16]
+        dev = struct.unpack("<H", d[19:21])[0]
+        ep, xfer = d[21], d[22]
+        ept = {0: 1, 1: 3, 2: 0, 3: 2}.get(xfer, xfer)
+        if not ep & 0x80 or not info & 1:
+            return None
+        return dev, ep, ept, d[hlen:]
+    if lt in (LINKTYPE_USB_LINUX, LINKTYPE_USB_LINUX_MMAPPED):
+        if len(d) < 48:
+            return None
+        typ = chr(d[8])
+        xfer, ep, dev = d[9], d[10], d[11]
+        ept = {0: 1, 1: 3, 2: 0, 3: 2}.get(xfer, xfer)
+        hlen = 64 if lt == LINKTYPE_USB_LINUX_MMAPPED else 48
+        if not ep & 0x80 or typ != "C":
+            return None
+        return dev, ep, ept, d[hlen:]
+    return None
+
+
 # ---- USB-MIDI -----------------------------------------------------------------
 
 CIN_LEN = {0x2: 2, 0x3: 3, 0x4: 3, 0x5: 1, 0x6: 2, 0x7: 3, 0x8: 3, 0x9: 3,
@@ -195,16 +239,23 @@ def main():
     ap.add_argument("--dump", type=lambda s: int(s, 0), help="print every packet of this type")
     ap.add_argument("--midi", action="store_true", help="also list the MIDI out")
     ap.add_argument("--ignore", default="", help="bytes to leave out of the diff, e.g. 11,12,13")
+    ap.add_argument("--jog", action="store_true", help="jog counts vs rekordbox's position")
+    ap.add_argument("--gap", type=float, default=0.4, help="--jog: a pause this long ends a gesture (s)")
     a = ap.parse_args()
     ignore = {int(x) for x in a.ignore.split(",") if x.strip()}
 
     recs = []                                    # (ts, dev, ep, ept, payload)
     linktypes = collections.Counter()
+    ins = []                                     # (ts, dev, ep, ept, payload)
     for ts, lt, d in packets(a.capture):
         linktypes[lt] += 1
         u = usb_out(lt, d)
         if u and u[3]:
             recs.append((ts,) + u)
+        elif a.jog:
+            u = usb_in(lt, d)
+            if u and u[3] and u[2] in (2, 3) and len(u[3]) % 4 == 0:
+                ins.append((ts,) + u)
     if not recs:
         sys.exit("no host->device USB data found (link types: %s)" % dict(linktypes))
     # macOS: endpoints marked 0x100 are completion records; use them only where
@@ -277,6 +328,10 @@ def main():
                 print("%s %+9.3f  deck %d  %s" % (clock(ts), ts - t0, deck,
                       "  ".join("[%d] %02x->%02x" % (i, old[i], p[i]) for i in ch)))
 
+    # 5. jog
+    if a.jog:
+        jog_report(a, t0, ins, hid if hid_key is not None else [])
+
     # 4. MIDI
     if a.midi:
         print("\n== MIDI out (USB-MIDI endpoints)")
@@ -287,6 +342,81 @@ def main():
                 if m[:10] == bytes.fromhex("f0004005000004010050"):
                     continue                     # keepalive
                 print("%s %+9.3f  ep 0x%02x  %s" % (clock(ts), ts - t0, ep, hexs(m)))
+
+
+JOG_CCS = {31: "top+SHIFT", 33: "side", 34: "top (vinyl)", 35: "top", 38: "side+SHIFT"}
+TURN_MS = 1800.0                       # the screen's arm: 33 1/3 rpm
+
+
+def hid_pos_ms(p):
+    return p[11] * 60000 + p[12] * 1000 + (p[13] | p[14] << 8)
+
+
+def jog_report(a, t0, ins, hid):
+    """Gestures of jog counts beside rekordbox's position change."""
+    ev = []                                       # (ts, deck 1-4, cc, delta)
+    for ts, dev, ep, ept, p in ins:
+        for m in midi_events(p):
+            if len(m) == 3 and m[0] & 0xF0 == 0xB0 and (m[0] & 0x0F) < 4 and m[1] in JOG_CCS:
+                d = m[2] - 0x40
+                if d:
+                    ev.append((ts, (m[0] & 0x0F) + 1, m[1], d))
+    print("\n== jog (MIDI in: %d jog messages; positions from type 0x21 [11..14])" % len(ev))
+    if not ev:
+        print("  none -- was the capture taken with the IN direction? (Wireshark captures both)")
+        return
+    pos = collections.defaultdict(list)           # deck -> [(ts, ms)]
+    for ts, p in hid:
+        if p[1] == 0x21 and p[9] != 0x10:
+            pos[p[0] >> 4].append((ts, hid_pos_ms(p)))
+
+    def at(deck, t):
+        """rekordbox's position for the deck at time t (last packet before)."""
+        best = None
+        for ts, ms in pos.get(deck, ()):
+            if ts > t:
+                break
+            best = ms
+        return best
+
+    gest, cur = [], None
+    for e in ev:
+        if cur and (e[0] - cur["end"] > a.gap or e[1] != cur["deck"]):
+            gest.append(cur)
+            cur = None
+        if not cur:
+            cur = {"deck": e[1], "start": e[0], "end": e[0], "net": 0, "abs": 0, "n": 0,
+                   "ccs": collections.Counter()}
+        cur["end"] = e[0]
+        cur["net"] += e[3]
+        cur["abs"] += abs(e[3])
+        cur["n"] += 1
+        cur["ccs"][e[2]] += e[3]
+    gest.append(cur)
+
+    tot = collections.defaultdict(lambda: [0, 0.0])   # cc -> [net counts, ms]
+    print("  %-12s %9s %5s  %-14s %7s %7s %6s %9s %10s" % (
+        "time", "from start", "deck", "control", "counts", "msgs", "secs", "track ms", "ms/count"))
+    for g in gest:
+        before = at(g["deck"], g["start"] - 0.05)
+        after = at(g["deck"], g["end"] + a.gap * 0.9)
+        dms = None if before is None or after is None else after - before
+        cc = g["ccs"].most_common(1)[0][0]
+        name = "+".join(JOG_CCS[c] for c in g["ccs"]) if len(g["ccs"]) > 1 else JOG_CCS[cc]
+        mpc = "%10.4f" % (dms / g["net"]) if dms is not None and g["net"] else "%10s" % "-"
+        print("  %s %+9.3f %5d  %-14s %7d %7d %6.2f %9s %s" % (
+            clock(g["start"]), g["start"] - t0, g["deck"], name[:14], g["net"], g["n"],
+            g["end"] - g["start"], "-" if dms is None else "%d" % dms, mpc))
+        if dms is not None and len(g["ccs"]) == 1 and abs(g["net"]) >= 200:
+            tot[cc][0] += g["net"]
+            tot[cc][1] += dms
+    print("\n  per control (gestures of 200+ net counts on one control):")
+    for cc, (n, ms) in sorted(tot.items()):
+        if n and ms:
+            print("    %-12s %8d counts  %9.0f ms  %.4f ms/count  -> %.0f counts per %.1f s turn" % (
+                JOG_CCS[cc], n, ms, ms / n, TURN_MS * n / ms, TURN_MS / 1000))
+    print("  (a gesture made while the deck was playing includes the playing time;"
+          " judge those by their secs)")
 
 
 if __name__ == "__main__":
