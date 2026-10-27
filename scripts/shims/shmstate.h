@@ -50,9 +50,11 @@
  * resolves everything it knows about and happily ignores the value the new
  * knobshim is writing -- the mirror gain would be set and never read, with no
  * symptom but a dead knob. The bump is what makes that direction loud too, which
- * is the whole reason to bump for an addition. */
+ * is the whole reason to bump for an addition.
+ *
+ * v3: g_master_att added (UTILITY's MASTER ATT., masteratt.c). */
 #ifndef SHMSTATE_ABI_VERSION
-#define SHMSTATE_ABI_VERSION 2
+#define SHMSTATE_ABI_VERSION 3
 #endif
 
 /* The preload order that satisfies this contract; quoted in error messages so
@@ -72,6 +74,11 @@ extern volatile float g_master_gain;
  * symbol from g_master_gain rather than a second writer of it. Consumers should
  * still clamp it: it is a float written from a MIDI message. */
 extern volatile float g_mirror_gain;
+
+/* UTILITY's MASTER ATT. as a gain (1.0, 0.501, 0.251 for 0 / -6 / -12 dB), written
+ * by masteratt.c when rbp sets it. The RX3 attenuates in hardware; here
+ * audioshim.c scales the master output by it, after the meters. */
+extern volatile float g_master_att;
 
 /* headphone cue mix and level. g_cue_mix: 0 = cue only, 1 = main only.
  * g_cue_gain: 0..1.
@@ -115,6 +122,7 @@ extern const int shmstate_abi_version;
 #define SHMSTATE_SYMBOL_LIST(X) \
     X("g_master_gain")          \
     X("g_mirror_gain")          \
+    X("g_master_att")           \
     X("g_cue_gain")             \
     X("g_cue_mix")              \
     X("g_speaker_gain")         \

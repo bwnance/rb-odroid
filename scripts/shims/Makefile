@@ -245,7 +245,7 @@ CTRL_OBJS  := ctrlshim.o ctrl_map.o map_flx4.o map_flx10.o map_jp21.o map_kbd.o 
               mididump.o rbp_bridge.o rbp_led.o led_table.o plinn_scan.o \
               rbp_vu.o midi_io.o controllers.o shimutil.o usb_label.o rbp_load.o \
               flx10_hid.o flx10_media.o keyshift.o rbp_hook.o searchfold.o keydisp.o \
-              doublelock.o
+              doublelock.o masteratt.o
 CTRL_HDRS  := rbp_abi.h rbp_bridge.h rbp_key.h rbp_led.h led_table.h rbp_vu.h \
               midi_io.h shimutil.h ctrl_map.h mididump.h evdev_io.h syscalls.h \
               shmstate.h plinn_scan.h controllers.h usb_label.h pitch_state.h \
@@ -670,7 +670,7 @@ TESTS := test_point test_g2d test_audio test_midi test_flx4 test_flx10 test_kbd 
          test_led_table test_plinn_scan test_controllers test_usblabel test_netalias \
          test_pitch test_keylog test_padmode test_deckbadge test_bpmbox \
          test_settings test_utility test_splash test_searchfold test_keydisp \
-         test_doublelock test_blitfast
+         test_doublelock test_blitfast test_masteratt
 
 # test_g2d links the PRODUCTION g2d_sw.c: the rescale rbp's artwork goes
 # through, and the calls as DecodeScalingJpeg makes them (g2d_sw.h).
@@ -682,6 +682,11 @@ test_g2d: test_g2d.c g2d_sw.c g2d_sw.h
 test_keydisp: test_keydisp.c keydisp.c keydisp.h
 	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
 	    -Wall -Wextra -static -o $@ test_keydisp.c keydisp.c
+
+# test_masteratt links the PRODUCTION masteratt.c: MASTER ATT.'s three settings as gains.
+test_masteratt: test_masteratt.c masteratt.c
+	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
+	    -Wall -Wextra -static -o $@ test_masteratt.c masteratt.c -lm
 
 # test_blitfast links the PRODUCTION blitfast.c, NEON as it ships: the fused blit
 # against DirectFB's two stages, as read off their code.

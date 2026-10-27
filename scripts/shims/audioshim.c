@@ -3981,6 +3981,9 @@ static snd_pcm_sframes_t flush_master(const int32_t *src, snd_pcm_uframes_t size
     g_astate_owner = 1;
 
     float master_gain = clamp01(g_master_gain);
+    /* UTILITY's MASTER ATT. (masteratt.c): the RX3's is an analogue attenuator
+     * after its converter, so it scales what leaves and not what the meters read. */
+    float master_att = clamp01(g_master_att);
     /* The HDMI mirror's level, from the unit's own MASTER LEVEL knob -- the one
      * thing here that scales the mirror and not the master. Hoisted out of the
      * loop with master_gain: it is written by the controls shim from the MIDI
@@ -4041,6 +4044,7 @@ static snd_pcm_sframes_t flush_master(const int32_t *src, snd_pcm_uframes_t size
         if ((int32_t)(al * master_gain) > bl) bl = (int32_t)(al * master_gain);
         if ((int32_t)(ar * master_gain) > br) br = (int32_t)(ar * master_gain);
 
+        g *= master_att;
         if (fading)
             g *= startup_gain(t0 + i, mute, fade);
         ol = (int32_t)(sl * g);
