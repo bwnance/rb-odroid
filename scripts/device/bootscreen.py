@@ -61,6 +61,11 @@ import time
 
 W, H, STRIDE, BPP = 1280, 800, 2560, 2
 SIZE = W * H * BPP                      # 2,048,000 -- matches fix.smem_len
+# The real framebuffers this runs on: the Pi's vc4 (RGB565, the RX3's own depth)
+# and the ODROID-N2+'s meson (XRGB8888). Same 1280x800; the depth is read from
+# sysfs and drawn at, never assumed -- geometry_ok() sets STRIDE, BPP and SIZE.
+FB_NAMES = ("vc4drmfb", "mesondrmfb")
+LAYOUTS = {(2560, 16): 2, (5120, 32): 4}   # (stride, bits_per_pixel) -> bytes per pixel
 
 FB = os.environ.get("RB_FB", "/dev/fb0")
 FB_NAME = os.environ.get("RB_FB_NAME", "/sys/class/graphics/fb0/name")
@@ -69,7 +74,7 @@ BOOT_LOG = os.environ.get("RB_BOOT_LOG", "/run/rbp/boot.log")
 RUN_DIR = os.environ.get("RB_RUN_DIR", "/run/rbp")
 STAGE_FILE = os.path.join(RUN_DIR, "boot.stage")
 
-WAIT_FB_S = 15.0                        # how long to wait for vc4drmfb
+WAIT_FB_S = 15.0                        # how long to wait for the real fb
 TICK_S = 0.25                           # redraw rate (~4 Hz)
 # How long after "launching rbp" the screen waits before it says the honest
 # "rbp is running, drawing nothing" line. Overridable only so the host test can
@@ -152,17 +157,27 @@ MAX_COLS = (W - 2 * MARGIN) // (ADVANCE * BODY_SCALE)   # 100
 BODY_ROWS = (H - HEADER_H - FOOTER_H) // LINE_H         # 34
 
 
+def pixel(colour):
+    """One pixel of an RGB565 colour at the framebuffer's depth: as it is at 16
+    bpp, widened to XRGB8888 by bit replication at 32."""
+    if BPP == 2:
+        return struct.pack("<H", colour)
+    r, g, b = colour >> 11, (colour >> 5) & 0x3f, colour & 0x1f
+    return struct.pack("<I", 0xff000000 | (r << 3 | r >> 2) << 16 |
+                       (g << 2 | g >> 4) << 8 | (b << 3 | b >> 2))
+
+
 def fill_rect(buf, x, y, w, h, colour):
-    chunk = struct.pack("<H", colour) * w
+    chunk = pixel(colour) * w
     for k in range(h):
-        off = ((y + k) * W + x) * 2
+        off = (y + k) * STRIDE + x * BPP
         buf[off:off + len(chunk)] = chunk
 
 
 def draw_text(buf, s, x0, y0, scale, colour):
     """Blit `s` with its top-left at (x0, y0). Runs, so a glyph costs one slice
     assignment per lit scanline rather than one per pixel."""
-    chunk = struct.pack("<H", colour) * scale
+    chunk = pixel(colour) * scale
     cx = x0
     for ch in s:
         g = GLYPHS.get(ch)
@@ -172,7 +187,7 @@ def draw_text(buf, s, x0, y0, scale, colour):
                     if row & (1 << (GLYPH_W - 1 - col)):
                         px, py = cx + col * scale, y0 + r * scale
                         for k in range(scale):
-                            off = ((py + k) * W + px) * 2
+                            off = (py + k) * STRIDE + px * BPP
                             buf[off:off + len(chunk)] = chunk
         cx += ADVANCE * scale
 
@@ -256,12 +271,12 @@ def uptime():
 _START = time.monotonic()
 
 
-def fb_is_vc4drmfb():
+def fb_name():
     try:
         with open(FB_NAME) as f:
-            return f.read().strip() == "vc4drmfb"
+            return f.read().strip()
     except OSError:
-        return False
+        return ""
 
 
 def sysfs_int(name):
@@ -274,7 +289,9 @@ def sysfs_int(name):
 
 def geometry_ok():
     """The real geometry, read from sysfs -- not the shim's 32-bpp lie and not a
-    guess. Returns the frame size in bytes, or None on any mismatch."""
+    guess. One of LAYOUTS, which it then draws at (STRIDE, BPP, SIZE); returns the
+    frame size in bytes, or None on any mismatch."""
+    global STRIDE, BPP, SIZE
     vs = None
     try:
         with open(os.path.join(FB_SYSFS, "virtual_size")) as f:
@@ -283,10 +300,11 @@ def geometry_ok():
         return None
     stride = sysfs_int("stride")
     bpp = sysfs_int("bits_per_pixel")
-    if vs != "%d,%d" % (W, H) or stride != STRIDE or bpp != BPP * 8:
+    if vs != "%d,%d" % (W, H) or (stride, bpp) not in LAYOUTS:
         stage("bad-geom", "vs=%s stride=%s bpp=%s" % (vs, stride, bpp))
         return None
-    return stride * H
+    STRIDE, BPP, SIZE = stride, LAYOUTS[(stride, bpp)], stride * H
+    return SIZE
 
 
 def read_log():
@@ -299,9 +317,10 @@ def read_log():
 
 def main():
     t0 = time.monotonic()
-    while not fb_is_vc4drmfb():
+    while fb_name() not in FB_NAMES:
         if time.monotonic() - t0 > WAIT_FB_S:
-            stage("no-fb", "fb0 never became vc4drmfb within %ds" % int(WAIT_FB_S))
+            stage("no-fb", "fb0 never became %s within %ds"
+                  % (" or ".join(FB_NAMES), int(WAIT_FB_S)))
             return 0
         time.sleep(0.2)
 
@@ -320,7 +339,7 @@ def main():
         return 0
 
     os.makedirs(RUN_DIR, exist_ok=True)
-    stage("up", "fb0=vc4drmfb size=%d" % size)
+    stage("up", "fb0=%s %d bpp size=%d" % (fb_name(), BPP * 8, size))
 
     black = b"\x00" * size
     shadow = None

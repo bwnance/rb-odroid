@@ -64,7 +64,7 @@ def make_fake(dirname, name="vc4drmfb", vs="1280,800", stride=2560, bpp=16):
     namef = os.path.join(dirname, "fb0-name")
     os.makedirs(sysfs, exist_ok=True)
     with open(fb, "wb") as f:
-        f.write(b"\x00" * (2560 * 800))
+        f.write(b"\x00" * (stride * 800))
     with open(namef, "w") as f:
         f.write(name + "\n")
     with open(os.path.join(sysfs, "virtual_size"), "w") as f:
@@ -96,7 +96,8 @@ def wait_exit(p, seconds):
 
 def fb_is_black(path):
     with open(path, "rb") as f:
-        return f.read() == b"\x00" * (2560 * 800)
+        data = f.read()
+    return data == bytes(len(data))
 
 
 def write_frame(path, value, w=1280, h=800, stride=2560):
@@ -170,6 +171,18 @@ def geometry_checks(m, tmp):
     check(m.geometry_ok() is None, "geometry_ok refuses the 32-bpp lie")
     point_at(os.path.join(tmp, "g-mode"), vs="1920,1080")
     check(m.geometry_ok() is None, "geometry_ok refuses a different mode")
+    point_at(os.path.join(tmp, "g-meson"), name="mesondrmfb", stride=5120, bpp=32)
+    check(m.geometry_ok() == 5120 * 800 and m.BPP == 4,
+          "geometry_ok accepts the ODROID's 1280x800/stride 5120/32 bpp, and draws at 4")
+    frame = m.render([" 1.00  x"], 1, "waiting for rbp", 3.0)
+    check(len(frame) == 5120 * 800, "at 32 bpp a frame is 4,096,000 bytes")
+    edge = struct.unpack_from("<I", frame, m.W // 2 * 4)[0]
+    check(edge == 0xff000000 | 0x00 << 16 | 0x41 << 8 | 0x00,
+          "the border's RGB565 0x0200 is XRGB 0xff004100 (0x%08x)" % edge)
+    white = m.pixel(m.WHITE)
+    check(white == struct.pack("<I", 0xffffffff), "white widens to 0xffffffff")
+    point_at(os.path.join(tmp, "g-ok2"))
+    check(m.geometry_ok() == 2560 * 800 and m.BPP == 2, "and back to the Pi's 16 bpp")
 
 
 # --- loop checks (the daemon, running for real) -------------------------------
@@ -241,12 +254,24 @@ def test_bad_geometry_refuses(tmp):
         p.kill()
 
 
+def test_meson_paints(tmp):
+    env = make_fake(os.path.join(tmp, "l-meson"), name="mesondrmfb", stride=5120, bpp=32)
+    p = start_daemon(env)
+    try:
+        time.sleep(1.0)
+        check(not fb_is_black(env["RB_FB"]), "the ODROID's mesondrmfb at 32 bpp: it paints")
+        check(stage_of(env).startswith("up") and "32 bpp" in stage_of(env),
+              "boot.stage says up, at 32 bpp (%s)" % stage_of(env))
+    finally:
+        p.kill()
+
+
 def test_waits_for_vc4drmfb(tmp):
     env = make_fake(os.path.join(tmp, "l-notvc4"), name="simplefb")
     p = start_daemon(env)
     try:
         time.sleep(1.0)
-        check(p.poll() is None, "a non-vc4drmfb fb0 makes it wait, not paint")
+        check(p.poll() is None, "a firmware simplefb fb0 makes it wait, not paint")
         check(fb_is_black(env["RB_FB"]), "and it has not painted")
     finally:
         p.kill()
@@ -286,6 +311,7 @@ def main():
         test_black_clear_is_ignored(tmp)
         test_bad_geometry_refuses(tmp)
         test_waits_for_vc4drmfb(tmp)
+        test_meson_paints(tmp)
         test_stays_up_drawing_nothing(tmp)
     finally:
         for k, v in saved.items():
