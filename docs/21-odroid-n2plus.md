@@ -343,6 +343,26 @@ session; details further down):
    first: the four-deck item (12).
 14. Parked: HOT CUE mode switch lag.
 
+How rbp sorts a browse list (read 2026-10-27, for whoever needs it next; a
+default playlist sort was built on it and dropped -- the operator loads the sort
+from the stick's MY SETTINGS instead):
+- The database task gets a list with djepl_getPlaylistTracks @0x164aa0 (and its
+  djeplGet* siblings, from DBSMain_OnListClientCmd). Argument 1 packs the
+  condition; its byte 2 is the SORT as a 1-based position, mapped by
+  ConditionConvert @0x17a478 through a fixed table (1 -> 0, 2 -> 1, 3 -> 20,
+  4 -> 21, 5 -> 4, 6 -> 6, 7 -> 5, 8 -> 2): 2 = the list's own order, 1 = sorted
+  by the column. Argument 3 is the COLUMN, rbp's category id -- 0 as a playlist
+  opens (shown as ARTIST), 4 for BPM (MODULEMAIN_CATESORT_BPM). SORT > BPM sends
+  (1, 4) and sorts lowest first; (1, 0) sorts by title. Argument 2 is the list.
+- The ids are bytes filled at start (MODULEMAIN_CATESORT_*: DEFAULT 0, ALPHABET
+  1, ARTIST 2, ALBUM 3, BPM 4, RATING 5, GENRE 6, COMMENT 7, LENGTH 8, LABEL 10,
+  KEY 12, BITRATE 13, CUE 14, COLOR 15, PLAYCOUNT 16); the SORT menu is the
+  stick's own (dbcl_GetRightMenu) -- here BPM, DEFAULT, BPM (UNSORTED),
+  ALPHABET, ARTIST, ALBUM, RATING.
+- rbp's popups (LIST MENU, its SORT, MY SETTINGS) take the selector only after
+  it has turned in them: a push straight after MENU fell through to the list
+  under it and opened the TRACK MENU.
+
 Done 2026-10-26 (start-up splash, rbp's TRANS picture):
 - For RB_SPLASH_MS (8000) after rbp's first frame the screen shows a picture on
   black (RB_SPLASH_IMAGE, a PNG, or rbp's own white rekordbox logo from
