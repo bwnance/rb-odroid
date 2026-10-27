@@ -142,6 +142,7 @@
 #define N_PUSH1_SHIFT   93    /* SHIFT + deck 1's browse push -> TRACK FILTER */
 #define N_BACK         101
 #define N_VIEW         122
+#define N_VIEW_LONG    103    /* VIEW held: the FLX10 times it (on + off at once) */
 #define N_BACK_SHIFT   102
 #define N_VIEW_SHIFT   104
 #define N_MASTER_CUE    99
@@ -1756,6 +1757,16 @@ __attribute__((weak)) int flx10_usb1_present(void)
      return access("/media/usb1/sda1/PIONEER/rekordbox/export.pdb", F_OK) == 0;
 }
 
+/* Is one of rbp's popup menus up -- LIST MENU, its SORT, TRACK MENU, MY
+ * SETTINGS on the SOURCE screen (rbp_abi.h, IsMenuOn / IsTrackMenuOn)? WEAK
+ * so the host test can answer for rbp. */
+__attribute__((weak)) int flx10_menu_open(void)
+{
+     const volatile unsigned char *b = (const volatile unsigned char *)UIBROWSE_GLOBAL;
+     return *(const volatile int *)(b + UIBROWSE_OFF_MENU) ||
+            *(const volatile int *)(b + UIBROWSE_OFF_TRACKMENU);
+}
+
 /* Is the highlighted browse row a track? rbp's own answer (rbp_abi.h,
  * UiBrowseComm_IsTrackList). WEAK so the host test can answer for rbp. */
 /* For the push's log line: what the track test read. WEAK with the test. */
@@ -1818,6 +1829,22 @@ static unsigned long long load_up_at[2];
 #define LOAD_DOUBLE_MS 400                 /* two pushes on the player within this: INST.DOUBLES */
 static unsigned long long play_push_at[2];  /* a push on the player, held back; 0 = none */
 
+/* WHILE A POPUP MENU IS UP a push is the selector's push, whatever is under it:
+ * it used to LOAD the highlighted track (operator, 2026-10-27). It is held
+ * LOAD_HOLD_MS like LOAD: rbp's popups ignored a press and release sent in the
+ * same instant unless the knob had turned in them first, and took the
+ * keyboard's 60 ms press either way (measured on the unit 2026-10-27). */
+static unsigned long long select_up_at;
+
+static void flx10_menu_push(int deck)
+{
+     klog("knobshim2: flx10 push deck%d in a menu -> SELECT (held)\n", deck + 1);
+     if (select_up_at)
+          send_rx_key(K_SELECTOR, OP_RELEASE, CH_GLOBAL, 0);
+     send_rx_key(K_SELECTOR, OP_PRESS, CH_GLOBAL, 0);
+     select_up_at = shim_now_ms() + LOAD_HOLD_MS;
+}
+
 static void flx10_push(int deck, int on)
 {
      if (on) {
@@ -1831,6 +1858,11 @@ static void flx10_push(int deck, int on)
      if (push_fired[deck]) {
           push_fired[deck] = 0;
           send_rx_key(K_SELECTOR, OP_RELEASE, CH_GLOBAL, 0);   /* fast scroll off */
+          return;
+     }
+     if (flx10_menu_open()) {
+          play_push_at[deck] = 0;
+          flx10_menu_push(deck);
           return;
      }
      /* ON THE PLAYER a push is held back LOAD_DOUBLE_MS: a second one in that
@@ -1874,8 +1906,78 @@ static void flx10_push(int deck, int on)
      }
 }
 
+/* ---- VIEW -------------------------------------------------------------------
+ * VIEW is SOURCE on the player and SOURCE (back) on SOURCE, BROWSE (back to the
+ * player) on a list. HELD, it is MENU on a list or SOURCE -- rbp's LIST MENU or
+ * MY SETTINGS (operator, 2026-10-27: "long press of view should open that menu
+ * ... from the browse screen"). The FLX10 times the hold itself: snooped on the
+ * unit 2026-10-27, a held VIEW sends note 103 on and off at once on the mixer
+ * channel and then a lone 122 off at the release, no 122 on. MENU is tapped,
+ * held MENU_TAP_MS: held 400 ms it would be UTILITY (SHIFT + VIEW's). */
+#define MENU_TAP_MS 50
+
+static void flx10_view(int on)
+{
+     static int view_key;
+
+     if (on) {
+          int bm = flx10_browse_mode();
+          view_key = (bm == BROWSE_MODE_PLAY || bm == BROWSE_MODE_SOURCE)
+                     ? K_SOURCE : K_BROWSE;
+          send_rx_key(view_key, OP_PRESS, CH_GLOBAL, 0);
+     } else if (view_key) {
+          send_rx_key(view_key, OP_RELEASE, CH_GLOBAL, 0);
+          view_key = 0;
+     }
+}
+
+static void flx10_view_long(void)
+{
+     int bm = flx10_browse_mode();
+
+     if (bm == BROWSE_MODE_PLAY)
+          return;
+     if (menu_up_at)
+          send_rx_key(K_MENU, OP_RELEASE, CH_GLOBAL, 0);
+     send_rx_key(K_MENU, OP_PRESS, CH_GLOBAL, 0);
+     menu_up_at = shim_now_ms() + MENU_TAP_MS;   /* released by flx10_panel_tick */
+     klog("knobshim2: flx10 VIEW held on browse mode %d -> MENU\n", bm);
+}
+
+/* ---- BACK ---------------------------------------------------------------------
+ * BACK is rbp's BACK, except on the category column (ARTIST, PLAYLIST, ... down
+ * the left of a list), where rbp's does nothing: there it is SOURCE, back to the
+ * source screen (operator, 2026-10-27: "after clicking into a source and
+ * clicking back it should go back to source"). */
+__attribute__((weak)) int flx10_on_categories(void)
+{
+     int mode = *(volatile int *)(UIBROWSE_GLOBAL + UIBROWSE_OFF_MODE);
+
+     return (mode == 3 || mode == 13 || mode == 14) &&
+            *(volatile int *)(UIBROWSE_GLOBAL + UIBROWSE_OFF_LISTFOCUS) == 0;
+}
+
+static void flx10_back(int on)
+{
+     static int back_key;
+
+     if (on) {
+          back_key = flx10_on_categories() ? K_SOURCE : K_BACK;
+          if (back_key == K_SOURCE)
+               klog("knobshim2: flx10 BACK on the category column -> SOURCE\n");
+          send_rx_key(back_key, OP_PRESS, CH_GLOBAL, 0);
+     } else if (back_key) {
+          send_rx_key(back_key, OP_RELEASE, CH_GLOBAL, 0);
+          back_key = 0;
+     }
+}
+
 static void flx10_push_tick(unsigned long long t)
 {
+     if (select_up_at && t >= select_up_at) {
+          select_up_at = 0;
+          send_rx_key(K_SELECTOR, OP_RELEASE, CH_GLOBAL, 0);
+     }
      for (int d = 0; d < 2; d++) {
           if (play_push_at[d] && t - play_push_at[d] >= LOAD_DOUBLE_MS) {
                play_push_at[d] = 0;                 /* one push on the player */
@@ -2637,16 +2739,16 @@ static void flx10_note(int ch, int note, int on)
                return;
           }
           if (note == N_VIEW) {
-               static int view_key;
-               if (on) {
-                    int bm = flx10_browse_mode();
-                    view_key = (bm == BROWSE_MODE_PLAY || bm == BROWSE_MODE_SOURCE)
-                               ? K_SOURCE : K_BROWSE;
-                    send_rx_key(view_key, OP_PRESS, CH_GLOBAL, 0);
-               } else if (view_key) {
-                    send_rx_key(view_key, OP_RELEASE, CH_GLOBAL, 0);
-                    view_key = 0;
-               }
+               flx10_view(on);
+               return;
+          }
+          if (note == N_BACK) {
+               flx10_back(on);
+               return;
+          }
+          if (note == N_VIEW_LONG) {
+               if (on)
+                    flx10_view_long();
                return;
           }
           if (note == N_LOAD1 || note == N_LOAD2) {
@@ -2937,9 +3039,9 @@ static void flx10_build(void)
      add_abs(CH_MIX, CC_XFADER, K_XFADER, CH_GLOBAL);
      add_abs(CH_MIX, CC_HP_MIX, K_HPMIX, CH_GLOBAL);
      add_abs(CH_MIX, CC_HP_LEVEL, K_HPLEVEL, CH_GLOBAL);
-     add_note(CH_MIX, N_BACK, K_BACK, CH_GLOBAL);
-     /* VIEW is a named case in flx10_note() (SOURCE from the player, BROWSE
-      * from anywhere else). SHIFT + VIEW is SHORTCUT. */
+     /* BACK and VIEW are named cases in flx10_note(): BACK is SOURCE on the
+      * category column, VIEW SOURCE from the player and BROWSE from anywhere
+      * else. SHIFT + VIEW is SHORTCUT. */
      /* SHIFT + VIEW: rbp's SHORTCUT on a short press, the shim's SETTINGS panel on
       * a long one -- flx10_panel_note(), ahead of this table. */
      /* SHIFT + browse push: TRACK FILTER. It needs the second edge --

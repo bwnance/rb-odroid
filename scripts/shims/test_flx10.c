@@ -76,6 +76,9 @@ void me_set_master_cue(int on) { mcue = on; }
 int hotcue_delete(int deck, int pad) { deleted_deck = deck; deleted_pad = pad; return 0; }
 static int browse_mode = 1, usb1 = 1, cursor_track = 1;
 int flx10_cursor_is_track(void) { return cursor_track; }
+static int menu_open, on_categories;
+int flx10_on_categories(void) { return on_categories; }
+int flx10_menu_open(void) { return menu_open; }
 /* the engine, as SLIP REVERSE / REVERSE see it */
 static int slipmode[2], reversing[2], rev_effect[2], slip_sets, rev_sets;
 int flx10_slip_mode(int d) { return slipmode[d]; }
@@ -788,6 +791,46 @@ int main(void)
      browse_mode = 12;
      reset(); ON(7, 122); OFF(7, 122);
      CHECK(sent_n == 2 && is(0, K_SOURCE, OP_PRESS, 1), "VIEW on SOURCE -> SOURCE (closes it)");
+     /* VIEW held: the FLX10 sends 103 on+off, then a lone 122 off -- MENU
+      * tapped on a list or SOURCE (LIST MENU / MY SETTINGS), nothing on the player */
+     for (int i = 0; i < 3; i++) {
+          browse_mode = i == 0 ? 3 : i == 1 ? 12 : 1;
+          reset(); ON(7, 103); OFF(7, 103);
+          if (browse_mode == 1) {
+               CHECK(sent_n == 0, "VIEW held on the player: nothing (%d)", sent_n);
+          } else {
+               CHECK(sent_n == 1 && is(0, K_MENU, OP_PRESS, 1),
+                     "VIEW held on mode %d -> MENU down (%d)", browse_mode, sent_n);
+               ms(60); map_flx10.tick();
+               CHECK(sent_n == 2 && is(1, K_MENU, OP_RELEASE, 1),
+                     "...tapped, not held to UTILITY (%d)", sent_n);
+          }
+          OFF(7, 122); ms(60); map_flx10.tick();
+          CHECK(sent_n == (browse_mode == 1 ? 0 : 2), "...and VIEW's lone release sends nothing");
+     }
+     /* a push while a popup menu is up is its SELECT, never a LOAD, held ~50 ms:
+      * rbp's popups ignore an instant press and release */
+     browse_mode = 3; cursor_track = 1; menu_open = 1;
+     reset(); ON(7, 70); OFF(7, 70);
+     CHECK(sent_n == 1 && is(0, K_SELECTOR, OP_PRESS, 1), "push in a menu: SELECT down (%d)", sent_n);
+     ms(30); map_flx10.tick();
+     CHECK(sent_n == 1, "...still held at 30 ms");
+     ms(30); map_flx10.tick();
+     CHECK(sent_n == 2 && is(1, K_SELECTOR, OP_RELEASE, 1), "...up after ~50 ms, no LOAD (%d)", sent_n);
+     browse_mode = 12;
+     reset(); ON(7, 70); OFF(7, 70); ms(60); map_flx10.tick();
+     CHECK(sent_n == 2 && is(0, K_SELECTOR, OP_PRESS, 1),
+           "MY SETTINGS on SOURCE: the push selects, it does not open USB1 (%d)", sent_n);
+     browse_mode = 1;
+     reset(); ON(7, 71); OFF(7, 71);
+     CHECK(sent_n == 1 && is(0, K_SELECTOR, OP_PRESS, 1),
+           "a menu on the player: SELECT at once, not held back for a double (%d)", sent_n);
+     ms(450); map_flx10.tick();
+     CHECK(sent_n == 2 && is(1, K_SELECTOR, OP_RELEASE, 1), "...and only its release after it");
+     menu_open = 0; browse_mode = 3;
+     reset(); CC(7, 64, 1); ON(7, 70); OFF(7, 70);
+     CHECK(sent_n == 2 && is(1, K_LOAD, OP_PRESS, 1), "menu closed: a push on a track LOADs again");
+     ms(60); map_flx10.tick();
      browse_mode = 1;
      reset(); ON(7, 122); ON(7, 93);
      CHECK(is(0, K_SOURCE, OP_PRESS, 1) && is(1, K_TRACKFILTER, OP_PRESS, 1) &&
@@ -837,6 +880,15 @@ int main(void)
      CHECK(sent_n == 0 && panel_cmds_n == 2 && panel_cmds[1] == SR_RELEASE,
            "a push the panel took keeps its release, the panel gone or not");
      panel_up = 0;
+
+     /* BACK: rbp's BACK, but SOURCE on the category column, where rbp's does nothing */
+     reset(); ON(7, 101); OFF(7, 101);
+     CHECK(sent_n == 2 && is(0, K_BACK, OP_PRESS, 1) && is(1, K_BACK, OP_RELEASE, 1),
+           "BACK in a list -> BACK");
+     on_categories = 1;
+     reset(); ON(7, 101); on_categories = 0; OFF(7, 101);
+     CHECK(sent_n == 2 && is(0, K_SOURCE, OP_PRESS, 1) && is(1, K_SOURCE, OP_RELEASE, 1),
+           "BACK on the category column -> SOURCE, its release with it");
 
      /* LINK: the USB stick's eject. Light on with a stick ready; held 2 s it
       * ejects and blinks; off once the stick has left the mount table. */

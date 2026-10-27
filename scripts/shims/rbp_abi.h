@@ -152,7 +152,20 @@
                                        * while navigating, NON-ZERO while EDITING,
                                        * which is the state a rotation must not be
                                        * sent in (it would edit the value) */
+#define UIBROWSE_OFF_MENU    0x18     /* int, IsMenuOn()            @0x112e10 -- a popup
+                                       * (LIST MENU, SORT, MY SETTINGS) is up; the
+                                       * same word as getBrowseMenuDispOn @0x1126f0.
+                                       * 1 with MY SETTINGS up, 0 once it closed
+                                       * (measured 2026-10-27); MY SETTINGS' own
+                                       * flag @0x0216baf4 stays 1 after it closes */
+#define UIBROWSE_OFF_TRACKMENU 0x1c   /* int, IsTrackMenuOn()       @0x112e20 */
 #define UIBROWSE_OFF_CURSOR  0x6c     /* int[2], getCursorNo(list)  @0x1127e4 */
+#define UIBROWSE_OFF_LISTFOCUS 0x4ea4 /* int, 1 while a list has the focus, 0
+                                       * while the category column on its left
+                                       * does -- where rbp's BACK does nothing.
+                                       * Found by diffing rbp's data with the
+                                       * focus moved back and forth, 2026-10-27;
+                                       * agrees with browseCommand + 4 */
 #define UIBROWSE_OFF_ITEMNUM 0x3b8    /* int, getItemNum(list)      @0x1127c4 */
 #define UIBROWSE_OFF_INITIAL 0x3bc    /* int, getInitialNo(list)    @0x1128bc */
 #define UIBROWSE_LIST_STRIDE 0x1ce4   /* between list 0's and list 1's blocks */
