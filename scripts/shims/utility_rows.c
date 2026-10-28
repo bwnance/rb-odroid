@@ -461,6 +461,49 @@ static int ut_bfxq_enter(struct ut_entry *e)
     return 1;
 }
 
+/* ---- HEADROOM, in MIXER (operator, 2026-10-28: rekordbox's setting) -----------------
+ * The decks' level before the mixer, apart from MASTER ATTENUATOR: knobshim's masteratt.c
+ * applies and keeps it (headroom_get / headroom_set, WEAK: greyed without it). */
+__attribute__((weak)) int headroom_get(void);
+__attribute__((weak)) void headroom_set(int db);
+static const uint16_t *const v_headroom[] = { W('0','d','B'), W('-','3','d','B'),
+                                              W('-','6','d','B'), W('-','9','d','B'),
+                                              W('-','1','2','d','B') };
+static const uint16_t l_headroom[] = { SP6, 'H','E','A','D','R','O','O','M', 0 };
+
+static int ut_headroom_setline(struct ut_entry *e, unsigned char **lines)
+{
+    int idx = e->edit;
+
+    line_put(lines[0], e->label);
+    if (idx == -1) {
+        idx = headroom_get ? -headroom_get() / 3 : -1;
+        if (idx > 4)
+            idx = 4;
+        e->cur = idx;
+    }
+    line_put(lines[1], idx >= 0 && idx < 5 ? e->values[idx] : 0);
+    return 0;
+}
+
+static int ut_headroom_enter(struct ut_entry *e)
+{
+    int v = e->edit;
+
+    if (v < 0 || v > 4 || v == e->cur || !headroom_set)
+        return 0;
+    headroom_set(-3 * v);
+    pointsrc_log("utility: HEADROOM -> %d dB", -3 * v);
+    e->cur = v;
+    return 1;
+}
+
+static int ut_headroom_isgrey(struct ut_entry *e)
+{
+    (void)e;
+    return !headroom_get || !headroom_set;
+}
+
 /* VERSION No.'s value: "Ver " and VERSION_TEXT (operator, 2026-10-28), ASCII. */
 static uint16_t version_text[40];
 
@@ -570,7 +613,7 @@ int utility_rows_install(void)
 {
     const struct ut_entry *src = (const struct ut_entry *)(uintptr_t)UT_RBP_ROWS;
     const struct ut_entry *slip;
-    struct ut_entry ours[2 + 2 * 5];
+    struct ut_entry ours[3 + 2 * 5];
     int i, n, k;
 
     if (!is_rbp_process() || !rbp_text_mapped())
@@ -624,18 +667,25 @@ int utility_rows_install(void)
         unit_rows[i].fn[UT_FN_ENTER] = (uint32_t)(uintptr_t)ut_unit_enter;
         unit_rows[i].fn[UT_FN_ISGREY] = (uint32_t)(uintptr_t)ut_unit_isgrey;
     }
-    /* BEAT FX QUANTIZE before HDMI AUDIO, at MIXER's end */
-    ours[1] = ours[0];
+    /* BEAT FX QUANTIZE and HEADROOM before HDMI AUDIO, at MIXER's end */
+    ours[2] = ours[0];
     ours[0].label = l_bfxq;
     ours[0].values = v_offon;
     ours[0].fn[UT_FN_SETLINE] = (uint32_t)(uintptr_t)ut_bfxq_setline;
     ours[0].fn[UT_FN_ENTER] = (uint32_t)(uintptr_t)ut_bfxq_enter;
     ours[0].fn[UT_FN_ISGREY] = UTIL_ISGREY;
-    k = 2;
+    ours[1] = ours[2];
+    ours[1].label = l_headroom;
+    ours[1].values = v_headroom;
+    ours[1].nvalues = 5;
+    ours[1].fn[UT_FN_SETLINE] = (uint32_t)(uintptr_t)ut_headroom_setline;
+    ours[1].fn[UT_FN_ENTER] = (uint32_t)(uintptr_t)ut_headroom_enter;
+    ours[1].fn[UT_FN_ISGREY] = (uint32_t)(uintptr_t)ut_headroom_isgrey;
+    k = 3;
     if (atoi(env_str("SETTINGS_DJM", "0")))
-        k += ut_section(ours + k, src, l_djm, ut_defs, 3, &ours[1]);
+        k += ut_section(ours + k, src, l_djm, ut_defs, 3, &ours[2]);
     if (atoi(env_str("SETTINGS_VNC", "0")))
-        k += ut_section(ours + k, src, l_vnc, ut_defs + 3, 3, &ours[1]);
+        k += ut_section(ours + k, src, l_vnc, ut_defs + 3, 3, &ours[2]);
 
     n = ut_build(&ut_deck, src, UT_RBP_N, UT_ROW_JOGIMAGE, &traffic, 1);
     if (n < 0)

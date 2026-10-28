@@ -24,7 +24,12 @@
  * alone (masteratt_hardware). BoothMonitor::setATT @0x5a44c is detoured too, for
  * the booth's: the same enum (its gain table runs down 6 dB a step from 0).
  */
+#include <fcntl.h>
+#include <math.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 #include "rbp_hook.h"
 #include "rbp_key.h"        /* is_rbp_process() */
@@ -84,6 +89,85 @@ static void hooked_booth(void *self, int att)
      original_booth(self, att);
 }
 
+/* ---- HEADROOM (operator, 2026-10-28: rekordbox's setting of that name) -------------
+ * The decks' level before the mixer, apart from the master's attenuator: at -12 dB a
+ * channel's meter reads 12 dB lower, and the master with it. rbp's
+ * mixerengine::MixerChannel::update(frames) @0x9e890 takes a block from its deck
+ * (getPlayerDataPointer), puts it through its three gain stages (+0x40, +0xe8, +0x120,
+ * the first two ramping) and writes it to its own buffer at +0x1c, which EQ, fader and
+ * meters take from: the block is scaled there, after update, so the ramps are left be
+ * and the deck's own buffer (the external mixer's taps) is not touched. Kept in
+ * /root/settings/headroom (dB, 0 / -3 / -6 / -9 / -12), set from UTILITY (fbshim's
+ * utility_rows.c through headroom_set). */
+#define CHANNEL_UPDATE 0x0009e890ul
+/* ldr r3,[r0,#0xd0] ; push {r4,r5,r6,lr} */
+static const uint8_t update_guard[8] = { 0xd0, 0x30, 0x90, 0xe5, 0x70, 0x40, 0x2d, 0xe9 };
+#define CHANNEL_OUT 0x1c
+#define HEADROOM_FILE "/root/settings/headroom"
+typedef void (*update_fn)(void *self, int frames);
+static update_fn original_update;
+static volatile float headroom_gain = 1.0f;
+static volatile int headroom_db;
+
+/* dB as the gain applied. Pure, for the test. */
+float headroom_gain_of(int db)
+{
+     return db >= 0 ? 1.0f : db < -24 ? 0.063095734f : powf(10.0f, (float)db / 20.0f);
+}
+
+/* Set it now and keep it. */
+__attribute__((visibility("default"))) void headroom_set(int db)
+{
+     char buf[16];
+     int fd, n;
+
+     headroom_db = db;
+     headroom_gain = headroom_gain_of(db);
+     fd = open(HEADROOM_FILE, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+     if (fd >= 0) {
+          n = snprintf(buf, sizeof buf, "%d\n", db);
+          if (write(fd, buf, (size_t)n) != n)
+               klog("knobshim2: HEADROOM: %s not written\n", HEADROOM_FILE);
+          close(fd);
+     }
+     klog("knobshim2: HEADROOM %d dB (x%.3f on each deck)\n", db, (double)headroom_gain);
+}
+
+__attribute__((visibility("default"))) int headroom_get(void)
+{
+     return headroom_db;
+}
+
+static void hooked_update(void *self, int frames)
+{
+     float g = headroom_gain, *out;
+
+     original_update(self, frames);
+     if (g == 1.0f || frames <= 0 || frames > 4096)
+          return;
+     out = *(float **)((char *)self + CHANNEL_OUT);
+     if (!out)
+          return;
+     for (int i = 0; i < frames * 2; i++)
+          out[i] *= g;
+}
+
+static void headroom_load(void)
+{
+     char buf[16];
+     int fd = open(HEADROOM_FILE, O_RDONLY | O_CLOEXEC), n;
+
+     if (fd < 0)
+          return;
+     n = (int)read(fd, buf, sizeof buf - 1);
+     close(fd);
+     if (n <= 0)
+          return;
+     buf[n] = '\0';
+     headroom_db = atoi(buf);
+     headroom_gain = headroom_gain_of(headroom_db);
+}
+
 __attribute__((constructor)) static void masteratt_init(void)
 {
      if (!is_rbp_process())
@@ -92,6 +176,12 @@ __attribute__((constructor)) static void masteratt_init(void)
      if (!original_setatt)
           klog("knobshim2: MASTER ATT.: MasterOut::setATT is not the one measured -- "
                "the setting stays a no-op\n");
+     headroom_load();
+     original_update = (update_fn)rbp_hook(CHANNEL_UPDATE, update_guard, (void *)hooked_update);
+     if (!original_update)
+          klog("knobshim2: HEADROOM: MixerChannel::update is not the one measured -- off\n");
+     else
+          klog("knobshim2: HEADROOM %d dB\n", headroom_db);
      original_booth = (setatt_fn)rbp_hook(BOOTH_SETATT, booth_guard, (void *)hooked_booth);
      if (!original_booth)
           klog("knobshim2: BOOTH MONITOR ATT.: BoothMonitor::setATT is not the one "

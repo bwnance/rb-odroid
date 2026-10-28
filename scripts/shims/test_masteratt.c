@@ -16,6 +16,7 @@ int is_rbp_process(void) { return 0; }
 void klog(const char *fmt, ...) { (void)fmt; }
 
 float masteratt_gain(int att);
+float headroom_gain_of(int db);
 
 static int checks, failures;
 #define CHECK(c, ...) do { checks++; if (!(c)) { failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); \
@@ -30,6 +31,9 @@ int main(void)
      CHECK(fabs(db(masteratt_gain(2)) + 12.0) < 0.01, "2 is -12 dB (%.3f)", db(masteratt_gain(2)));
      CHECK(masteratt_gain(7) == 1.0f && masteratt_gain(-1) == 1.0f,
            "a value rbp never labels: untouched, never silence");
+     CHECK(headroom_gain_of(0) == 1.0f && headroom_gain_of(3) == 1.0f, "HEADROOM 0 dB: untouched");
+     CHECK(fabs(db(headroom_gain_of(-12)) + 12.0) < 0.01, "HEADROOM -12 dB (%.3f)", db(headroom_gain_of(-12)));
+     CHECK(fabs(db(headroom_gain_of(-3)) + 3.0) < 0.01, "HEADROOM -3 dB");
      printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);
      return failures ? 1 : 0;
 }

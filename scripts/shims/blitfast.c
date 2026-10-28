@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #if defined(__ARM_NEON__) || defined(__ARM_NEON)
 #include <arm_neon.h>
 #endif
@@ -199,6 +200,12 @@ __attribute__((constructor)) static void blitfast_init(void)
 
      if (!is_rbp_process() || !atoi(env_str("BLIT_FAST", "1")))
           return;
+     /* a switch without the config: the file there at start, and the blit stays
+      * DirectFB's (an A/B for the waveform jumps, 2026-10-28) */
+     if (access("/run/rbp/blitfast.off", F_OK) == 0) {
+          pointsrc_log("blitfast: /run/rbp/blitfast.off -- off");
+          return;
+     }
      base = dfb_base();
      if (!base) {
           pointsrc_log("blitfast: no DirectFB in this process -- off");
