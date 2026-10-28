@@ -789,7 +789,11 @@ session; details further down):
    previous period's cue, 1.45 ms apart, and the FLX10's own HP MIX blending the two
    combed them (notches every ~690 Hz). The master is now held one block and sent
    with the cue written after it (master_aligned): one block more latency, 1.45 ms.
-   AUDIO_MASTER_ALIGN=0 for the old way.
+   AUDIO_MASTER_ALIGN=0 for the old way. That alone made the middle "way quieter"
+   (operator): the two pairs as sent, recorded on the unit with a cued deck playing,
+   cross-correlated at -1.000 at lag 0 -- rbp's headphone stream is the master's
+   polarity inverted. The cue is now folded in inverted back (cue_polarity;
+   AUDIO_CUE_INVERT=0 for rbp's own).
 34. **RX3 touch preview -- not working, to look at** (operator, 2026-10-28). The
    RX3's own touch preview (touching a list row's waveform to audition the track) is
    the ask; the CDJ's PREVIEW audition is not (struck from item 11).

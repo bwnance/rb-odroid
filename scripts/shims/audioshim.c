@@ -4072,6 +4072,19 @@ static const int32_t *master_aligned(const int32_t *src, snd_pcm_uframes_t size)
     return g_master_out;
 }
 
+/* -1: rbp's headphone stream turned the master's way up (see the fold below). */
+static float cue_polarity(void)
+{
+    static int invert = -1;
+    const char *e;
+
+    if (invert < 0) {
+        e = getenv("AUDIO_CUE_INVERT");
+        invert = !(e && e[0] == '0');
+    }
+    return invert ? -1.0f : 1.0f;
+}
+
 static snd_pcm_sframes_t flush_master(const int32_t *src, snd_pcm_uframes_t size)
 {
     /* This process is the one playing, so it -- and not a bring-up helper -- owns the state
@@ -4219,9 +4232,18 @@ static snd_pcm_sframes_t flush_master(const int32_t *src, snd_pcm_uframes_t size
      * changed what rbp is allowed to write would be a second thing to keep true. */
     if (!external) {
         /* The headphones take MASTER ATT. too where the surface blends our
-         * master into them itself (g_hp_att, shmstate.h). */
+         * master into them itself (g_hp_att, shmstate.h).
+         *
+         * AND THEY ARE TURNED THE RIGHT WAY UP (2026-10-28). rbp's headphone stream is
+         * the master's polarity inverted: measured on the unit, a cued deck playing
+         * through both, the two pairs as sent cross-correlate at -1.000 at lag 0.
+         * Alone in the cans that is inaudible; but a surface that blends our master
+         * into the headphones itself (the FLX10's HP MIX) cancelled the deck with the
+         * knob in the middle -- combing while the cue was also a block late (see
+         * master_aligned), then "way quieter in the middle" once it was not (the
+         * operator). AUDIO_CUE_INVERT=0 sends rbp's polarity as it is. */
         fold_stage(&g_phone_stage, &g_cfg.headphones, (unsigned)size,
-                   g_hp_att ? master_att * master_boost : 1.0f);
+                   (g_hp_att ? master_att * master_boost : 1.0f) * cue_polarity());
         fold_stage(&g_booth_stage, &g_cfg.booth, (unsigned)size, 1.0f);
         if (fading) {
             startup_scale_pair(&g_cfg.headphones, (unsigned)size, t0, mute, fade);
