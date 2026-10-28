@@ -129,6 +129,9 @@ int flx10_bfxq_panel(void) { return bfxq_panel; }
 void flx10_beat_jump(int d, int type) { if (bj_n < 16) { bj_deck[bj_n] = d; bj_t[bj_n] = type; } bj_n++; }
 static int pj_n, pj_deck[16]; static float pj_b[16];
 int flx10_plain_jump(int d, float b) { if (pj_n < 16) { pj_deck[pj_n] = d; pj_b[pj_n] = b; } pj_n++; return 1; }
+static int rbp_setting[3] = { -1, -1, -1 };
+int flx10_rbp_setting(int which) { return which >= 0 && which < 3 ? rbp_setting[which] : -1; }
+int flx10_unit_want(int is_cc, int num, int rbp_value);
 /* the rbp mode each FLX10 pad page belongs to */
 static int pmode(int pg) { static const int m[8] = { 0, 2, 3, 5, 4, 6, 1, 7 }; return pg < 0 ? 0 : m[(pg >> 4) & 7]; }
 void flx10_cursor_debug(int *m, int *c, int *l, int *r) { *m = 3; *c = 0; *l = 0; *r = 2; }
@@ -617,6 +620,12 @@ int main(void)
      ON(1, 98); ms(400); map_flx10.tick(); OFF(1, 95); ms(150); map_flx10.tick();
      CHECK(pj_n == 6 && pj_b[5] == 16.0f, "SHIFT + > held repeats 16s; the plain > coming up ends it too (%d)", pj_n);
      OFF(1, 98);
+     /* UTILITY's settings as the unit's own (capture_settings) */
+     CHECK(flx10_unit_want(1, 0x42, 0) == 0x00 && flx10_unit_want(1, 0x42, 1) == 0x10 &&
+           flx10_unit_want(1, 0x43, 2) == 0x20, "MASTER / BOOTH ATT. 0 / -6 / -12 dB -> BF 42/43 00 10 20");
+     CHECK(flx10_unit_want(1, 0x42, 3) == -1 && flx10_unit_want(1, 0x42, -1) == -1, "...nothing for an unknown one");
+     CHECK(flx10_unit_want(0, 0x45, 0) == 0x00 && flx10_unit_want(0, 0x45, 1) == 0x7F,
+           "POWER MANAGEMENT NEVER / 20min -> 9F 45 00 / 7F");
      /* the panel's own long press: 113 / 112, on once it is held, off at the release */
      pj_n = 0; ON(1, 113);
      CHECK(pj_n == 1 && pj_b[0] == 4.0f, "long > (113): a jump at once (%d)", pj_n);

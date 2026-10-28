@@ -56,6 +56,12 @@
 
 #include "shimutil.h"
 #include "shmstate.h"       /* g_cue_mix / g_cue_gain / g_mirror_gain */
+
+/* masteratt.c: the attenuations rbp last applied, and the switch that leaves them to
+ * the unit (flx10_unit_tick). WEAK: the host test has no masteratt.o. */
+extern volatile int masteratt_master __attribute__((weak));
+extern volatile int masteratt_booth __attribute__((weak));
+void masteratt_hardware(int on) __attribute__((weak));
 #include "rbp_abi.h"
 #include "rbp_bridge.h"
 #include "rbp_vu.h"         /* g_fader / g_fader_seen */
@@ -847,24 +853,71 @@ static void flx10_pitch(int deck, int cc, int val)
  * behind it: the unit applies it to its own booth output, and it is not read. */
 static int mastervol_have_hi, mastervol_pos;
 
-static void flx10_mastervol(int cc, int val)
+/* The knob is not reported until it moves (the controls query leaves out the
+ * knobs the unit applies itself, measured 2026-10-28), so its last position is
+ * kept in rbp's own directory and the mirror starts there (operator,
+ * 2026-10-28). */
+#define MASTERVOL_FILE "/root/pdj/flx10.mastervol"
+static int mastervol_saved = -1;
+
+static void mastervol_apply(int pos)
 {
      double g, mid = mastervol_mid;
 
+     if (!(mid > 0.0) || mid > 1.0)
+          mid = MIRROR_GAIN_MID_DEFAULT;
+     g = ((double)pos / 16383.0) / mid;
+     if (g > 1.0)
+          g = 1.0;
+     g_mirror_gain = (float)g;
+}
+
+/* The saved position, -1 for none. */
+static int mastervol_load(void)
+{
+     char buf[16];
+     int fd = open(MASTERVOL_FILE, O_RDONLY | O_CLOEXEC), n, pos;
+
+     if (fd < 0)
+          return -1;
+     n = (int)read(fd, buf, sizeof buf - 1);
+     close(fd);
+     if (n <= 0)
+          return -1;
+     buf[n] = '\0';
+     pos = atoi(buf);
+     return pos >= 0 && pos <= 16383 ? pos : -1;
+}
+
+/* From the tick: the position written when it has settled somewhere new. */
+static void flx10_mastervol_tick(unsigned long long t)
+{
+     static unsigned long long next;
+     char buf[16];
+     int fd, n;
+
+     if (!mastervol_have_hi || mastervol_pos == mastervol_saved || t < next)
+          return;
+     next = t + 2000;
+     fd = open(MASTERVOL_FILE, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+     if (fd < 0)
+          return;
+     n = snprintf(buf, sizeof buf, "%d\n", mastervol_pos);
+     if (write(fd, buf, (size_t)n) == n)
+          mastervol_saved = mastervol_pos;
+     close(fd);
+}
+
+static void flx10_mastervol(int cc, int val)
+{
      if (cc == CC_MASTER_MSB) {
           mastervol_have_hi = 1;
           mastervol_pos = (mastervol_pos & 0x7f) | (val << 7);
           return;
      }
      mastervol_pos = (mastervol_pos & 0x3f80) | (val & 0x7f);
-     if (!mastervol_have_hi)
-          return;
-     if (!(mid > 0.0) || mid > 1.0)
-          mid = MIRROR_GAIN_MID_DEFAULT;
-     g = ((double)mastervol_pos / 16383.0) / mid;
-     if (g > 1.0)
-          g = 1.0;
-     g_mirror_gain = (float)g;
+     if (mastervol_have_hi)
+          mastervol_apply(mastervol_pos);
 }
 
 /* ---- SLIP REVERSE / REVERSE ----------------------------------------------
@@ -3211,17 +3264,23 @@ static void flx10_startup(void)
       * the master only once ("every channel cue too quiet, master too loud").
       * The knobs and MASTER CUE are therefore not sent to rbp. rbp's mixer
       * comes up after this runs and drops keys until then, so flx10_hp_tick()
-      * sends the two again, as rbp_vu.c does the master level. The unit's
-      * headphone master is our master output, which UTILITY's MASTER ATT.
-      * turns down, so the cue bus takes MASTER ATT. too (g_hp_att): the
-      * balance below was set at 0 dB. */
+      * sends the two again, as rbp_vu.c does the master level. UTILITY's
+      * MASTER ATT. is the unit's own attenuator (flx10_unit_tick, 2026-10-28),
+      * so the master samples -- the unit's headphone master -- are not scaled,
+      * and the cue bus is not either (g_hp_att 0): the balance below was set
+      * at 0 dB. */
      hp_until = shim_now_ms() + HP_ASSERT_MS;
-     g_hp_att = 1;
+     g_hp_att = 0;
+     if (masteratt_hardware)
+          masteratt_hardware(1);
      /* The HDMI mirror's level (flx10_mastervol) starts as the MASTER knob all
       * the way down, not shmstate.c's full: the unit does not report the knob
       * until it moves, and a mirror at full while the knob sits at zero was the
-      * loud start (operator, 2026-10-26). */
+      * loud start (operator, 2026-10-26) -- or where the knob was last seen. */
      g_mirror_gain = 0.0f;
+     mastervol_saved = mastervol_load();
+     if (mastervol_saved >= 0)
+          mastervol_apply(mastervol_saved);
      klog("knobshim2: DDJ-FLX10: routed Ch1->Deck1, Ch2->Deck2; master level unity\n");
 }
 
@@ -3302,6 +3361,8 @@ static void flx10_master_tick(unsigned long long t)
      klog("knobshim2: flx10 deck%d off air: MASTER to deck%d\n", m + 1, o + 1);
 }
 
+static void flx10_unit_tick(unsigned long long t);
+
 static void flx10_tick(void)
 {
      unsigned long long t = shim_now_ms();
@@ -3316,6 +3377,8 @@ static void flx10_tick(void)
           browsed = 0;
      flx10_push_tick(t);
      flx10_jump_tick(t);
+     flx10_unit_tick(t);
+     flx10_mastervol_tick(t);
      flx10_scfx_tick(t);
      flx10_panel_tick(t);
      flx10_link_tick(t);
@@ -3804,6 +3867,7 @@ static const unsigned char flx10_init_short[][3] = {
 #define UNIT_SET_HI 0x4E
 static int unit_set[2][UNIT_SET_HI - UNIT_SET_LO + 1] = {
      [0 ... 1] = { [0 ... UNIT_SET_HI - UNIT_SET_LO] = -1 } };
+static int unit_ready;                     /* the connect sequence is out */
 
 static void flx10_unit_setting(int ch, int is_cc, int num, int val)
 {
@@ -3902,6 +3966,91 @@ static void flx10_display_init(unsigned long long now)
      }
      /* everything the display shows goes out again right after */
      jd[0].refresh = jd[1].refresh = 0;
+     unit_ready = 1;                        /* rbp's settings go out from here */
+}
+
+/* ---- the unit's own audio settings (operator, 2026-10-28) -----------------
+ * rekordbox's mixer preferences for the FLX10 are ch 16 MIDI (capture_settings,
+ * each changed and changed back):
+ *   BF 42 master attenuator, BF 43 booth attenuator: 00 / 10 / 20 = 0 / -6 / -12 dB
+ *   9F 47 master, 9F 48 booth: 7F stereo, 00 mono
+ *   9F 49 peak limiter (master), 9F 4A mic to master, 9F 4E mic to booth,
+ *   9F 3F mic mixed to REC OUT, 9F 45 power management (auto power off):
+ *   7F on, 00 off
+ *   (BF 44, the demo / screen saver, 00..40: not used.)
+ * The unit keeps them and reports them to 9F 70 00 (unit_set). The ones rbp has a
+ * UTILITY row for are rbp's -- MASTER ATTENUATOR and BOOTH MONITOR ATTENUATOR
+ * (masteratt.c), MIC OUT TO BOOTH, MIC OUT TO MASTER REC (REC OUT), POWER
+ * MANAGEMENT -- and go out whenever the unit's differs. The rest have rows of the
+ * shim's (utility_rows.c), which read and set the unit's own: flx10_unit_get/put. */
+
+#define US_MIC_REC   0x3F
+#define US_POWER     0x45
+#define US_MIC_BOOTH 0x4E
+#define US_MASTER_ATT 0x42
+#define US_BOOTH_ATT  0x43
+#define US_PERIOD_MS 500
+
+/* rbp's own UTILITY values: 0 MIC OUT TO BOOTH, 1 MIC OUT TO MASTER REC, 2 POWER
+ * MANAGEMENT (0 NEVER, 1 20min); each its row's index, -1 not known. WEAK for the
+ * host test. */
+__attribute__((weak)) int flx10_rbp_setting(int which)
+{
+     static const uintptr_t get[3] = { 0xfebf8, 0xfec44, 0xfeeec };   /* UiGetUtil... */
+     if (which < 0 || which > 2)
+          return -1;
+     return ((int (*)(void))get[which])();
+}
+
+/* The value the unit should have for one of rbp's rows, from rbp's setting. Pure. */
+int flx10_unit_want(int is_cc, int num, int rbp_value)
+{
+     if (rbp_value < 0)
+          return -1;
+     if (is_cc)
+          return (num == US_MASTER_ATT || num == US_BOOTH_ATT) && rbp_value <= 2 ?
+                 rbp_value * 0x10 : -1;
+     return rbp_value ? 0x7F : 0x00;
+}
+
+/* The unit's own value for ch 16 note/CC `num`, -1 unknown (fbshim's UTILITY rows). */
+__attribute__((visibility("default"))) int flx10_unit_get(int is_cc, int num)
+{
+     if (num < UNIT_SET_LO || num > UNIT_SET_HI)
+          return -1;
+     return unit_set[is_cc ? 1 : 0][num - UNIT_SET_LO];
+}
+
+/* Set the unit's own value; 1 when it went out. */
+__attribute__((visibility("default"))) int flx10_unit_put(int is_cc, int num, int val)
+{
+     if (!unit_ready || num < UNIT_SET_LO || num > UNIT_SET_HI || val < 0 || val > 127)
+          return 0;
+     if (!(is_cc ? midi_cc(JD_CH, num, val) : midi_note(JD_CH, num, val)))
+          return 0;
+     unit_set[is_cc ? 1 : 0][num - UNIT_SET_LO] = val;
+     klog("knobshim2: FLX10: set unit %s 0x%02X = 0x%02X\n", is_cc ? "CC" : "note", num, val);
+     return 1;
+}
+
+static void flx10_unit_tick(unsigned long long t)
+{
+     static unsigned long long next;
+     static const struct { int is_cc, num; } rows[] = {
+          { 1, US_MASTER_ATT }, { 1, US_BOOTH_ATT },
+          { 0, US_MIC_BOOTH }, { 0, US_MIC_REC }, { 0, US_POWER },
+     };
+     if (!unit_ready || t < next)
+          return;
+     next = t + US_PERIOD_MS;
+     for (unsigned i = 0; i < sizeof rows / sizeof rows[0]; i++) {
+          int v = i == 0 ? (&masteratt_master ? masteratt_master : -1)
+                : i == 1 ? (&masteratt_booth ? masteratt_booth : -1)
+                : flx10_rbp_setting((int)i - 2);
+          int want = flx10_unit_want(rows[i].is_cc, rows[i].num, v);
+          if (want >= 0 && flx10_unit_get(rows[i].is_cc, rows[i].num) != want)
+               flx10_unit_put(rows[i].is_cc, rows[i].num, want);
+     }
 }
 
 /* The tempo % the jog screen shows (and the key shift with it): the speed

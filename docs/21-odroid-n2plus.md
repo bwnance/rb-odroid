@@ -228,9 +228,22 @@ session; details further down):
    from a detour of BoothMonitor::setATT @0x5a44c was built and reverted; the
    FLX10's BOOTH knob sets the level. Booth flipping between two levels at
    fixed points in a track was the jog time CCs landing on the unit's own
-   settings -- fixed, see the jog display table. Still open: MASTER ATT. on the
-   FLX10's own master attenuator, if it has one among BF 41..4A, instead of
-   in the samples.
+   settings -- fixed, see the jog display table.
+   **Since 2026-10-28 both attenuators are the unit's own** (operator's USB
+   capture of rekordbox's preferences, capture_settings): ch 16 BF 42 master,
+   BF 43 booth, 00 / 10 / 20 = 0 / -6 / -12 dB (the CC 13 tried before was the
+   wrong number). rbp's MASTER ATTENUATOR / BOOTH MONITOR ATTENUATOR go out that
+   way (masteratt.c records them, map_flx10.c flx10_unit_tick sends them) and the
+   samples are no longer scaled. So do MIC OUT TO BOOTH (9F 4E), MIC OUT TO
+   MASTER REC (9F 3F, the unit's "mix the MIC audio to REC OUT") and POWER
+   MANAGEMENT (9F 45, the unit's auto power off; 7F on). What rbp has no row for
+   is UTILITY's new FLX10 section, set on the unit and read back from its own
+   report to 9F 70 00: MASTER / BOOTH MONO/STEREO (9F 47 / 48, 7F stereo), PEAK
+   LIMITER (9F 49) and MIC OUT TO MASTER (9F 4A). BF 44 is the unit's demo /
+   screen saver (00..40), not used. The MASTER / BOOTH / headphone knobs are
+   applied by the unit and are not in its answer to the controls query, so the
+   HDMI mirror starts at the MASTER knob's last seen position
+   (/root/pdj/flx10.mastervol).
 7. **Key sync -- built, to try on the unit** (2026-10-26). KEY SYNC (short
    press; held is still MASTER TEMPO) latches like a CDJ: the deck that is not
    the tempo MASTER is shifted by the fewest semitones (-5..+6) onto the

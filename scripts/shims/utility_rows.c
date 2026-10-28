@@ -333,6 +333,77 @@ static int ut_gen_isgrey(struct ut_entry *e)
     return !S.mixer_present;
 }
 
+/* ---- the DDJ-FLX10's own audio settings -------------------------------------
+ * What rekordbox sets on the unit and rbp has no row for (operator, 2026-10-28):
+ * master and booth mono / stereo, the master's peak limiter, the mic to the master.
+ * The unit keeps them; each row shows the unit's own value as it reported it, and a
+ * choice sets it (map_flx10.c's flx10_unit_get / flx10_unit_put, knobshim.so: WEAK,
+ * and greyed while the unit has not reported one). Index 1 is the note at 7F. */
+__attribute__((weak)) int flx10_unit_get(int is_cc, int num);
+__attribute__((weak)) int flx10_unit_put(int is_cc, int num, int val);
+
+static const uint16_t l_flx10[] = { 'F', 'L', 'X', '1', '0', 0 };
+static const uint16_t *const v_monostereo[] = { W('M','O','N','O'), W('S','T','E','R','E','O') };
+static const uint16_t l_master_st[] = { SP6, 'M','A','S','T','E','R',' ','M','O','N','O','/',
+                                        'S','T','E','R','E','O', 0 };
+static const uint16_t l_booth_st[]  = { SP6, 'B','O','O','T','H',' ','M','O','N','O','/',
+                                        'S','T','E','R','E','O', 0 };
+static const uint16_t l_peak[]      = { SP6, 'P','E','A','K',' ','L','I','M','I','T','E','R', 0 };
+static const uint16_t l_mic_master[] = { SP6, 'M','I','C',' ','O','U','T',' ','T','O',' ',
+                                         'M','A','S','T','E','R', 0 };
+static const struct { const uint16_t *label; int note; const uint16_t *const *values; } unit_defs[] = {
+    { l_master_st,  0x47, v_monostereo },
+    { l_booth_st,   0x48, v_monostereo },
+    { l_peak,       0x49, v_offon },
+    { l_mic_master, 0x4A, v_offon },
+};
+#define UNIT_ROWS (int)(sizeof unit_defs / sizeof unit_defs[0])
+
+static int unit_note_of(const struct ut_entry *e)
+{
+    for (int i = 0; i < UNIT_ROWS; i++)
+        if (unit_defs[i].label == e->label)
+            return unit_defs[i].note;
+    return -1;
+}
+
+/* The row's index for the unit's own value, -1 when it has not reported one. */
+static int unit_index(const struct ut_entry *e)
+{
+    int note = unit_note_of(e), v = note >= 0 && flx10_unit_get ? flx10_unit_get(0, note) : -1;
+    return v < 0 ? -1 : v ? 1 : 0;
+}
+
+static int ut_unit_setline(struct ut_entry *e, unsigned char **lines)
+{
+    int idx = e->edit;
+
+    line_put(lines[0], e->label);
+    if (idx == -1)
+        e->cur = idx = unit_index(e);
+    line_put(lines[1], idx >= 0 && idx < 2 ? e->values[idx] : 0);
+    return 0;
+}
+
+static int ut_unit_enter(struct ut_entry *e)
+{
+    int v = e->edit, note = unit_note_of(e);
+
+    if (note < 0 || v < 0 || v > 1 || v == e->cur)
+        return 0;
+    if (!flx10_unit_put || !flx10_unit_put(0, note, v ? 0x7F : 0x00)) {
+        pointsrc_log("utility: unit setting 0x%02X -> %d not sent (no DDJ-FLX10)", note, v);
+        return 0;
+    }
+    e->cur = v;
+    return 1;
+}
+
+static int ut_unit_isgrey(struct ut_entry *e)
+{
+    return unit_index(e) < 0;
+}
+
 /* A section: rbp's blank row, MIXER's heading with our label, then the rows of `defs`.
  * Answers how many entries it wrote. */
 static int ut_section(struct ut_entry *out, const struct ut_entry *src, const uint16_t *heading,
@@ -397,7 +468,7 @@ int utility_rows_install(void)
 {
     const struct ut_entry *src = (const struct ut_entry *)(uintptr_t)UT_RBP_ROWS;
     const struct ut_entry *slip;
-    struct ut_entry ours[1 + 2 * 5];
+    struct ut_entry ours[1 + 2 + UNIT_ROWS + 2 * 5];
     int i, n, k;
 
     if (!is_rbp_process() || !rbp_text_mapped())
@@ -440,6 +511,19 @@ int utility_rows_install(void)
     struct ut_entry traffic = ours[0];
     traffic.label = ut_label_traffic;
     k = 1;
+    /* the DDJ-FLX10's own settings: a section of their own after MIXER (operator,
+     * 2026-10-28) -- rbp's blank row, MIXER's heading as FLX10, the rows */
+    ours[k++] = src[UT_ROW_BLANK];
+    ours[k] = src[UT_ROW_MIXERCAT];
+    ours[k++].label = l_flx10;
+    for (i = 0; i < UNIT_ROWS; i++, k++) {
+        ours[k] = ours[0];
+        ours[k].label = unit_defs[i].label;
+        ours[k].values = unit_defs[i].values;
+        ours[k].fn[UT_FN_SETLINE] = (uint32_t)(uintptr_t)ut_unit_setline;
+        ours[k].fn[UT_FN_ENTER] = (uint32_t)(uintptr_t)ut_unit_enter;
+        ours[k].fn[UT_FN_ISGREY] = (uint32_t)(uintptr_t)ut_unit_isgrey;
+    }
     if (atoi(env_str("SETTINGS_DJM", "0")))
         k += ut_section(ours + k, src, l_djm, ut_defs, 3, &ours[0]);
     if (atoi(env_str("SETTINGS_VNC", "0")))
@@ -457,7 +541,7 @@ int utility_rows_install(void)
     if (patch_word(ut_lit_rows, (uint32_t)(uintptr_t)ut_table.rows) != 0)
         goto failed;
     pointsrc_log("utility: %d rows (TRAFFIC LIGHT after IMAGE ON JOG DISPLAY, HDMI AUDIO "
-                 "after MIXER MODE%s%s), table at %p", n,
+                 "after MIXER MODE, the FLX10 section%s%s), table at %p", n,
                  atoi(env_str("SETTINGS_DJM", "0")) ? ", the DJM section" : "",
                  atoi(env_str("SETTINGS_VNC", "0")) ? ", the VNC section" : "",
                  (void *)&ut_table);

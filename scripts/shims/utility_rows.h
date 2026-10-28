@@ -37,7 +37,7 @@ struct ut_entry {
 #define UT_FN_ISGREY  6
 
 /* The bigger table: the count, then the rows, exactly the shape of rbp's. */
-#define UT_ROWS_MAX 48
+#define UT_ROWS_MAX 56
 struct ut_table {
     uint32_t count;
     struct ut_entry rows[UT_ROWS_MAX];

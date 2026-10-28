@@ -16,6 +16,13 @@
  * the meters, as the RX3's analogue attenuator sits after its converter. rbp
  * calls setATT with the saved setting at start, so the level is right from the
  * first block.
+ *
+ * WITH THE DDJ-FLX10 the attenuation is the unit's own (operator, 2026-10-28):
+ * rekordbox sets it over MIDI (ch 16 BF 42 for the master, BF 43 for the booth,
+ * 00 / 10 / 20 = 0 / -6 / -12 dB -- capture_settings), and the map sends the
+ * setting that way (map_flx10.c, flx10_unit_tick) while the samples are left
+ * alone (masteratt_hardware). BoothMonitor::setATT @0x5a44c is detoured too, for
+ * the booth's: the same enum (its gain table runs down 6 dB a step from 0).
  */
 #include <stdint.h>
 
@@ -28,8 +35,16 @@
 /* push {r3,r4,r5,lr} ; subs r4,r1,#0 -- nothing pc-relative */
 static const uint8_t setatt_guard[8] = { 0x38, 0x40, 0x2d, 0xe9, 0x00, 0x40, 0x51, 0xe2 };
 
+#define BOOTH_SETATT 0x0005a44cul       /* mixerengine::BoothMonitor::setATT(EnBoothMonitorATT) */
+/* ldr r3,[r0,#0x44] ; cmp r3,r1 */
+static const uint8_t booth_guard[8] = { 0x44, 0x30, 0x90, 0xe5, 0x01, 0x00, 0x53, 0xe1 };
+
 typedef void (*setatt_fn)(void *self, int att);
-static setatt_fn original_setatt;
+static setatt_fn original_setatt, original_booth;
+
+/* The settings rbp last applied, 0 0 dB / 1 -6 dB / 2 -12 dB; -1 not yet. */
+volatile int masteratt_master = -1, masteratt_booth = -1;
+static volatile int hardware;
 
 /* rbp's EnMasterATT as a linear gain. Pure, for the test. */
 float masteratt_gain(int att)
@@ -41,12 +56,32 @@ float masteratt_gain(int att)
      }
 }
 
+static void apply(void)
+{
+     g_master_att = hardware ? 1.0f : masteratt_gain(masteratt_master);
+}
+
+/* 1: the controller attenuates its outputs itself, the samples are not scaled. */
+void masteratt_hardware(int on)
+{
+     hardware = on;
+     apply();
+}
+
 static void hooked_setatt(void *self, int att)
 {
-     g_master_att = masteratt_gain(att);
-     klog("knobshim2: MASTER ATT. %d -> x%.3f on the master output\n", att,
-          (double)g_master_att);
+     masteratt_master = att;
+     apply();
+     klog("knobshim2: MASTER ATT. %d -> %s\n", att,
+          hardware ? "the controller's own attenuator" : "scaled on the master output");
      original_setatt(self, att);
+}
+
+static void hooked_booth(void *self, int att)
+{
+     masteratt_booth = att;
+     klog("knobshim2: BOOTH MONITOR ATT. %d\n", att);
+     original_booth(self, att);
 }
 
 __attribute__((constructor)) static void masteratt_init(void)
@@ -57,4 +92,8 @@ __attribute__((constructor)) static void masteratt_init(void)
      if (!original_setatt)
           klog("knobshim2: MASTER ATT.: MasterOut::setATT is not the one measured -- "
                "the setting stays a no-op\n");
+     original_booth = (setatt_fn)rbp_hook(BOOTH_SETATT, booth_guard, (void *)hooked_booth);
+     if (!original_booth)
+          klog("knobshim2: BOOTH MONITOR ATT.: BoothMonitor::setATT is not the one "
+               "measured\n");
 }
