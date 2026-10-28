@@ -285,6 +285,8 @@ static struct {
     long mirror_reopen_ms;     /* AUDIO_MIRROR_REOPEN_MS: ceiling on the retry wait */
     double mirror_boost_db;    /* AUDIO_MIRROR_BOOST_DB: the level lift, as written */
     double mirror_boost;       /* and as a multiplier (mirror_boost_gain()) */
+    double master_boost_db;    /* AUDIO_MASTER_BOOST_DB: the master's lift, as written */
+    double master_boost;       /* and as a multiplier */
     char mirror_file[128];     /* AUDIO_MIRROR_FILE: the live on/off switch's path */
     long mute_frames;          /* STARTUP_MUTE_MS at 44100 */
     long fade_frames;          /* STARTUP_FADE_MS at 44100 */
@@ -675,6 +677,17 @@ static int apply_audio_device(const char **why)
  * outside that window is logged as the value it was given. */
 #define AUDIO_MIRROR_BOOST_DB_DEFAULT "4"
 
+/* AUDIO_MASTER_BOOST_DB: a fixed lift on the master output (and on the headphone
+ * pair where it carries the cue the surface blends with that master, g_hp_att),
+ * after rbp and on top of UTILITY's MASTER ATT. -- clamped after the attenuation,
+ * so ATT. buys it headroom -- and not on the HDMI mirror, which has its own. rbp keeps headroom in the trim: its trim table puts the knob's centre
+ * at -8.7 dB (0 dB is fully right), and the +5 dB master pin wins back only 5 of
+ * it, so a track at centre trim left rbp 3.7 dB under rekordbox on the same unit
+ * -- the operator matched them by ear with exactly +3.71 dB of trim (DDJ-FLX10,
+ * 2026-10-27). Samples the lift pushes past full scale are clamped and counted as
+ * clips_m on the writei line. 0 = off. */
+#define AUDIO_MASTER_BOOST_DB_DEFAULT "0"
+
 /* The mirror's own ring, in frames and periods. Bigger than the master's 64-frame
  * block on purpose: the two ends run on independent clocks (the FLX4 and the HDMI
  * sink), so what this sizes is how much drift the mirror can absorb before it has
@@ -977,6 +990,8 @@ static unsigned long g_mirror_buffer;  /* the ring the sink granted, in frames *
 static unsigned long g_mirror_pads;    /* blocks whose write carried padding */
 static unsigned long g_mirror_pad_frames_sum;  /* frames of padding written */
 static unsigned long g_mirror_pad_silent;  /* pads with no delivered frame to hold */
+static unsigned long g_master_clips;   /* master/cue samples AUDIO_MASTER_BOOST_DB
+                                         * pushed past full scale */
 static unsigned long g_mirror_clips;   /* mirror samples the boost pushed past full
                                         * scale, saturated rather than wrapped */
 
@@ -1446,6 +1461,23 @@ static void load_config(void)
          * log prints what was ASKED FOR (above) beside the gain the samples actually
          * get, and those two numbers differing is the tell that a value was clamped. */
         g_cfg.mirror_boost = mirror_boost_gain(db);
+    }
+
+    /* The master's lift: the same parse and the same law (and window) as the
+     * mirror's just above. */
+    s = env_str("AUDIO_MASTER_BOOST_DB", AUDIO_MASTER_BOOST_DB_DEFAULT);
+    {
+        char *end = NULL;
+        double db = strtod(s, &end);
+        if (end == s || *end != '\0' || db != db) {
+            alog("audioshim: AUDIO_MASTER_BOOST_DB='%s' is not a number; using the "
+                 "default %s dB\n", s, AUDIO_MASTER_BOOST_DB_DEFAULT);
+            db = strtod(AUDIO_MASTER_BOOST_DB_DEFAULT, NULL);
+        }
+        g_cfg.master_boost_db = db;
+        g_cfg.master_boost = mirror_boost_gain(db);
+        alog("audioshim: AUDIO_MASTER_BOOST_DB=%g -> x%.3f on the master\n", db,
+             g_cfg.master_boost);
     }
 
     /* One line per candidate, at startup only, so the log says what was asked for
@@ -3481,6 +3513,15 @@ static inline int32_t mirror_saturate(int32_t v)
     return c;
 }
 
+/* The same, for the master's lift (AUDIO_MASTER_BOOST_DB). */
+static inline int32_t master_saturate(int32_t v)
+{
+    int32_t c = s24pack_clamp(v);
+    if (c != v)
+        g_master_clips++;
+    return c;
+}
+
 /* rbp's samples are right-justified 24-bit values whose top byte is zero, so the
  * raw word for -1 is the positive 0x00ffffff. This is the expression the SC Live
  * 4 version used, and it is load-bearing for every gain and every peak: multiply
@@ -3657,7 +3698,7 @@ static void fold_stage(const struct stage *st, const struct pair *pair,
     if (!pair_mapped(pair) || st->frames == 0)
         return;
     n = st->frames < frames ? st->frames : frames;
-    if (gain >= 1.0f) {
+    if (gain == 1.0f) {
         for (i = 0; i < n; i++) {
             g_out[i * g_out_channels + pair->a] = st->buf[i * 2 + 0];
             g_out[i * g_out_channels + pair->b] = st->buf[i * 2 + 1];
@@ -3665,8 +3706,10 @@ static void fold_stage(const struct stage *st, const struct pair *pair,
         return;
     }
     for (i = 0; i < n; i++) {
-        g_out[i * g_out_channels + pair->a] = (int32_t)((float)st->buf[i * 2 + 0] * gain);
-        g_out[i * g_out_channels + pair->b] = (int32_t)((float)st->buf[i * 2 + 1] * gain);
+        g_out[i * g_out_channels + pair->a] =
+            master_saturate((int32_t)((float)st->buf[i * 2 + 0] * gain));
+        g_out[i * g_out_channels + pair->b] =
+            master_saturate((int32_t)((float)st->buf[i * 2 + 1] * gain));
     }
 }
 
@@ -4020,6 +4063,8 @@ static snd_pcm_sframes_t flush_master(const int32_t *src, snd_pcm_uframes_t size
      * environment once, in the constructor, so every frame of every block takes
      * the same branch and no frame can straddle a change of mode. */
     const int external = g_cfg.mixer_external;
+    /* AUDIO_MASTER_BOOST_DB, on what goes to the card only (see its #define). */
+    const float master_boost = (float)g_cfg.master_boost;
     snd_pcm_uframes_t i;
     unsigned long long t0 = g_startup_frames_done;
     unsigned long long mute = (unsigned long long)g_cfg.mute_frames;
@@ -4053,7 +4098,7 @@ static snd_pcm_sframes_t flush_master(const int32_t *src, snd_pcm_uframes_t size
         int32_t al = (sl < 0) ? -sl : sl;
         int32_t ar = (sr < 0) ? -sr : sr;
         float g = master_gain;
-        int32_t ol, or_;
+        int32_t ol, or_, cl, cr;
 
         if (al > s_peak_master) s_peak_master = al;
         if (ar > s_peak_master) s_peak_master = ar;
@@ -4066,18 +4111,26 @@ static snd_pcm_sframes_t flush_master(const int32_t *src, snd_pcm_uframes_t size
             g *= startup_gain(t0 + i, mute, fade);
         ol = (int32_t)(sl * g);
         or_ = (int32_t)(sr * g);
+        /* The card's copy takes AUDIO_MASTER_BOOST_DB; ol/or_ stay as they
+         * are for the mirror below, which has its own lift. */
+        cl = ol;
+        cr = or_;
+        if (master_boost != 1.0f) {
+            cl = master_saturate((int32_t)((float)ol * master_boost));
+            cr = master_saturate((int32_t)((float)or_ * master_boost));
+        }
         /* In external mixer mode the mix goes nowhere: the deck taps below are
          * what the card gets, and sending this as well would put every deck on
          * the card twice. The samples are still computed and still reach the
          * mirror beneath, so the HDMI monitor keeps rbp's mix whether the
          * Euphonia is mixing or rbp is. */
         if (!external && pair_mapped(&g_cfg.master)) {
-            g_out[i * g_out_channels + g_cfg.master.a] = ol;
-            g_out[i * g_out_channels + g_cfg.master.b] = or_;
+            g_out[i * g_out_channels + g_cfg.master.a] = cl;
+            g_out[i * g_out_channels + g_cfg.master.b] = cr;
         }
         if (!external && pair_mapped(&g_cfg.monitor)) {
-            g_out[i * g_out_channels + g_cfg.monitor.a] = ol;
-            g_out[i * g_out_channels + g_cfg.monitor.b] = or_;
+            g_out[i * g_out_channels + g_cfg.monitor.a] = cl;
+            g_out[i * g_out_channels + g_cfg.monitor.b] = cr;
         }
         /* The HDMI mirror's copy of the same two samples: channel 0 is the
          * master's left and channel 1 its right — post Main Vol, post startup
@@ -4130,7 +4183,7 @@ static snd_pcm_sframes_t flush_master(const int32_t *src, snd_pcm_uframes_t size
         /* The headphones take MASTER ATT. too where the surface blends our
          * master into them itself (g_hp_att, shmstate.h). */
         fold_stage(&g_phone_stage, &g_cfg.headphones, (unsigned)size,
-                   g_hp_att ? master_att : 1.0f);
+                   g_hp_att ? master_att * master_boost : 1.0f);
         fold_stage(&g_booth_stage, &g_cfg.booth, (unsigned)size, 1.0f);
         if (fading) {
             startup_scale_pair(&g_cfg.headphones, (unsigned)size, t0, mute, fade);
@@ -4257,9 +4310,10 @@ static snd_pcm_sframes_t flush_master(const int32_t *src, snd_pcm_uframes_t size
         }
         if ((g_write_count % 500) == 1)
             alog("audioshim: writei #%lu frames=%lu bytes=%u written=%ld "
-                 "peak_m=%d mainvol=%.3f prepares=%lu\n",
+                 "peak_m=%d mainvol=%.3f prepares=%lu clips_m=%lu\n",
                  g_write_count, (unsigned long)size, out_bytes, (long)written,
-                 s_peak_master, (double)master_gain, g_prepare_count);
+                 s_peak_master, (double)master_gain, g_prepare_count,
+                 g_master_clips);
     } else if (out) {
         /* No card: either one was never opened (a unit booted with the controller
          * unplugged) or it was lost above. Both recover the same way, and this is

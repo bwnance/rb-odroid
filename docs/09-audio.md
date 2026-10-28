@@ -690,7 +690,10 @@ rbp. Forwarding them applied each twice: the cue was turned down in rbp and agai
 in the unit, the master only once ("every channel cue too quiet, master too
 loud"). rbp's master level stays pinned at 1023 as on every map -- which is
 +5 dB in rbp (`MasterOut::setVolume`: the knob's table x 1.778), not unity; at
-0 dB the master was quieter than rekordbox's on the same unit. And since the unit's headphone master is our master output,
+0 dB the master was quieter than rekordbox's on the same unit. Even at +5 dB it
+was 3.7 dB under rekordbox, because rbp's trim centre is -8.7 dB (its trim
+table tops out at 0 dB), so `RB_AUDIO_MASTER_BOOST_DB=3.7` lifts the master in
+audioshim, clamped and counted (`clips_m`), and the cue with it. And since the unit's headphone master is our master output,
 UTILITY's MASTER ATT. scales the headphone pair too (`g_hp_att`), or the balance
 set at 0 dB would move with it.
 
