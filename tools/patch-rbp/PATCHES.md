@@ -53,7 +53,7 @@ Words are shown as little-endian u32 hex. `E320F000` is `nop`,
 | `0x2d6cb0` | `18BD8038` | `E1A00000` | `TouchPanel::openDevice` never bails on `isThreadRunning` |
 | `0x31ddb0` | `1A000014` | `E1A00000` | `startUp` never bails on panel flag |
 | `0x31ddb8` | `0A00000E` | `EAFFFFFF` | `startUp` skips failing internal init |
-| `0x3664b4` | `E0633000` | `E3A03000` | comm helper: `r3 = 0` |
+| `0x3664b4` | `E0633000` | `E3A03000` | comm helper: `r3 = 0` (`isOnMessageThread` always true; the touch preview's calls are answered false by scripts/shims/touchpreview.c) |
 | `0x366530` | `1A000004` | `EA000004` | `PanelComPeerLinux::postMessage` wait-for-panel loop removed (startup deadlock) |
 
 ## 4. Key dispatch / throw hardening ("fixthrow")

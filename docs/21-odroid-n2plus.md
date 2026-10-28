@@ -859,7 +859,7 @@ session; details further down):
    switch it off, force that ratio to 1. The screen jumps of item 38 looked
    like a display matter in the end (operator): the static UI in rbp's frames never
    shifted, nor did the display plane.
-34. **RX3 touch preview -- LINK CUE on SAMPLER CUE, to try** (operator, 2026-10-28).
+34. **RX3 touch preview -- works, checked on the unit** (operator, 2026-10-28).
    The RX3's touch preview plays on rbp's preview player, heard in the headphones only
    with LINK CUE on, which the FLX10 has no button for. SAMPLER CUE (rbp has no
    sampler) now toggles it -- MixerEngine::setPreviewChHeadphoneCue @0x5762c (the
@@ -867,6 +867,16 @@ session; details further down):
    does not reach it) -- and its light follows getPreviewChHeadphoneCue. The CDJ's
    PREVIEW audition is not the ask (struck from item 11). TOUCH DISPLAY CALIBRATION
    is left out of UTILITY: the touch is the shim's, already mapped.
+   That alone was not it: no touch ever reached the player. ui::PlayerPreview's
+   loadPreview / setPreviewPosition / unloadPreview (@0x30a47c / 0x30a560 /
+   0x30a618) post their work to the UI thread and refuse ("Err! [UI Thread]") when
+   isOnMessageThread() says the caller is on it -- and rbp_patch.py's 0x3664b4
+   (PATCHES.md section 3) makes PanelComPeerLinux::isOnMessageThread always say
+   so. touchpreview.c answers no for the thread inside one of those three calls
+   and keeps the patch's yes for everyone else. Checked 2026-10-28 with injected
+   touches and a peak of rbp's headphone stream: a held touch on any row's
+   waveform plays (about -12 dBFS peaks) with LINK CUE on, is silent with it off,
+   stops on release; a re-touch 0.3 s later plays.
 
 How rbp sorts a browse list (read 2026-10-27, for whoever needs it next; a
 default playlist sort was built on it and dropped -- the operator loads the sort
