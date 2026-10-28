@@ -40,6 +40,7 @@ static const uint32_t ut_lit_rows = 0x0013d9e4;
 #define UT_ROW_BOOTHATT     19            /* BOOTH MONITOR ATTENUATOR */
 #define UT_ROW_SCREENSAVER  29            /* SCREEN SAVER, in GENERAL */
 #define UT_ROW_JOGLCD       28            /* JOG LCD BRIGHTNESS: the FLX10 has none */
+#define UT_ROW_TOUCHCAL     30            /* TOUCH DISPLAY CALIBRATION: not this panel's */
 #define UT_ROW_VERSION      32            /* VERSION No.: "Ver Can't get version." here */
 #define UT_STRSET_OFF_ON    0x00513db8u   /* SLIP FLASHING's values: OFF, ON */
 #define UTIL_SETLINE_MIXERMODE 0x0013b118u /* checked, not called */
@@ -714,11 +715,15 @@ int utility_rows_install(void)
     for (i = 0; i < n; i++)
         if (ut_table.rows[i].label == src[UT_ROW_VERSION].label)
             ut_table.rows[i].fn[UT_FN_SETLINE] = (uint32_t)(uintptr_t)ut_version_setline;
-    /* SCREEN SAVER and JOG LCD BRIGHTNESS left out (operator, 2026-10-28: the FLX10's
-     * jog screens take no brightness from it) */
+    /* SCREEN SAVER, JOG LCD BRIGHTNESS and TOUCH DISPLAY CALIBRATION left out (operator,
+     * 2026-10-28): the FLX10's jog screens take no brightness from it, and the touch is
+     * the shim's (tscfake.c), already mapped to the glass -- rbp's calibration is for the
+     * RX3's resistive panel, its files are rewritten to identity at every start, and a
+     * run only skewed the touch ("touch screen calibration doesn't work"). */
     for (i = k = 0; i < n; i++)
         if (ut_table.rows[i].label != src[UT_ROW_SCREENSAVER].label &&
-            ut_table.rows[i].label != src[UT_ROW_JOGLCD].label)
+            ut_table.rows[i].label != src[UT_ROW_JOGLCD].label &&
+            ut_table.rows[i].label != src[UT_ROW_TOUCHCAL].label)
             ut_table.rows[k++] = ut_table.rows[i];
     n = k;
     ut_table.count = (uint32_t)n;
