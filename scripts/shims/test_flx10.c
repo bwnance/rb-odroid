@@ -605,6 +605,18 @@ int main(void)
            bj_n == 0 && sent_n == 0, "BEAT JUMP < deck 2 -4, > deck 1 +4, plain jumps, no keys");
      pj_n = 0; for (int i = 0; i < 3; i++) { ON(1, 98); OFF(1, 98); }
      CHECK(pj_n == 3 && pj_b[0] == 16.0f && pj_b[2] == 16.0f, "SHIFT + BEAT JUMP > x3: three +16 jumps at once");
+     /* held: one jump, then from 400 ms the same every 150 ms, until it comes up */
+     pj_n = 0; ON(1, 95); ms(300); map_flx10.tick();
+     CHECK(pj_n == 1, "BEAT JUMP > held 300 ms: the one jump (%d)", pj_n);
+     ms(100); map_flx10.tick();
+     CHECK(pj_n == 2 && pj_b[1] == 4.0f, "...at 400 ms it repeats (%d)", pj_n);
+     ms(150); map_flx10.tick(); ms(150); map_flx10.tick();
+     CHECK(pj_n == 4, "...every 150 ms (%d)", pj_n);
+     OFF(1, 95); ms(300); map_flx10.tick();
+     CHECK(pj_n == 4, "...and stops when it comes up (%d)", pj_n);
+     ON(1, 98); ms(400); map_flx10.tick(); OFF(1, 95); ms(150); map_flx10.tick();
+     CHECK(pj_n == 6 && pj_b[5] == 16.0f, "SHIFT + > held repeats 16s; the plain > coming up ends it too (%d)", pj_n);
+     OFF(1, 98);
      looping[1] = 1; pj_n = 0; bj_n = 0; ON(2, 97); OFF(2, 97);
      CHECK(pj_n == 0 && bj_n == 1 && bj_t[0] == 11 && bj_deck[0] == 1, "in a loop: rbp's own -16 (loop move)");
      looping[1] = 0;

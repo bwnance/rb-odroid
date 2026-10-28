@@ -595,11 +595,11 @@ session; details further down):
    on: check what the FLX10 reports for the selector (MIDI or HID) and whether
    map_flx10.c / audioshim mute or drop that channel's deck feed when it is
    not on the RX3 position.
-25. **BEAT JUMP held repeats, to seek -- wished for, not started** (operator,
-   2026-10-28). Holding a BEAT JUMP button should keep jumping, at a steady
-   rate, until it is let go, as a way to seek through a track. Today one
-   press is one jump. map_flx10.c would repeat the jump while the button is
-   held (a timer from its press to its release), like a key repeat.
+25. **BEAT JUMP held repeats, to seek -- done** (operator, 2026-10-28; map_flx10.c).
+   The press jumps once as before; held, the same jump repeats from 400 ms every
+   150 ms until it comes up (~12x through a 128 BPM track with 4 beats, four times
+   that with SHIFT's 16). Checked on the unit: held 2 s on a 170 BPM track, REMAIN
+   4:08 -> 3:52, eleven 4-beat jumps. test_flx10 covers the timing.
 26. **Touch scrolling is jerky -- to fix after the BROWSE column** (operator,
    2026-10-28, with the touchscreen newly connected: a "CXDIS" panel, 1920x1080
    raw, picked up by pointsrc without a restart). Dragging a list moves it in
@@ -1045,7 +1045,7 @@ are the operator's table, agreed control by control on 2026-10-24:
 | (no control) BEAT SYNC tempo range | SYNC on widens the range first if the sync needs it. While synced and following, the range follows the need both ways -- master sped up, wider; slowed down, narrower -- never below the range the deck started on or was set to by hand since. The need is the master's playing BPM over the track's own (rbp's bpm_orig: the tempo % of a synced deck is its fader's, not the speed) |
 | TEMPO fader, jog (top press = touch, top spin, side ring) | the same |
 | SHIFT + 4 BEAT (loop section) | flip the deck's elapsed / remaining time (rbp's TIME MODE, `UiSetKeyTimeMode`; the jog screen follows) |
-| 4 BEAT JUMP < > / SHIFT | beat jump -4 / +4 beats / -16 / +16 beats (`DjEngineIF::playBeatJump`, paused or playing, one jump each) |
+| 4 BEAT JUMP < > / SHIFT | beat jump -4 / +4 beats / -16 / +16 beats (`DjEngineIF::playBeatJump`, paused or playing, one jump each; held, repeated every 150 ms from 400 ms, to seek) |
 | SLIP REVERSE / SHIFT | momentary reverse that always slips / latching reverse that never slips (LED lit while held or reversing) |
 | QUANTIZE; SLIP / SHIFT | QUANTIZE; SLIP / nothing (VINYL disabled: no light on the button) |
 | CUE/LOOP CALL < > and SHIFT | not mapped |

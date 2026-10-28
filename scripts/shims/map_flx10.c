@@ -1150,6 +1150,40 @@ __attribute__((weak)) int flx10_plain_jump(int deck, float beats)
      return ((int (*)(void *, const float *))LOOP_PLAY_BEATJUMP)(loop, &beats) & 0xff;
 }
 
+/* HELD, a jump repeats (operator, 2026-10-28, item 25: to seek): the press jumps
+ * once, and from BJ_DELAY_MS on the same jump again every BJ_REPEAT_MS until the
+ * button comes up -- a key repeat. 4 beats every 150 ms is ~12x through a 128 BPM
+ * track; SHIFT's 16, four times that. Any of the deck's four jump notes ending the
+ * hold ends it, SHIFT let go under it or not. */
+#define BJ_DELAY_MS  400
+#define BJ_REPEAT_MS 150
+static int bj_held[2];
+static unsigned long long bj_next[2];
+
+static void flx10_jump(int deck, int beats);
+
+static void flx10_jump_key(int deck, int beats, int on)
+{
+     if (deck < 0 || deck > 1)
+          return;
+     if (!on) {
+          bj_held[deck] = 0;
+          return;
+     }
+     flx10_jump(deck, beats);
+     bj_held[deck] = beats;
+     bj_next[deck] = shim_now_ms() + BJ_DELAY_MS;
+}
+
+static void flx10_jump_tick(unsigned long long t)
+{
+     for (int d = 0; d < 2; d++)
+          if (bj_held[d] && t >= bj_next[d]) {
+               flx10_jump(d, bj_held[d]);
+               bj_next[d] = t + BJ_REPEAT_MS;
+          }
+}
+
 static void flx10_jump(int deck, int beats)
 {
      static const int type_m[17] = { [4] = BEATJUMP_M4, [16] = BEATJUMP_M16 };
@@ -2713,10 +2747,10 @@ static void flx10_note(int ch, int note, int on)
           case N_CUE_SHIFT: case N_MIXPOINT_PREV: case N_MIXPOINT_NEXT:
                flx10_track_note(deck, note, on);
                return;
-          case N_BJ_PREV:       if (on) flx10_jump(deck, -4);  return;
-          case N_BJ_NEXT:       if (on) flx10_jump(deck, 4);   return;
-          case N_BJ_PREV_SHIFT: if (on) flx10_jump(deck, -16); return;
-          case N_BJ_NEXT_SHIFT: if (on) flx10_jump(deck, 16);  return;
+          case N_BJ_PREV:       flx10_jump_key(deck, -4, on);  return;
+          case N_BJ_NEXT:       flx10_jump_key(deck, 4, on);   return;
+          case N_BJ_PREV_SHIFT: flx10_jump_key(deck, -16, on); return;
+          case N_BJ_NEXT_SHIFT: flx10_jump_key(deck, 16, on);  return;
           case N_SLIP_REVERSE:
                flx10_slip_reverse(deck, on);
                return;
@@ -3273,6 +3307,7 @@ static void flx10_tick(void)
      else if (browsed && !flx10_usb1_present())
           browsed = 0;
      flx10_push_tick(t);
+     flx10_jump_tick(t);
      flx10_scfx_tick(t);
      flx10_panel_tick(t);
      flx10_link_tick(t);
