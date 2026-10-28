@@ -240,7 +240,7 @@ session; details further down):
    are four rows of the shim's in MIXER after the attenuators, kept on this
    machine (/root/settings/flx10.dat in the chroot, beside rbp's XdjSettings.dat;
    rekordbox's defaults until changed) and sent at every start like rbp's own --
-   the connect sequence never sends any of these from the capture: MASTER / BOOTH MONO/STEREO (9F 47 / 48, 7F stereo), PEAK
+   the connect sequence never sends any of these from the capture: MASTER / BOOTH MONO/STEREO (9F 47 / 48, 7F stereo; master checked by ear 2026-10-28), PEAK
    LIMITER (9F 49) and MIC OUT TO MASTER (9F 4A). BF 44 is the unit's demo /
    screen saver (00 disable, 10 / 20 / 30 demo after 1 / 5 / 10 min, 40 screen
    saver): GENERAL's FLX10 DEMO/SCREEN SAVER row, kept and sent the same way
