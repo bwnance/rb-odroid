@@ -245,12 +245,13 @@ CTRL_OBJS  := ctrlshim.o ctrl_map.o map_flx4.o map_flx10.o map_jp21.o map_kbd.o 
               mididump.o rbp_bridge.o rbp_led.o led_table.o plinn_scan.o \
               rbp_vu.o midi_io.o controllers.o shimutil.o usb_label.o rbp_load.o \
               flx10_hid.o flx10_media.o keyshift.o rbp_hook.o searchfold.o keydisp.o \
-              doublelock.o masteratt.o
+              doublelock.o masteratt.o rbp_images.o browserows.o keymatch.o browsecol.o
 CTRL_HDRS  := rbp_abi.h rbp_bridge.h rbp_key.h rbp_led.h led_table.h rbp_vu.h \
               midi_io.h shimutil.h ctrl_map.h mididump.h evdev_io.h syscalls.h \
               shmstate.h plinn_scan.h controllers.h usb_label.h pitch_state.h \
               rbp_load.h flx10_hid.h flx10_media.h settings_remote.h keyshift.h \
-              rx3_pitch_shift.h rbp_hook.h keydisp.h doublelock.h
+              rx3_pitch_shift.h rbp_hook.h keydisp.h doublelock.h rbp_images.h \
+              browserows.h rx3_harmony.h
 # keyshift.c is rbp's audio-thread float work (rx3-toolkit's shifter): VFP/NEON in
 # hardware, softfp so the calls in and out of rbp keep its soft-float convention.
 keyshift.o: CFLAGS += -march=armv7-a -mfpu=neon -mfloat-abi=softfp
@@ -670,7 +671,7 @@ TESTS := test_point test_g2d test_audio test_midi test_flx4 test_flx10 test_kbd 
          test_led_table test_plinn_scan test_controllers test_usblabel test_netalias \
          test_pitch test_keylog test_padmode test_deckbadge test_bpmbox \
          test_settings test_utility test_splash test_searchfold test_keydisp \
-         test_doublelock test_blitfast test_masteratt
+         test_doublelock test_blitfast test_masteratt test_browse
 
 # test_g2d links the PRODUCTION g2d_sw.c: the rescale rbp's artwork goes
 # through, and the calls as DecodeScalingJpeg makes them (g2d_sw.h).
@@ -698,6 +699,14 @@ test_blitfast: test_blitfast.c blitfast.c blitfast.h
 test_doublelock: test_doublelock.c doublelock.c doublelock.h
 	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
 	    -Wall -Wextra -static -o $@ test_doublelock.c doublelock.c
+
+# test_browse links the PRODUCTION BROWSE mods -- keymatch.c, browsecol.c, browserows.c,
+# rbp_images.c -- and rbp_hook.c: rules, recoloured icons and the row rewrite on a
+# synthetic rbp row context and message, and the hook's literal relocation.
+BROWSE_SRCS := keymatch.c browsecol.c browserows.c rbp_images.c rbp_hook.c
+test_browse: test_browse.c $(BROWSE_SRCS) browserows.h rbp_images.h rbp_hook.h rx3_harmony.h
+	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
+	    -Wall -Wextra -static -o $@ test_browse.c $(BROWSE_SRCS)
 
 # test_searchfold links the PRODUCTION searchfold.c: the accent fold rbp's search gets.
 test_searchfold: test_searchfold.c searchfold.c

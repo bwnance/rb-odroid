@@ -295,25 +295,49 @@ session; details further down):
    matched DirectFB exactly -- trusted" in pointsrc.log). gui_task 82% -> 29%, rbp
    104% -> 39% of a core; the renderer now mostly waits for vblank.
    RB_BLIT_FAST=0 is off.
-11. **rx3-toolkit's other track-finding mods -- not ported, for the operator to
-   decide** (2026-10-26). Key Match (yellow / orange / red key icons in BROWSE
-   for Energy Boost +2, +7 and +4 matches to the MASTER, beside rbp's own
-   green) and Browse Columns (a third BROWSE column -- BPM, key, artist or
-   length -- and tap-a-heading sorting) both sit on the toolkit's core browse
-   and image services: ~1,500 lines, a dozen detours into rbp's BROWSE row
-   builder (GetRightBrowseOne2One @0x1c8048), icon composition (0x194578,
-   0x295904, 0x193c14), NS_GetImageInfoByID's image table, the text renderer
-   (NS_PALRender_DrawText @0x1d23e4) and the DB tasks. Both are off by
-   default in the toolkit and not validated on a real RX3; Browse Columns
-   slows BROWSE scrolling there (its issue #15), and its sort is a touch
-   gesture. Every guard matches this binary (the research agent's check), so
-   porting is possible -- but it was left until it can be watched on the
-   glass: a fault there shows the first time BROWSE is used, not at start.
-   Suggested order: Key Match first (no touch needed), then Browse Columns'
-   third column without the sort.
-   The operator's wish (2026-10-27): columns chosen as on a CDJ-3000, with the
-   preview waveform switchable off to make room -- ARTIST beside the title in
-   a track list, for one.
+11. **rx3-toolkit's track-finding mods -- Key Match deployed, to look at in
+   BROWSE; the third column built, off** (2026-10-27/28). Ported from
+   rx3-toolkit at cc17a1f (MPL-2.0, each file says so): rx3_harmony.h (the
+   rules, as is), keymatch.c, browsecol.c, browserows.c (the toolkit's BROWSE
+   row service) and rbp_images.c (its recoloured images), all in knobshim.
+   Every hook site and called function (36 of them) was checked byte for byte
+   against our rbp 1.20 -- the toolkit's guards are written for 1.19 and match
+   -- and the icons it recolours were read from the unit's live image table:
+   0xa0f..0xa13 (the green key states) 28x26 and 227 24x24, RGB565 keyed, as
+   the recolour needs.
+   - **Key Match** (RB_KEY_MATCH=1, RB_KEY_MATCH_RULES=14 -- 2 yellow, 4
+     orange, 8 red, added up): BROWSE's key icon in yellow / orange / red for
+     an Energy Boost +2 / +7 / +4 from the tempo MASTER's key, beside rbp's own
+     green, A to A and B to B. The row hook (GetRightBrowseOne2One @0x1c8048)
+     gives such a track category 120..122; the icon lookup (0x194578, which
+     shows nothing above 119) answers green's image for them, and ShowIcon
+     (0x193c14) swaps the green key states for recoloured copies inside that
+     SetIcon (0x295904). The copies are private image IDs 0x1700+ served by a
+     detour on NS_GetImageInfoByID @0x1d192c. One addition of ours: a KEY SHIFT
+     on the MASTER deck (keyshift.c) turns the reference and rbp's green set
+     with it, and a row rbp marked green for the unshifted key loses it.
+     Deployed 2026-10-28 ("key match: on, rules 14" in the log). **Not yet
+     seen in BROWSE**: a fault here shows the first time a track list opens.
+   - **Third column** (RB_BROWSE_COLUMN=artist|bpm|key|time; empty = off, as
+     shipped): at the right of a track list, with its heading; folder lists stay
+     rbp's. Its value rides inside rbp's own row text after noncharacters and is
+     split off in NS_PALRender_DrawText (@0x1d23e4); the floating LOAD 1/2 under
+     the selected row give it their room (their touch does nothing, the FLX10's
+     LOAD keys still load), and the selected row's scrolling is held short of it
+     (three scroll-timer hooks). One of those starts with a pc-relative literal
+     load, so rbp_hook.c now moves such a load into the trampoline with its
+     literal (test_browse covers it). Not deployed on: try
+     RB_BROWSE_COLUMN=artist in rb.local.conf once Key Match has been seen.
+     The toolkit's tap-a-heading sort is not ported, nor is the operator's
+     preview-waveform-off (CDJ-3000-style columns, 2026-10-27) -- both next.
+   - Both share the toolkit's metadata path: rbp's DB server task snapshots
+     each visible page's key / BPM / length / artist (DBSMain_ListBufRec2CommCmd
+     @0x207dd0, one DeviceSQL read per row, only the fields wanted), the
+     client caches 32 rows. The toolkit's Browse Columns slowed scrolling on a
+     real RX3 (its issue #15) -- worth watching here.
+   - test_browse (51 checks): rules over the wheel, the recolour, the row
+     rewrite on a synthetic rbp context (MASTER, rbp's green set, a shift,
+     folder lists left alone), the column's transport, the literal relocation.
 12. **Four-deck mode -- wished for, not started** (operator, 2026-10-26). The
    FLX10 is a four-deck controller (DECK 1/3 and 2/4 select); the RX3 and its
    rbp are two-deck: PlayEngine's player vector holds two (SyncMaster counts 2
@@ -438,6 +462,12 @@ session; details further down):
    blend, since anything after that blend would move the cue/master balance
    item 20 set. Send a setting only on a change, never repeated (the booth
    lesson).
+22. **VIEW and BACK from the player -- wished for, not started** (operator,
+   2026-10-27, "I think"). Once a source is chosen and the player is showing,
+   VIEW should go back to the last place browsed (that source's list, where it
+   was left), and BACK should go to the SOURCE screen. What each does today is
+   in the FLX10 map table (the BACK / VIEW row); VIEW from the player opens
+   PLAYLIST there, so VIEW is most of the change.
 
 How rbp sorts a browse list (read 2026-10-27, for whoever needs it next; a
 default playlist sort was built on it and dropped -- the operator loads the sort
