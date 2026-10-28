@@ -1221,6 +1221,12 @@ static void (*invalidate)(unsigned) = (void *)0x001349b8u;     /* Pub_GuiCom_Snd
 #define BUTTON_Y0   7
 #define BUTTON_Y1   43
 #define BUTTON_OFF  RGB565(72, 72, 72)
+#define PREVIEW_IMAGE_W 80          /* image 2568's size */
+#define PREVIEW_IMAGE_H 20
+#define BUTTON_ON_ID  0x20000u      /* the PREVIEW button's bitmap: white on blue */
+#define BUTTON_OFF_ID 0x40000u      /* ...white on the off grey */
+static uint32_t image_template[21];    /* a heading's image model, drawn as the label */
+static unsigned image_template_ok;
 static uint32_t title_rect[21];
 static unsigned title_rect_ok;
 
@@ -1266,17 +1272,23 @@ static int title_draw(void *render, void *text)
         put_half(b + 0x1e, BUTTON_Y1);
         real_draw_rect(render, box);
     }
-    static const uint16_t label[] = { 'P', 'R', 'E', 'V', 'I', 'E', 'W', 0 };
-    memcpy(clone, text, sizeof(clone));
-    uint32_t at = (uint32_t)(unsigned long)label;
-    memcpy(c + 0x34, &at, 4);
-    c[0x38] = 7;
-    c[0x3c] = (uint8_t)(3u + 1u);       /* centred both ways */
-    put_half(c + 0x18, BUTTON_X0);
-    put_half(c + 0x1c, BUTTON_X1);
-    put_half(c + 0x1a, BUTTON_Y0);
-    put_half(c + 0x1e, BUTTON_Y1);
-    real_draw_text(render, clone);
+    if (image_template_ok) {
+        /* rbp's own PREVIEW heading bitmap, recoloured: the size of INFO's lettering */
+        uint32_t label[21];
+        uint8_t *l = (void *)label;
+        unsigned id = PREVIEW_HEADING | (browserows_preview_shown() ? BUTTON_ON_ID : BUTTON_OFF_ID);
+        memcpy(label, image_template, sizeof(label));
+        memcpy(l + 0x8, c + 0x8, 4);            /* the title bar's window, not the list's */
+        memcpy(l + 0x10, c + 0x10, 2);
+        memcpy(l + 0x44, &id, 4);
+        unsigned x0 = (BUTTON_X0 + BUTTON_X1 - PREVIEW_IMAGE_W) / 2,
+                 y0 = (BUTTON_Y0 + BUTTON_Y1 - PREVIEW_IMAGE_H) / 2;
+        put_half(l + 0x18, x0);
+        put_half(l + 0x1c, x0 + PREVIEW_IMAGE_W);
+        put_half(l + 0x1a, y0);
+        put_half(l + 0x1e, y0 + PREVIEW_IMAGE_H);
+        real_draw_image(render, label);
+    }
     return 1;
 }
 
@@ -1705,6 +1717,7 @@ static void draw_mark(void *render, int x, int y, int down, unsigned colour)
  * from grey toward rbp's blue as far as it was toward the text (operator, 2026-10-28:
  * "make a new colored bitmap"), under a private id: BLUE_ID | the heading's id. */
 #define BLUE_ID     0x10000u
+#define OWN_IDS     (BLUE_ID | BUTTON_ON_ID | BUTTON_OFF_ID)
 #define IMAGE_LAST  0x15ccu
 #define KEY565      0xf81fu
 enum { BLUE_SLOTS = 24 };
@@ -1717,25 +1730,37 @@ static unsigned c565(uint16_t p, unsigned shift, unsigned bits)
     return bits == 5 ? (v << 3 | v >> 2) : (v << 2 | v >> 4);
 }
 
-/* One RGB16 pixel of a heading, from grey-on-grey to blue-on-grey. Pure. */
-unsigned int browserows_blue_pixel(unsigned int p)
+/* One RGB16 pixel of a heading, its ground and text given new colours (0xRRGGBB),
+ * each pixel as far toward the text as it was. Pure. */
+unsigned int browserows_recolour_pixel(unsigned int p, unsigned int ground, unsigned int text)
 {
     if (p == KEY565)
         return p;
     int g = (int)c565((uint16_t)p, 5, 6), t = (g - 48) * 256 / (190 - 48);
     t = t < 0 ? 0 : t > 256 ? 256 : t;
-    unsigned r = (unsigned)(49 + (0 - 49) * t / 256), gg = (unsigned)(48 + (125 - 48) * t / 256),
-             b = (unsigned)(49 + (231 - 49) * t / 256);
-    return (r >> 3) << 11 | (gg >> 2) << 5 | b >> 3;
+    unsigned out[3];
+    for (unsigned i = 0; i < 3; i++) {
+        int from = (int)(ground >> (16 - 8 * i) & 255), to = (int)(text >> (16 - 8 * i) & 255);
+        out[i] = (unsigned)(from + (to - from) * t / 256);
+    }
+    return (out[0] >> 3) << 11 | (out[1] >> 2) << 5 | out[2] >> 3;
+}
+
+/* ...the sorted heading: blue text on the list's grey */
+unsigned int browserows_blue_pixel(unsigned int p)
+{
+    return browserows_recolour_pixel(p, 0x313031u, 0x007de7u);
 }
 
 static uint8_t *image_info_hooked(unsigned id)
 {
-    if (!(id & BLUE_ID))
+    if (!(id & OWN_IDS))
         return original_image_info(id);
-    unsigned own = id & ~BLUE_ID;
+    unsigned own = id & ~OWN_IDS;
+    unsigned ground = id & BUTTON_ON_ID ? 0x007de7u : id & BUTTON_OFF_ID ? 0x484848u : 0x313031u,
+             text = id & BLUE_ID ? 0x007de7u : 0xffffffu;
     for (unsigned i = 0; i < BLUE_SLOTS; i++) {
-        if (blue_images[i].id == own)
+        if (blue_images[i].id == id)
             return blue_images[i].entry;
         if (blue_images[i].id)
             continue;
@@ -1750,11 +1775,11 @@ static uint8_t *image_info_hooked(unsigned id)
         for (unsigned y = 0; y < h; y++)
             for (unsigned x = 0; x < stride / 2; x++)
                 to[y * (stride / 2) + x] =
-                    (uint16_t)browserows_blue_pixel(from[y * (stride / 2) + x]);
+                    (uint16_t)browserows_recolour_pixel(from[y * (stride / 2) + x], ground, text);
         memcpy(blue_images[i].entry, e, 44);
         put_word(blue_images[i].entry + 0xc, (unsigned)(unsigned long)to);
         blue_images[i].pixels = to;
-        blue_images[i].id = own;
+        blue_images[i].id = id;
         return blue_images[i].entry;
     }
     return original_image_info(own);
@@ -1807,6 +1832,10 @@ static void heading_mark(void *render, const uint8_t *m)
 
 static void heading_drawn(void *render, void *image)
 {
+    if (!image_template_ok) {
+        memcpy(image_template, image, sizeof(image_template));     /* the PREVIEW button's model */
+        image_template_ok = 1;
+    }
     unsigned blue = heading_blue(image);
     if (blue) {
         uint32_t clone[21];

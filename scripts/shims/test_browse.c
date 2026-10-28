@@ -404,6 +404,8 @@ static void test_sort_tap(void)
     CHECK(browserows_blue_pixel(0xf81f) == 0xf81f, "the transparent key stays");
     CHECK(browserows_blue_pixel(0x3186) == 0x3186, "the heading's grey ground stays");
     CHECK(browserows_blue_pixel(0xbdf7) == 0x03fc, "its text becomes rbp's blue (0,125,231)");
+    CHECK(browserows_recolour_pixel(0x3186, 0x007de7, 0xffffff) == 0x03fc, "the button: ground to blue");
+    CHECK(browserows_recolour_pixel(0xbdf7, 0x007de7, 0xffffff) == 0xffff, "...text to white");
 }
 
 int main(void)

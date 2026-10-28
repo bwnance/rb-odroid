@@ -71,6 +71,8 @@ int browserows_heading_sort(int x, int y);
 unsigned int browserows_sort_for_tap(unsigned int now, unsigned int sort);
 /* A heading's RGB16 pixel recoloured for the sorted heading's blue copy. Pure. */
 unsigned int browserows_blue_pixel(unsigned int p);
+/* ...with any ground and text colours (0xRRGGBB). Pure. */
+unsigned int browserows_recolour_pixel(unsigned int p, unsigned int ground, unsigned int text);
 /* Tap-to-sort, once. 0 = in. */
 int browsesort_install(void);
 /* SelectRightMenu's item 0x7e00|n is a tap's sort: 1 = taken, its answer in *result. */
