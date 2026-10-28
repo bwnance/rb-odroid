@@ -6,8 +6,7 @@
  * MPL-2.0), mod/modules/core/services/rx3_hooks.c's install_raw_hook: the
  * target's first two instructions go into a trampoline that jumps on to
  * target+8, and the target becomes `ldr pc,[pc,#-4]; .word replacement`. Used by
- * keyshift.c, searchfold.c, masteratt.c, blitfast.c and the BROWSE mods
- * (browserows.c, keymatch.c, browsecol.c).
+ * keyshift.c, searchfold.c, masteratt.c, blitfast.c and browserows.c.
  *
  * One addition to the toolkit's: a taken instruction that loads a literal
  * (`ldr rd,[pc,#imm]`) is moved, with its literal, into the trampoline -- rbp's

@@ -1,17 +1,17 @@
 /* SPDX-License-Identifier: MPL-2.0
  *
- * browserows.c -- rbp's BROWSE track rows, rewritten as rbp builds them
- * (browserows.h).
+ * browserows.c -- rbp's BROWSE track rows, with a third column (browserows.h).
  *
  * Adapted from rx3-toolkit (github.com/Tratosca/rx3-toolkit at cc17a1f,
  * MPL-2.0): mod/modules/core/services/rx3_browse.c, the row hook and what it
- * reads (the MASTER's key and its green set, each track's key and one metadata
- * field, the database server's per-page snapshot), the third column's drawing and
- * the selected row's scrolling; and the PAL text/image hooks of
- * mod/modules/core/rx3_core_hook.c that call into it. Left out: the toolkit's
- * tap-a-heading sort (its four DB hooks and touch), unregistering (here a hook,
- * once in, stays in), its metrics, and its Key Shift publication -- keyshift.c's
- * shift comes in through browserows_shift instead. This file stays under the MPL.
+ * reads (one metadata field per track, from the database server's per-page
+ * snapshot or the client's own query), the column's drawing and the selected
+ * row's scrolling; and the PAL text/image hooks of mod/modules/core/
+ * rx3_core_hook.c that call into it. Left out: the toolkit's Key Match marker
+ * (ported, then taken out 2026-10-28 -- it stalled BROWSE on a 1,200-track
+ * playlist, docs/21 item 11), its tap-a-heading sort (its four DB hooks and
+ * touch), unregistering (here a hook, once in, stays in) and its metrics. This
+ * file stays under the MPL.
  *
  * Every address below was checked against this tree's rbp 1.20 (sha1
  * 3513d34b...) on 2026-10-27: each hook's first eight bytes and each called
@@ -37,8 +37,6 @@
 #define COLUMN_HEADING_ID 55
 
 static const struct browse_column *column;
-static const struct browse_marker *marker;
-int (*browserows_shift)(int deck);
 
 static unsigned word(const void *p) { unsigned v; memcpy(&v, p, 4); return v; }
 static unsigned half(const void *p) { uint16_t v; memcpy(&v, p, 2); return v; }
@@ -60,7 +58,6 @@ static void (*free_item)(void *) = (void *)0x001f648cu;
 static void (*free_text)(void *) = (void *)0x00175038u;
 static int (*menu_visible)(void) = (void *)0x00112e10u;             /* IsMenuOn */
 static const void *root_pointer = (void *)0x02684700u;
-unsigned int (*browserows_master_on)(unsigned int) = (void *)0x0018579cu;
 
 /* the functions called, each by its first two words (the toolkit's guards) */
 static const struct { unsigned address, a, b; } called[] = {
@@ -72,70 +69,10 @@ static const struct { unsigned address, a, b; } called[] = {
     {0x262da0, 0xe92d4ff0, 0xe24dd00c}, {0x26a480, 0xe352000d, 0x13520011},
     {0x1f648c, 0xe3500000, 0x012fff1e}, {0x175038, 0xe92d4070, 0xe2504000},
     {0x18dae8, 0xe2503000, 0xe92d4010}, {0x18e1a0, 0xe92d4070, 0xe1a04000},
-    {0x18579c, 0xe3033564, 0xe3403325}, {0x112e10, 0xe30f38b8, 0xe3403326},
+    {0x112e10, 0xe30f38b8, 0xe3403326},
     {0x18e260, 0xe92d4070, 0xe24dd008}, {0x18e2a0, 0xe92d4070, 0xe1a04001},
     {0x18e730, 0xe92d4010, 0xe1a04000}, {0x1cec2c, 0xe3500000, 0x0a00000a},
 };
-
-/* ---- the MASTER's key ------------------------------------------------------- */
-static int master_deck(void)
-{
-    unsigned left = browserows_master_on(0) != 0, right = browserows_master_on(1) != 0;
-    return left == right ? -1 : left ? 0 : 1;
-}
-
-/* One word couples rbp's green set, the key it is for and the MASTER deck:
- * bits 0..23 the set, 24..28 the key (1..24), 29..31 the deck + 1. */
-static unsigned harmonic_snapshot;
-
-static void observe_harmony(const uint8_t *context)
-{
-    int deck = master_deck();
-    unsigned key = word(context + 0x10b08), mask = 0;
-    if (deck < 0 || key < 1 || key > 24) {
-        __atomic_store_n(&harmonic_snapshot, 0u, __ATOMIC_SEQ_CST);
-        return;
-    }
-    for (unsigned i = 0; i < 4; i++) {
-        unsigned compatible = word(context + 0x10b08 + i * 4);
-        if (compatible >= 1 && compatible <= 24)
-            mask |= 1u << (compatible - 1);
-    }
-    __atomic_store_n(&harmonic_snapshot, mask | (key << 24) | ((unsigned)(deck + 1) << 29),
-                     __ATOMIC_SEQ_CST);
-}
-
-struct harmonic_reference { int deck, key, shift; unsigned native_keys; };
-
-static int shifted(int key, int shift)
-{
-    int result = (key + shift * 14) % 24;   /* a semitone is 7 Camelot steps, A/B kept */
-    return result < 0 ? result + 24 : result;
-}
-
-static struct harmonic_reference harmonic_reference(void)
-{
-    struct harmonic_reference result = { -1, -1, 0, 0 };
-    int deck = master_deck();
-    if (deck < 0)
-        return result;
-    unsigned packed = __atomic_load_n(&harmonic_snapshot, __ATOMIC_SEQ_CST);
-    int source = (int)((packed >> 24) & 31u) - 1;
-    if ((packed >> 29) != (unsigned)deck + 1 || source < 0 || source >= 24)
-        return result;
-    unsigned mask = packed & 0xffffffu;
-    int shift = browserows_shift ? browserows_shift(deck) : 0;
-    if (shift < -12 || shift > 12)
-        shift = 0;
-    result.deck = deck;
-    result.shift = shift;
-    result.key = shifted(source, shift);
-    /* rbp's set is for the key as loaded: turned with it, for the key heard */
-    for (int key = 0; key < 24; key++)
-        if (mask & (1u << key))
-            result.native_keys |= 1u << shifted(key, shift);
-    return result;
-}
 
 /* ---- rows --------------------------------------------------------------------- */
 static unsigned track_list;
@@ -286,12 +223,12 @@ static void *local_record(void *context, const uint32_t *record, unsigned drive,
     void *result = original_local_record(context, record, drive, kind, mode, category);
     const struct browse_column *c = column;
     if (result && kind == 1 && drive > 1 && drive < 4 && (mode == 1 || mode == 2) &&
-        track(record[4] & 255u) && (c || marker)) {
+        track(record[4] & 255u) && c) {
         /* Each lookup is a DeviceSQL read on the stick being browsed: fetch only
-         * what the column or the marker can ask for. */
+         * what the column shows. */
         unsigned wanted = c ? c->field : 0;
         int want_artist = wanted == BROWSE_FIELD_ARTIST;
-        int want_key = marker || wanted == BROWSE_FIELD_KEY;
+        int want_key = wanted == BROWSE_FIELD_KEY;
         struct local_metadata item;
         memset(&item, 0, sizeof(item));
         item.generation = __atomic_load_n(&local_generation, __ATOMIC_SEQ_CST);
@@ -416,7 +353,7 @@ static int local_values(void *db, unsigned id, unsigned field, uint16_t value[12
             break;
         }
     local_unlock();
-    if (!found || (marker && !item.has_key))
+    if (!found)
         return 0;
     *key = item.key;
     return local_value(&item, field, value);
@@ -512,14 +449,13 @@ static unsigned metadata_values(void *db, unsigned id, const uint8_t identity[53
 
 /* The column's value travels inside its own row, so queued updates, scrolling and
  * duplicate names cannot pair a value with the wrong track: the row's text, then
- * SEP, badge+1, the value, END, SEP. Only browserows_draw() reads the suffix. */
-unsigned browserows_append(uint8_t *dest, const uint8_t *entry, const uint16_t *value,
-                           unsigned image)
+ * SEP, the value, END, SEP. Only column_draw() reads the suffix. */
+unsigned browserows_append(uint8_t *dest, const uint8_t *entry, const uint16_t *value)
 {
     unsigned len = half(entry + 20), extra = 0;
     while (extra < 127 && value[extra])
         extra++;
-    unsigned prefix = len, room = 255u - extra - 4u;
+    unsigned prefix = len, room = 255u - extra - 3u;
     if (prefix > room)
         prefix = room;
     const uint16_t *text = (const void *)(entry + 22);
@@ -530,7 +466,6 @@ unsigned browserows_append(uint8_t *dest, const uint8_t *entry, const uint16_t *
         put_half(dest + 22 + (prefix - 1) * 2, 0x2026);
     unsigned n = prefix;
     put_half(dest + 22 + n++ * 2, SEP);
-    put_half(dest + 22 + n++ * 2, image + 1u);
     memcpy(dest + 22 + n * 2, value, extra * 2);
     n += extra;
     put_half(dest + 22 + n++ * 2, END);
@@ -539,29 +474,25 @@ unsigned browserows_append(uint8_t *dest, const uint8_t *entry, const uint16_t *
     return 22 + n * 2;
 }
 
-int browserows_split(const uint16_t *s, unsigned n, unsigned *split, unsigned *badge,
-                     unsigned *extra)
+int browserows_split(const uint16_t *s, unsigned n, unsigned *split, unsigned *extra)
 {
     unsigned at = 0;
     if (!s || n < 4 || s[n - 2] != END || s[n - 1] != SEP)
         return 0;
     while (at < n - 3 && s[at] != SEP)
         at++;
-    if (at >= n - 3 || !s[at + 1] || n - at - 4u > 127)
+    if (at >= n - 3 || n - at - 3u > 127)
         return 0;
     *split = at;
-    *badge = s[at + 1] - 1u;
-    *extra = n - at - 4u;
+    *extra = n - at - 3u;
     return 1;
 }
 
 static uint8_t rebuilt[MAX_MESSAGE];
 static unsigned busy;
 
-void browserows_process(uint8_t *context, uint8_t *message,
-                        const struct browse_column *column, const struct browse_marker *marker)
+void browserows_process(uint8_t *context, uint8_t *message, const struct browse_column *column)
 {
-    observe_harmony(context);
     __atomic_store_n(&list_context, context, __ATOMIC_SEQ_CST);
     __atomic_store_n(&track_list, 0u, __ATOMIC_SEQ_CST);
     unsigned index = word(context + 4), bytes = word(message + 0x1c), count = half(message + 0x80);
@@ -607,43 +538,23 @@ void browserows_process(uint8_t *context, uint8_t *message,
     }
     memcpy(rebuilt, message, 0x84);
     source = 20;
-    unsigned dest = 20, field = column ? column->field : 0;
+    unsigned dest = 20, field = column->field;
     metadata_bind(context, db, index, depth, native_sort, field);
-    struct harmonic_reference harmony = harmonic_reference();
-    unsigned ref = word(context + 0x10af8) && harmony.key >= 0 ? (unsigned)harmony.key + 1 : 0;
     for (unsigned i = 0; i < count; i++) {
         uint8_t *entry = message + 0x70 + source;
-        unsigned old_size = 22 + half(entry + 20) * 2, category = half(entry), key = 0;
+        unsigned old_size = 22 + half(entry + 20) * 2;
         uint16_t value[128] = { 0 };
-        unsigned badge = 0;
         if (i) {
             unsigned id = word(context + rows + (i - 1) * 532);
-            int need_key = (marker && ref) || field == BROWSE_FIELD_KEY;
-            key = metadata_values(db, id, context + rows + (i - 1) * 532, need_key, field, value);
-            if (marker && ref && key >= 1 && key <= 24) {
-                if (harmony.native_keys & (1u << (key - 1)))
-                    category = BROWSE_CATEGORY_GREEN;
-                else if (harmony.shift && category == BROWSE_CATEGORY_GREEN)
-                    category = 51;      /* rbp's "no match": green was for the unshifted key */
+            metadata_values(db, id, context + rows + (i - 1) * 532, field == BROWSE_FIELD_KEY,
+                            field, value);
+            if (!value[0]) {
+                value[0] = 0x2014;
+                value[1] = 0;
             }
-            if (marker)
-                category = marker->category(ref, key, category);
-            if (column) {
-                if (!value[0]) {
-                    value[0] = 0x2014;
-                    value[1] = 0;
-                }
-                if (field == BROWSE_FIELD_KEY && marker)
-                    badge = marker->image(category);
-            }
-        } else if (column)
+        } else
             copy_text(value, column->caption, 127);
-        unsigned size = column ? browserows_append(rebuilt + 0x70 + dest, entry, value, badge)
-                               : old_size;
-        if (!column)
-            memcpy(rebuilt + 0x70 + dest, entry, size);
-        put_half(rebuilt + 0x70 + dest, category);
-        dest += size;
+        dest += browserows_append(rebuilt + 0x70 + dest, entry, value);
         source += old_size;
     }
     /* 15 maximum-length rows fit rbp's own 8 KiB message */
@@ -656,9 +567,8 @@ static int rows_hooked(void *context, void *message, void *request)
 {
     int result = original_rows(context, message, request);
     const struct browse_column *c = __atomic_load_n(&column, __ATOMIC_SEQ_CST);
-    const struct browse_marker *m = __atomic_load_n(&marker, __ATOMIC_SEQ_CST);
-    if (c || m)
-        browserows_process(context, message, c, m);
+    if (c)
+        browserows_process(context, message, c);
     return result;
 }
 
@@ -875,7 +785,7 @@ static int column_draw(void *render, void *model)
     uint8_t *m = model;
     unsigned left = half(m + 0x18), right = half(m + 0x1c);
     const uint16_t *s = (void *)(unsigned long)word(m + 0x34);
-    unsigned n = m[0x38], split, badge, extra;
+    unsigned n = m[0x38], split, extra;
     if (!s || !n)
         return 0;
     if (n == 255) {
@@ -883,7 +793,7 @@ static int column_draw(void *render, void *model)
         while (n < 255 && s[n])
             n++;
     }
-    if (!browserows_split(s, n, &split, &badge, &extra))
+    if (!browserows_split(s, n, &split, &extra))
         return 0;
     if (right <= left + 24)
         return 0;
@@ -896,7 +806,7 @@ static int column_draw(void *render, void *model)
     unsigned edge = right - 140;
     uint16_t prefix[256] = { 0 }, value[128] = { 0 };
     memcpy(prefix, s, split * 2);
-    memcpy(value, s + split + 2, extra * 2);
+    memcpy(value, s + split + 1, extra * 2);
     uint32_t ptr = (uint32_t)(unsigned long)prefix;
     memcpy(c + 0x34, &ptr, 4);
     c[0x38] = (uint8_t)split;
@@ -912,20 +822,6 @@ static int column_draw(void *render, void *model)
     put_half(c + 0x18, edge + 8);
     put_half(c + 0x1c, right);
     c[0x3c] = (uint8_t)(c[0x3c] % 3);
-    if (badge && right > edge + 80) {
-        uint32_t icon[21];
-        memcpy(icon, c, sizeof(icon));
-        uint8_t *im = (void *)icon;
-        unsigned top = half(c + 0x1a), bottom = half(c + 0x1e);
-        unsigned y = top + (bottom - top > 24 ? (bottom - top - 24) / 2 : 0);
-        put_half(im + 0x18, edge + 8);
-        put_half(im + 0x1c, edge + 32);
-        put_half(im + 0x1a, y);
-        put_half(im + 0x1e, y + 24);
-        memcpy(im + 0x44, &badge, 4);
-        original_draw_image(render, im);
-        put_half(c + 0x18, edge + 38);
-    }
     original_draw_text(render, c);
     if (selected && !caption_ready) {
         void *root = (void *)(unsigned long)word(root_pointer);
@@ -991,14 +887,6 @@ static void draw_image_hooked(void *render, void *image)
     original_draw_image(render, image);
     if (column)
         column_caption(render, image);
-}
-
-int browserows_marker(const struct browse_marker *m)
-{
-    if (!m || !m->category || !m->image || marker || !ensure())
-        return -1;
-    __atomic_store_n(&marker, m, __ATOMIC_SEQ_CST);
-    return 0;
 }
 
 int browserows_column(const struct browse_column *c)
