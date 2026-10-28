@@ -1133,6 +1133,8 @@ static const char *settings_row_path(int row)
      * here verbatim: this file is the switch's path and nothing else. */
     case ST_ROW_DECK1:
     case ST_ROW_DECK2:   return env_str("AUDIO_MAP_FILE", "/run/rbp/audio.map");
+    /* THE BROWSE COLUMN -- browsecol.c (knobshim) re-reads it a few times a second. */
+    case ST_ROW_BROWSE:  return env_str("BROWSE_COLUMN_FILE", "/run/rbp/browse.column");
     default:             return 0;
     }
 }
@@ -1224,6 +1226,10 @@ static void settings_state_fill(struct settings_state *S)
                         strcmp(w, "on") == 0;
     S->mirror_off     = switch_word_read(settings_row_path(ST_ROW_MIRROR), w, sizeof w) &&
                         strcmp(w, "off") == 0;
+    /* no file yet: the column rb.conf starts with */
+    S->browse_column  = settings_browse_index(
+        switch_word_read(settings_row_path(ST_ROW_BROWSE), w, sizeof w) ? w
+                                                                         : env_str("BROWSE_COLUMN", ""));
 
     settings_read_astate(S);
 }

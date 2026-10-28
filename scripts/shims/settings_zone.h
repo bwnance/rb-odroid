@@ -68,10 +68,10 @@
 
 /* ------------------------------------------------------------------ geometry */
 
-/* EVERY ROW THE PANEL KNOWS, and so the most it can show: nine is 615 px, which fits the
- * 800 px bed. Which of them it DOES show is the layout (settings_show_djm() below), and the
+/* EVERY ROW THE PANEL KNOWS, and so the most it can show: ten is 677 px, which fits the
+ * 800 px bed (eleven would be 739, the last that does). Which of them it DOES show is the layout (settings_show_djm() below), and the
  * box is as tall as the rows shown -- so SB_H and SB_Y0 are asked of the layout, not fixed. */
-#define SB_ROWS       9
+#define SB_ROWS       10
 
 /* The rows, 1-based and in the order they are drawn. THE NUMBER IS ALSO THE ANSWER: a
  * tap reports the row it acted on, so there is no second enum to drift out of step with
@@ -117,6 +117,11 @@
  * it is used. */
 #define ST_ROW_DECK1    8
 #define ST_ROW_DECK2    9
+/* BROWSE COLUMN, added 2026-10-28 at the operator's ask: the third column in BROWSE's
+ * track lists (browsecol.c), cycled OFF -> ARTIST -> ALBUM -> BPM -> KEY -> TIME, switched
+ * live through /run/rbp/browse.column. A stick put in sets it to its own MY SETTINGS >
+ * Column; this row changes it from there. Always operable. */
+#define ST_ROW_BROWSE   10
 
 #define SB_TITLE      "SETTINGS"
 
@@ -261,6 +266,7 @@ struct settings_state {
     int deck_a[2];
     int deck_b[2];
     int mirror_off;         /* mirror.mode says `off`; zero -- no file -- is the mirror ON */
+    int browse_column;      /* browse.column as 0 OFF, 1 ARTIST, 2 ALBUM, 3 BPM, 4 KEY, 5 TIME */
 };
 
 /* ---------------------------------------------------------------- the layout */
@@ -276,6 +282,9 @@ struct settings_state {
  * RB_SETTINGS_DJM and RB_SETTINGS_VNC -- before anything sizes a buffer from SB_H. */
 void settings_show_rows(int djm, int vnc);
 int settings_shown(void);           /* how many rows the panel shows */
+/* The BROWSE COLUMN row's word ("off", "artist" ...) as its index in the state; 0 for
+ * anything else. */
+int settings_browse_index(const char *word);
 int settings_slot_row(int slot);    /* the row at position 1..settings_shown(), or 0 */
 int settings_row_slot(int row);     /* the position row `row` is drawn at, or 0 if hidden */
 

@@ -111,7 +111,7 @@ static void test_geometry(void)
           "SB_H is %d, and its own arithmetic gives %d", SB_H,
           2 * SB_BORDER + SB_TITLE_H + SB_RULE + 2 * SB_PAD
           + SB_ROWS * SB_ROW_H + (SB_ROWS - 1) * SB_ROW_GAP);
-    CHECK(SB_BOX_H(8) == 553 && SB_H == SB_BOX_H(9) && SB_H == 615,
+    CHECK(SB_BOX_H(8) == 553 && SB_H == SB_BOX_H(10) && SB_H == 677,
           "SB_H moved to %d (eight rows: %d)", SB_H, SB_BOX_H(8));
     CHECK(SB_X0 == (MZ_LOGICAL_W - SB_W) / 2 && SB_Y0 == (MZ_LOGICAL_H - SB_H) / 2,
           "the box is not centred");
@@ -211,7 +211,7 @@ static void test_labels_and_values(void)
 {
     static const char *const want_label[SB_ROWS] = {
         "MIXER ROUTE", "USB1 STOP", "USB2 STOP", "HDMI AUDIO", "SHARE", "ENCODE",
-        "POINTER INJECT", "DECK 1 PAIR", "DECK 2 PAIR"
+        "POINTER INJECT", "DECK 1 PAIR", "DECK 2 PAIR", "BROWSE COLUMN"
     };
     int i, k;
 
@@ -436,6 +436,29 @@ static void test_next_values(void)
 
     CHECK(settings_next_value(0, &S) == NULL && settings_next_value(SB_ROWS + 1, &S) == NULL,
           "settings_next_value() answered outside 1..%d", SB_ROWS);
+
+    /* THE BROWSE COLUMN: six values, the word the shim takes, and a wrap. */
+    {
+        static const char *const reads[] = { "OFF", "ARTIST", "ALBUM", "BPM", "KEY", "TIME" };
+        static const char *const asks[] = { "artist", "album", "bpm", "key", "time", "off" };
+        struct settings_state b;
+        int i;
+
+        memset(&b, 0, sizeof b);
+        for (i = 0; i < 6; i++) {
+            b.browse_column = i;
+            CHECK(strcmp(settings_row_text(ST_ROW_BROWSE, &b), reads[i]) == 0,
+                  "browse column %d reads '%s'", i, settings_row_text(ST_ROW_BROWSE, &b));
+            CHECK(strcmp(settings_next_value(ST_ROW_BROWSE, &b), asks[i]) == 0,
+                  "browse column %d asks for '%s'", i, settings_next_value(ST_ROW_BROWSE, &b));
+            CHECK(settings_browse_index(asks[i]) == (i + 1) % 6, "'%s' is not index %d",
+                  asks[i], (i + 1) % 6);
+        }
+        CHECK(settings_browse_index("genre") == 0 && settings_browse_index(NULL) == 0,
+              "an unknown browse word is not OFF");
+        b.browse_column = 99;
+        CHECK(strcmp(settings_row_text(ST_ROW_BROWSE, &b), "OFF") == 0, "out of range reads OFF");
+    }
 }
 
 /* ---------------------------------------------------------------------------
@@ -1274,31 +1297,31 @@ static void test_deck_pairs(void)
     }
 }
 
-/* THE DJM ROWS HIDDEN (RB_SETTINGS_DJM unset): six rows, in number order, the box shrunk to
+/* THE DJM ROWS HIDDEN (RB_SETTINGS_DJM unset): seven rows, in number order, the box shrunk to
  * them and still centred, a hidden row with no rect and no answer, and the controller's
  * selection walking only the rows shown. Then every row again, as the other tests had it. */
 static void test_layout(void)
 {
     static const int want[] = { ST_ROW_USB1, ST_ROW_USB2, ST_ROW_MIRROR, ST_ROW_SHARE,
-                                ST_ROW_ENCODE, ST_ROW_POINTER };
+                                ST_ROW_ENCODE, ST_ROW_POINTER, ST_ROW_BROWSE };
     int i, x0, y0, x1, y1, act;
 
     settings_show_rows(0, 1);
-    CHECK(settings_shown() == 6, "%d rows shown without the DJM ones", settings_shown());
-    for (i = 0; i < 6; i++) {
+    CHECK(settings_shown() == 7, "%d rows shown without the DJM ones", settings_shown());
+    for (i = 0; i < 7; i++) {
         CHECK(settings_slot_row(i + 1) == want[i], "position %d holds row %d", i + 1,
               settings_slot_row(i + 1));
         CHECK(settings_row_slot(want[i]) == i + 1, "row %d is not at position %d",
               want[i], i + 1);
     }
-    CHECK(settings_slot_row(0) == 0 && settings_slot_row(7) == 0, "a position past the rows");
-    CHECK(SB_H == SB_BOX_H(6) && SB_H == 429 && SB_Y0 == (MZ_LOGICAL_H - 429) / 2,
-          "the six-row box is %d tall at %d", SB_H, SB_Y0);
+    CHECK(settings_slot_row(0) == 0 && settings_slot_row(8) == 0, "a position past the rows");
+    CHECK(SB_H == SB_BOX_H(7) && SB_H == 491 && SB_Y0 == (MZ_LOGICAL_H - 491) / 2,
+          "the seven-row box is %d tall at %d", SB_H, SB_Y0);
     settings_box_rect(&x0, &y0, &x1, &y1);
-    CHECK(y0 == SB_Y0 && y1 == SB_Y1 && y1 - y0 + 1 == 429, "the box rect is not six rows");
+    CHECK(y0 == SB_Y0 && y1 == SB_Y1 && y1 - y0 + 1 == 491, "the box rect is not seven rows");
     settings_row_rect(ST_ROW_USB1, &x0, &y0, &x1, &y1);
     CHECK(y0 == SB_ROW_TOP(0), "USB1 STOP is not the first row");
-    settings_row_rect(ST_ROW_POINTER, &x0, &y0, &x1, &y1);
+    settings_row_rect(ST_ROW_BROWSE, &x0, &y0, &x1, &y1);
     CHECK(y1 == SB_Y1 - SB_BORDER - SB_PAD, "the last row does not end at the box's margin");
     {
         static const int hidden[] = { ST_ROW_MIXER, ST_ROW_DECK1, ST_ROW_DECK2 };
@@ -1314,25 +1337,27 @@ static void test_layout(void)
     CHECK(act == ST_ROW_MIRROR, "a tap on the third row answered %d, not HDMI AUDIO", act);
     begin(1000);
     settings_focus(99, 1000);
-    CHECK(settings_focused() == 6 && settings_pressed() == ST_ROW_POINTER,
+    CHECK(settings_focused() == 7 && settings_pressed() == ST_ROW_BROWSE,
           "the selection runs past the rows shown (%d, row %d)", settings_focused(),
           settings_pressed());
     settings_focus(1, 1000);
     CHECK(settings_pressed() == ST_ROW_USB1, "the first selection is row %d", settings_pressed());
     settings_close();
 
-    /* ...and the VNC rows hidden too, which is the ODROID's own panel: three rows. */
+    /* ...and the VNC rows hidden too, which is the ODROID's own panel: four rows. */
     settings_show_rows(0, 0);
-    CHECK(settings_shown() == 3 && settings_slot_row(1) == ST_ROW_USB1 &&
+    CHECK(settings_shown() == 4 && settings_slot_row(1) == ST_ROW_USB1 &&
           settings_slot_row(2) == ST_ROW_USB2 && settings_slot_row(3) == ST_ROW_MIRROR &&
-          SB_H == SB_BOX_H(3), "without the DJM and VNC rows: %d rows", settings_shown());
+          settings_slot_row(4) == ST_ROW_BROWSE &&
+          SB_H == SB_BOX_H(4), "without the DJM and VNC rows: %d rows", settings_shown());
     settings_show_rows(1, 0);
-    CHECK(settings_shown() == 6 && settings_slot_row(1) == ST_ROW_MIXER &&
-          settings_slot_row(5) == ST_ROW_DECK1 && settings_row_slot(ST_ROW_SHARE) == 0,
+    CHECK(settings_shown() == 7 && settings_slot_row(1) == ST_ROW_MIXER &&
+          settings_slot_row(5) == ST_ROW_DECK1 && settings_slot_row(7) == ST_ROW_BROWSE &&
+          settings_row_slot(ST_ROW_SHARE) == 0,
           "the DJM rows without the VNC ones are not in number order");
 
     settings_show_rows(1, 1);
-    CHECK(settings_shown() == SB_ROWS && SB_H == 615, "the DJM rows did not come back");
+    CHECK(settings_shown() == SB_ROWS && SB_H == 677, "the DJM rows did not come back");
     for (i = 1; i <= SB_ROWS; i++)
         CHECK(settings_slot_row(i) == i, "with every row shown, position %d holds row %d",
               i, settings_slot_row(i));

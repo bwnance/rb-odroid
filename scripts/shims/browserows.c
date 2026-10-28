@@ -495,6 +495,50 @@ int browserows_split(const uint16_t *s, unsigned n, unsigned *split, unsigned *e
 static uint8_t rebuilt[MAX_MESSAGE];
 static unsigned busy;
 
+/* EVERY VALUE SHOWN, by track. rbp sometimes draws a row from its own copy of the
+ * text, without the value riding in it, and the cell blinked empty (operator,
+ * 2026-10-28); the drawing then finds the row's track and asks here. Written on
+ * the database task, read on the renderer: a sequence count, odd while an entry is
+ * being written, tells the reader to look again. */
+enum { SHOWN_SLOTS = 64, SHOWN_LEN = 64 };
+static struct {
+    unsigned seq, id, field;
+    uint16_t value[SHOWN_LEN];
+} shown[SHOWN_SLOTS];
+static unsigned shown_next;
+
+static void remember(unsigned id, unsigned field, const uint16_t *value)
+{
+    unsigned slot = SHOWN_SLOTS;
+    for (unsigned i = 0; i < SHOWN_SLOTS; i++)
+        if (shown[i].id == id && shown[i].field == field) {
+            slot = i;
+            break;
+        }
+    if (slot == SHOWN_SLOTS) {
+        slot = shown_next;
+        shown_next = (shown_next + 1u) % SHOWN_SLOTS;
+    }
+    __atomic_add_fetch(&shown[slot].seq, 1u, __ATOMIC_SEQ_CST);
+    shown[slot].id = id;
+    shown[slot].field = field;
+    copy_text(shown[slot].value, value, SHOWN_LEN - 1);
+    __atomic_add_fetch(&shown[slot].seq, 1u, __ATOMIC_SEQ_CST);
+}
+
+static int recall(unsigned id, unsigned field, uint16_t out[SHOWN_LEN])
+{
+    for (unsigned i = 0; i < SHOWN_SLOTS; i++) {
+        unsigned seq = __atomic_load_n(&shown[i].seq, __ATOMIC_SEQ_CST);
+        if ((seq & 1u) || shown[i].id != id || shown[i].field != field)
+            continue;
+        memcpy(out, shown[i].value, sizeof(shown[i].value));
+        if (__atomic_load_n(&shown[i].seq, __ATOMIC_SEQ_CST) == seq && id)
+            return out[0] != 0;
+    }
+    return 0;
+}
+
 void browserows_process(uint8_t *context, uint8_t *message, const struct browse_column *column)
 {
     __atomic_store_n(&list_context, context, __ATOMIC_SEQ_CST);
@@ -575,6 +619,7 @@ void browserows_process(uint8_t *context, uint8_t *message, const struct browse_
                 value[0] = 0x2014;
                 value[1] = 0;
             }
+            remember(id, field, value);
             dest += browserows_append(rebuilt + 0x70 + dest, entry, value);
         } else {
             /* the heading row as rbp made it: the heading on the glass is an image */
@@ -590,8 +635,12 @@ void browserows_process(uint8_t *context, uint8_t *message, const struct browse_
     __sync_lock_release(&busy);
 }
 
+void (*browserows_tick)(void);
+
 static int rows_hooked(void *context, void *message, void *request)
 {
+    if (browserows_tick)
+        browserows_tick();
     int result = original_rows(context, message, request);
     const struct browse_column *c = __atomic_load_n(&column, __ATOMIC_SEQ_CST);
     if (c)
@@ -854,6 +903,23 @@ static void shift_x(uint8_t *m, int dx)
 /* A second-column text carrying our value: rbp's text moved right, ours in the
  * middle cell. A text model: rect at 0x18 (left, top, right, bottom), UTF-16 at
  * 0x34, its length byte at 0x38; rbp's font, colour and alignment are kept. */
+/* The track of the row whose second-column glyph `model` is: rbp's glyph IDs per
+ * row (the scroll table's right lane) and the list's own rows, in the same order. */
+static unsigned row_track(const void *model)
+{
+    void *root = (void *)(unsigned long)word(root_pointer);
+    const uint8_t *context = __atomic_load_n(&list_context, __ATOMIC_SEQ_CST);
+    if (!root || !context)
+        return 0;
+    unsigned index = word(context + 4);
+    if (index > 4)
+        return 0;
+    for (unsigned row = 0; row < 12; row++)
+        if (object_by_id(root, (int)(int16_t)half(scroll_ids + 0x100 + (row + 12) * 2)) == model)
+            return word(context + 0x17eac + index * 0x1d1c + row * 532);
+    return 0;
+}
+
 static int column_draw(void *render, void *model)
 {
     uint8_t *m = model;
@@ -897,8 +963,25 @@ static int column_draw(void *render, void *model)
 
 static void draw_text_hooked(void *render, void *text)
 {
+    if (browserows_tick)
+        browserows_tick();
     if (column && column_draw(render, text))
         return;
+    if (!column) {
+        /* switched off with our values still in rbp's rows: rbp's text alone */
+        const uint16_t *s = (void *)(unsigned long)word((uint8_t *)text + 0x34);
+        unsigned n = ((uint8_t *)text)[0x38], split, extra;
+        if (s && n == 255)
+            for (n = 0; n < 255 && s[n];)
+                n++;
+        if (s && browserows_split(s, n, &split, &extra)) {
+            uint32_t clone[21];
+            memcpy(clone, text, sizeof(clone));
+            ((uint8_t *)clone)[0x38] = (uint8_t)split;
+            original_draw_text(render, clone);
+            return;
+        }
+    }
     if (moving(text))
         scroll_observe(text);
     if (moving(text) && half((uint8_t *)text + 0x18) >= NATIVE_EDGE &&
@@ -914,6 +997,19 @@ static void draw_text_hooked(void *render, void *text)
         put_half(c + 0x18, half(c + 0x18) + SHIFT);
         put_half(c + 0x1c, right + SHIFT > 1272 ? 1272 : right + SHIFT);
         original_draw_text(render, c);
+        /* ...and our value, from what was shown for that row's track */
+        uint16_t value[SHOWN_LEN];
+        unsigned id = row_track(text);
+        const struct browse_column *col = column;
+        if (id && col && recall(id, col->field, value)) {
+            memcpy(clone, text, sizeof(clone));
+            uint32_t ptr = (uint32_t)(unsigned long)value;
+            memcpy(c + 0x34, &ptr, 4);
+            c[0x38] = 255;
+            put_half(c + 0x18, COL_X + TEXT_INSET);
+            put_half(c + 0x1c, NATIVE_EDGE + SHIFT - 12);
+            original_draw_text(render, c);
+        }
         return;
     }
     if (moving(text) && half((uint8_t *)text + 0x18) == TITLE_LEFT &&
@@ -986,9 +1082,23 @@ static void draw_rect_hooked(void *render, void *rect)
     original_draw_rect(render, rect);
 }
 
-int browserows_column(const struct browse_column *c)
+void browserows_set(const struct browse_column *c)
 {
-    if (!c || !c->caption || column || !ensure())
+    const struct browse_column *was = __atomic_exchange_n(&column, c, __ATOMIC_SEQ_CST);
+    if (was != c) {
+        /* the next page decides the layout afresh */
+        if (!c)
+            __atomic_store_n(&layout_on, 0u, __ATOMIC_SEQ_CST);
+        invalidate_metadata();
+    }
+}
+
+int browserows_install(void)
+{
+    static int installed;
+    if (installed)
+        return 0;
+    if (!ensure())
         return -1;
     /* every hook below is checked first: the column goes in whole or not at all */
     static const uint8_t load_guard[8] = { 0x10, 0x40, 0x2d, 0xe9, 0x00, 0x40, 0xa0, 0xe1 };
@@ -1020,6 +1130,6 @@ int browserows_column(const struct browse_column *c)
         !original_scroll_start || !original_scroll_run || !original_draw_text ||
         !original_draw_image || !original_draw_rect)
         return -1;      /* only on mmap/mprotect failing; whatever went in is inert */
-    __atomic_store_n(&column, c, __ATOMIC_SEQ_CST);
+    installed = 1;
     return 0;
 }

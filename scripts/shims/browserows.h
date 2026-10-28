@@ -20,8 +20,14 @@ struct browse_column {
     const uint16_t *caption;        /* the heading, UTF-16 */
 };
 
-/* Registers the column, once, for good, with every hook it needs. 0 = in. */
-int browserows_column(const struct browse_column *column);
+/* Every hook the column needs, once, for good; until a column is set they pass
+ * everything through. 0 = in. */
+int browserows_install(void);
+/* The column shown from the next page on; NULL = none. Any thread. */
+void browserows_set(const struct browse_column *column);
+/* Called often from rbp's threads (a page built, a text drawn): the chooser's
+ * chance to look for a new choice. Set before installing; it must be cheap. */
+extern void (*browserows_tick)(void);
 
 /* ---- for the test --------------------------------------------------------- */
 /* rbp's track-key lookup the KEY column calls, reassignable */

@@ -17,6 +17,8 @@ static int checks, failures;
         printf("\n"); } } while (0)
 
 unsigned int browsecol_field(const char *value, const uint16_t **caption);
+unsigned int browsecol_page_column(const uint8_t *page, unsigned int size);
+const char *browsecol_category_word(unsigned category);
 int is_rbp_process(void) { return 0; }
 void klog(const char *fmt, ...) { (void)fmt; }
 
@@ -191,10 +193,41 @@ static void test_config(void)
           browsecol_field(NULL, &caption) == 0, "anything else: off");
 }
 
+/* A table-18 page as rekordbox 7.2.8 wrote it on the operator's stick with
+ * MY SETTINGS > Column = ALBUM (2026-10-28), cut to its rows. */
+static void test_stick_column(void)
+{
+    static uint8_t page[4096];
+    static const uint8_t rows[][8] = {
+        { 0x06, 0, 0x05, 0, 0, 6, 0, 0 }, { 0x1a, 0, 0x01, 0, 0, 3, 0, 0 },
+        { 0x19, 0, 0x00, 0, 0, 2, 0, 0 }, { 0x05, 0, 0x04, 0, 0, 1, 0, 0 },
+        { 0x02, 0, 0x02, 0, 0, 4, 0, 0 }, { 0x03, 0, 0x03, 0, 2, 5, 0, 0 },
+    };
+    unsigned n = sizeof rows / sizeof *rows, present = 0;
+    page[0x18] = (uint8_t)n;
+    for (unsigned r = 0; r < n; r++) {
+        memcpy(page + 0x28 + r * 8, rows[r], 8);
+        put16(page + 4096 - 6 - r * 2, r * 8);
+        present |= 1u << r;
+    }
+    put16(page + 4096 - 4, present);
+    CHECK(browsecol_page_column(page, 4096) == 3, "ALBUM (rbp's category 3) is the flagged row");
+    CHECK(!strcmp(browsecol_category_word(3), "album") && !strcmp(browsecol_category_word(2), "artist") &&
+          !strcmp(browsecol_category_word(12), "key") && browsecol_category_word(5) == NULL,
+          "categories as words; RATING is not one shown");
+    put16(page + 4096 - 4, present & ~(1u << 5));
+    CHECK(browsecol_page_column(page, 4096) == 0, "a deleted row does not count");
+    page[0x28 + 4 * 8 + 4] = 2;
+    CHECK(browsecol_page_column(page, 4096) == 2, "flag on ARTIST: 2");
+    page[0x1b] = 0x40;
+    CHECK(browsecol_page_column(page, 4096) == 0, "an index page is not read");
+}
+
 int main(void)
 {
     test_relocate();
     test_rows();
+    test_stick_column();
     test_transport();
     test_config();
     printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);

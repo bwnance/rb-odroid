@@ -329,15 +329,35 @@ session; details further down):
      title scrolls inside its narrower cell, the moved column does not scroll.
      rbp_hook.c now moves a pc-relative literal load into the trampoline (one of
      the scroll hooks starts with one).
-   - Fixed 2026-10-28: the column blinked in and out while scrolling -- the
-     layout was switched off at the start of every page and on at its end, so a
-     frame drawn between showed rbp's own. It now changes only when a page
-     decides it, and a second-column text drawn without our value is still moved.
-   - **Next** (operator, 2026-10-28): choosing the column on the unit in two
-     places -- a gear SETTINGS row and rbp's own browse MENU, beside SORT (not a
-     button combo) -- with the default taken from the stick's MY SETTINGS
-     (pyrekordbox and rekordcrate document no such field in MYSETTING*.DAT;
-     the toolkit found none either; to look for on the stick itself);
+   - Fixed 2026-10-28: the column blinked in and out while scrolling. Two
+     causes: the layout was switched off and on around every page (a frame drawn
+     between showed rbp's own), and rbp sometimes draws a row from its own copy of
+     the text, without our value in it. The layout now changes only when a page
+     decides it, and every value shown is remembered by track id (64 of them): a
+     row drawn without one finds its track through rbp's per-row glyph IDs and the
+     list's own rows, and draws the remembered value.
+   - **Which column** (operator, 2026-10-28): the stick's own MY SETTINGS >
+     Column by default, changed live from the gear SETTINGS panel's new BROWSE
+     COLUMN row (OFF / ARTIST / ALBUM / BPM / KEY / TIME; the panel is ten rows
+     now, 677 px). Both go through /run/rbp/browse.column, which browsecol.c
+     re-reads a few times a second; a stick put in or re-exported writes its own
+     Column there. rekordbox keeps that Column in export.pdb, **table 18** (the
+     players' SORT list: rows of 8 bytes -- rekordbox's id, rbp's
+     MODULEMAIN_CATESORT id, a flag, the menu position): the one row whose flag
+     is **2**. Found by exporting with ARTIST, then ALBUM: no *SETTING*.DAT byte
+     moved, the flag moved from the ARTIST row to the ALBUM row, nothing else in
+     the table did. rbp reads the same flag for its own unsorted second column
+     (the operator saw it turn to ALBUM). With rbp sorted, the column shows the
+     chosen field beside the sort's; unsorted, both would be the same, so ours
+     hides. RB_BROWSE_COLUMNS=0 removes every hook; RB_BROWSE_COLUMN is only the
+     start before a stick or the panel says anything.
+   - Lesson (2026-10-28, rbp down ~4 min): a shim must not call stat() -- rbp's
+     glibc 2.13 exports no `stat` symbol, so knobshim failed to load ("undefined
+     symbol: stat") and rbp crash-looped. Check new imports with
+     `arm-linux-gnueabi-nm -D --undefined-only knobshim.so | grep -v @` before a
+     deploy; 64-bit atomics are out too (libatomic).
+   - **Next** (operator, 2026-10-28): the column choice in rbp's own browse MENU
+     beside SORT, as a second way to it (not a button combo);
      BPM and KEY as separate columns rather than rbp's merged "170.0 bpm - 4B";
      the preview waveform switchable off for room; the CDJ's PREVIEW (audition
      from the list) and text size. The toolkit's tap-a-heading sort is not
