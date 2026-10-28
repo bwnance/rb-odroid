@@ -619,9 +619,14 @@ session; details further down):
    both files carry another session's uncommitted edits), pitch_state.c (the maps
    still publish the tempo position), and comments in other modules and in
    docs/07-touch.md / docs/08-controls.md that name the drawers as history.
-29. **SOURCE does not refresh when a USB stick goes in -- to look at** (operator,
-   2026-10-28). The SOURCE screen keeps showing the old state until something
-   else redraws it.
+29. **SOURCE does not refresh when a USB stick goes in -- couldn't reproduce**
+   (operator, 2026-10-28). The SOURCE screen kept showing the old state until
+   something else redrew it. rbp already asks for the refresh: the mount message
+   (0x138a) in `Total_MainUsbMessageProc` calls `Pub_GuiCom_SndDispInvalidate(0x1000)`
+   when ModeSelect (`0x3253564+0x152c`; SOURCE is 7) is in mask 0x47fe. That sets
+   flag 0x10000, and `Ui_EventTask` runs `BrowseUpdateList` for browse mode 7 or 11.
+   A slot-2 mount sent by hand (the slot-1 stick bound to /media/usb2/sda1) appeared
+   on SOURCE by itself, and a real plug worked on the retry.
 30. **The sort should survive going back to SOURCE -- wished for** (operator,
    2026-10-28). A sort chosen in a list is lost when BROWSE goes back to SOURCE.
 31. **Sort triangles on the headings -- wished for** (operator, 2026-10-28). As on
