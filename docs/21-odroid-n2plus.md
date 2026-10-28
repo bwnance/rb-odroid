@@ -395,10 +395,11 @@ session; details further down):
      2 (+0x2c, [Player+0xe94]+8: 0 = +-6, 1 = +-10, 2 = +-16, 3 = WIDE; deck 1
      was at +-6 before). The Beat FX quantize panel (MasterInnards+0x45) is on,
      as the DJM file says (+0x6c), but it was already on before the load.
-   - Not read back: time mode (REMAIN, +0x28), the channel fader curve (DJM
-     +0x68 = 1) and mono split (+0x6b = 0). The last two live in StatWatcher's
-     keyed settings store (getUtilChFaderCurve @0x2c22b8); rbp's UTILITY
-     screen shows them.
+   - Seen on rbp's screen by the operator: time mode REMAIN (+0x28) and
+     CH FADER CURVE 2 (DJM +0x68 = 1; values are 0-based --
+     UiKey_Shortcut_ChannelFaderCurve2 @0x115b68 sets 1). Mono split (+0x6b
+     = 0) not checked; it and the curve live in StatWatcher's keyed settings
+     store (getUtilChFaderCurve @0x2c22b8).
    - XdjSettings.dat was not rewritten by the load: rbp saves it later, not
      on a load.
    - The SHORTCUT view's LOAD (key 0x0222, UiKey_Shortcut_MySettingLoad
