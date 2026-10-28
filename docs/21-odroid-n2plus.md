@@ -411,8 +411,9 @@ session; details further down):
      dark, not toward what is under it, so a dark grey (22) wore a jagged dark
      outline on the green; giving the text its own background to smooth against
      painted the box black. The box is inset 1 px top and bottom, so two lit rows
-     keep a 2 px line between them, and on the selected row it has a black
-     underlay so the blue does not show around it. Every list row's text and
+     keep a 2 px line between them, over the row's own rectangle across the
+     cell (its alternating shade) so the selected row's blue does not show
+     around it. Every list row's text and
      icons are drawn 2 px lower (capitals 15..33 of 50, from 13..31), the
      selected row's scrolling title too (lowered around
      ui_ListBrowse_StartTextScroll, which places the scroller's window). A lit first row also made rbp head its column KEY; the heading is

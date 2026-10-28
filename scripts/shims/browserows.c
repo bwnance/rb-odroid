@@ -1183,18 +1183,16 @@ static void light_key_cell(void *render, const void *text)
      * when drawn after: drawn here, after the row, it would show (53 px, seen).
      * Then 1 px in at the top and the bottom both, so two lit rows in a row keep a
      * line between them, centred on the row's edge (operator, 2026-10-28). */
-    /* On the selected row the gap would show its blue: under the green goes black
-     * there, across the cell (operator, 2026-10-28). A grey row's colour has its
-     * three colour bytes about equal; the selection's are not. */
-    unsigned colour = word(c + 0x28), r = colour >> 16 & 255u, g = colour >> 8 & 255u,
-             b = colour & 255u, hi = r > g ? (r > b ? r : b) : (g > b ? g : b),
-             lo = r < g ? (r < b ? r : b) : (g < b ? g : b);
-    if (hi - lo > 60) {
-        put_half(c + 0x1e, half(c + 0x1e) - 3);
-        put_word(c + 0x28, 0xff000000u);
-        original_draw_rect(render, c);
-        put_half(c + 0x1e, half(c + 0x1e) + 3);
-    }
+    /* Under the green, the row's ordinary shade across the whole cell: the 1 px
+     * gaps show that, not the selection's blue (operator, 2026-10-28). The rows
+     * alternate, so the shade is the one two rows away -- never the selected row,
+     * whose own rectangle is drawn blue. */
+    unsigned twin = row >= 2 ? row - 2 : row + 2;
+    if (twin < LIST_ROWS && row_rect_ok[twin])
+        put_word(c + 0x28, word((const uint8_t *)row_rect[twin] + 0x28));
+    put_half(c + 0x1e, half(c + 0x1e) - 3);
+    original_draw_rect(render, c);
+    put_half(c + 0x1e, half(c + 0x1e) + 3);
     put_half(c + 0x1a, half(c + 0x1a) + 1);
     put_half(c + 0x1e, half(c + 0x1e) - 4);
     put_word(c + 0x28, KEY_LIT_COLOUR);
