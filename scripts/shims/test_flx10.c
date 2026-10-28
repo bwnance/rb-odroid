@@ -796,6 +796,19 @@ int main(void)
      browse_mode = 12;
      reset(); ON(7, 122); OFF(7, 122);
      CHECK(sent_n == 2 && is(0, K_SOURCE, OP_PRESS, 1), "VIEW on SOURCE -> SOURCE (closes it)");
+     {
+          int had = usb1;
+          usb1 = 0; browse_mode = 1; map_flx10.tick();      /* the stick gone: nothing browsed */
+          usb1 = 1; map_flx10.tick();
+          reset(); ON(7, 122); OFF(7, 122);
+          CHECK(sent_n == 2 && is(0, K_SOURCE, OP_PRESS, 1),
+                "VIEW on the player, nothing browsed yet -> SOURCE");
+          browse_mode = 3; map_flx10.tick(); browse_mode = 1;
+          reset(); ON(7, 122); OFF(7, 122);
+          CHECK(sent_n == 2 && is(0, K_BROWSE, OP_PRESS, 1),
+                "...a list browsed: VIEW on the player -> BROWSE, back to it");
+          usb1 = had; browse_mode = 12;
+     }
      /* VIEW held: the FLX10 sends 103 on+off, then a lone 122 off -- MENU
       * tapped on a list or SOURCE (LIST MENU / MY SETTINGS), nothing on the player */
      for (int i = 0; i < 3; i++) {
@@ -838,8 +851,10 @@ int main(void)
      ms(60); map_flx10.tick();
      browse_mode = 1;
      reset(); ON(7, 122); ON(7, 93);
-     CHECK(is(0, K_SOURCE, OP_PRESS, 1) && is(1, K_TRACKFILTER, OP_PRESS, 1) &&
-           is(2, K_TRACKFILTER, OP_REPEAT, 1), "VIEW -> SOURCE, SHIFT+push -> TRACK FILTER");
+     CHECK(is(0, K_BROWSE, OP_PRESS, 1) && is(1, K_TRACKFILTER, OP_PRESS, 1) &&
+           is(2, K_TRACKFILTER, OP_REPEAT, 1),
+           "VIEW on the player, a list browsed -> BROWSE (the last place), SHIFT+push -> "
+           "TRACK FILTER");
      OFF(7, 122); OFF(7, 93);
 
      /* the start-up splash: the controller is ignored while it is up, and asked
@@ -886,7 +901,13 @@ int main(void)
            "a push the panel took keeps its release, the panel gone or not");
      panel_up = 0;
 
-     /* BACK: rbp's BACK, but SOURCE on the category column, where rbp's does nothing */
+     /* BACK: rbp's BACK, but SOURCE on the category column and on the player, where
+      * rbp's does nothing */
+     browse_mode = 1;
+     reset(); ON(7, 101); OFF(7, 101);
+     CHECK(sent_n == 2 && is(0, K_SOURCE, OP_PRESS, 1) && is(1, K_SOURCE, OP_RELEASE, 1),
+           "BACK on the player -> SOURCE");
+     browse_mode = 3;
      reset(); ON(7, 101); OFF(7, 101);
      CHECK(sent_n == 2 && is(0, K_BACK, OP_PRESS, 1) && is(1, K_BACK, OP_RELEASE, 1),
            "BACK in a list -> BACK");

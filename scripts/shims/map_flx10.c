@@ -1907,8 +1907,9 @@ static void flx10_push(int deck, int on)
 }
 
 /* ---- VIEW -------------------------------------------------------------------
- * VIEW is SOURCE on the player and SOURCE (back) on SOURCE, BROWSE (back to the
- * player) on a list. HELD, it is MENU on a list or SOURCE -- rbp's LIST MENU or
+ * VIEW is BROWSE on the player -- back to the last place browsed, the list where it
+ * was left (operator, 2026-10-27, item 22; it was SOURCE) -- SOURCE (back) on SOURCE,
+ * and BROWSE (back to the player) on a list. HELD, it is MENU on a list or SOURCE -- rbp's LIST MENU or
  * MY SETTINGS (operator, 2026-10-27: "long press of view should open that menu
  * ... from the browse screen"). The FLX10 times the hold itself: snooped on the
  * unit 2026-10-27, a held VIEW sends note 103 on and off at once on the mixer
@@ -1916,14 +1917,24 @@ static void flx10_push(int deck, int on)
  * held MENU_TAP_MS: held 400 ms it would be UTILITY (SHIFT + VIEW's). */
 #define MENU_TAP_MS 50
 
+/* Has a list been browsed since rbp started (a list mode seen by the tick)? Until
+ * then rbp's BROWSE from the player is an empty "Please select a source", so VIEW
+ * there is SOURCE, as it used to be. Forgotten when slot 1's stick goes. */
+static int browsed;
+
+static int flx10_list_mode(int bm)
+{
+     return bm == 3 || bm == 13 || bm == 14;
+}
+
 static void flx10_view(int on)
 {
      static int view_key;
 
      if (on) {
           int bm = flx10_browse_mode();
-          view_key = (bm == BROWSE_MODE_PLAY || bm == BROWSE_MODE_SOURCE)
-                     ? K_SOURCE : K_BROWSE;
+          view_key = bm == BROWSE_MODE_SOURCE ? K_SOURCE
+                   : bm == BROWSE_MODE_PLAY && !browsed ? K_SOURCE : K_BROWSE;
           send_rx_key(view_key, OP_PRESS, CH_GLOBAL, 0);
      } else if (view_key) {
           send_rx_key(view_key, OP_RELEASE, CH_GLOBAL, 0);
@@ -1948,7 +1959,8 @@ static void flx10_view_long(void)
  * BACK is rbp's BACK, except on the category column (ARTIST, PLAYLIST, ... down
  * the left of a list), where rbp's does nothing: there it is SOURCE, back to the
  * source screen (operator, 2026-10-27: "after clicking into a source and
- * clicking back it should go back to source"). */
+ * clicking back it should go back to source"). On the player, where rbp's BACK
+ * does nothing either, it is SOURCE too (item 22). */
 __attribute__((weak)) int flx10_on_categories(void)
 {
      int mode = *(volatile int *)(UIBROWSE_GLOBAL + UIBROWSE_OFF_MODE);
@@ -1962,9 +1974,11 @@ static void flx10_back(int on)
      static int back_key;
 
      if (on) {
-          back_key = flx10_on_categories() ? K_SOURCE : K_BACK;
+          int player = flx10_browse_mode() == BROWSE_MODE_PLAY;
+          back_key = player || flx10_on_categories() ? K_SOURCE : K_BACK;
           if (back_key == K_SOURCE)
-               klog("knobshim2: flx10 BACK on the category column -> SOURCE\n");
+               klog("knobshim2: flx10 BACK on the %s -> SOURCE\n",
+                    player ? "player" : "category column");
           send_rx_key(back_key, OP_PRESS, CH_GLOBAL, 0);
      } else if (back_key) {
           send_rx_key(back_key, OP_RELEASE, CH_GLOBAL, 0);
@@ -3254,6 +3268,10 @@ static void flx10_tick(void)
      flx10_rev_tick(t);
      flx10_sb_tick(t);
      flx10_track_tick(t);
+     if (flx10_list_mode(flx10_browse_mode()))
+          browsed = 1;
+     else if (browsed && !flx10_usb1_present())
+          browsed = 0;
      flx10_push_tick(t);
      flx10_scfx_tick(t);
      flx10_panel_tick(t);

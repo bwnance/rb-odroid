@@ -580,12 +580,12 @@ session; details further down):
    blend, since anything after that blend would move the cue/master balance
    item 20 set. Send a setting only on a change, never repeated (the booth
    lesson).
-22. **VIEW and BACK from the player -- wished for, not started** (operator,
-   2026-10-27, "I think"). Once a source is chosen and the player is showing,
-   VIEW should go back to the last place browsed (that source's list, where it
-   was left), and BACK should go to the SOURCE screen. What each does today is
-   in the FLX10 map table (the BACK / VIEW row); VIEW from the player opens
-   PLAYLIST there, so VIEW is most of the change.
+22. **VIEW and BACK from the player -- done** (operator, 2026-10-27; map_flx10.c).
+   On the player VIEW is rbp's BROWSE key, which reopens the browser where it was
+   left (list and row: checked on the unit, Bea at row 006 and back); BACK there is
+   SOURCE. Until a list has been browsed since rbp started (or after slot 1's stick
+   went), rbp's BROWSE is an empty "Please select a source", so VIEW on the player is
+   SOURCE then, as it used to be. test_flx10 has both.
 23. **EQ knobs vs rekordbox on the laptop -- closed** (operator, 2026-10-28):
    they felt more aggressive at first; on a second listen they match.
 24. **Switching a channel's input away from the RX3 leaves the deck playing
@@ -1054,7 +1054,7 @@ are the operator's table, agreed control by control on 2026-10-24:
 | SHIFT + MIX POINT, ACTIVE PART, PAGE, DECK SELECT, SAMPLER, BOOTH | nothing |
 | browse knobs (one shared message) / SHIFT | scroll / 8 steps per detent |
 | browse push (per deck) / held 0.5 s / twice | on a track row LOAD that deck, on anything else SELECT (opens the folder/playlist/category) -- the row type is rbp's own `UiBrowseComm_IsTrackList` (@0x105e60) / **rbp's own long press of the selector = FAST SCROLL** (selector PRESS + op 1, held until the knob comes up; TAG TRACK is unmapped) / on the PLAYER, two pushes within 400 ms: **INST.DOUBLES**, as BEAT SYNC held (a single push on the player is held back 400 ms, then sent as before); in BROWSE a push is a push; **on the SOURCE screen with a stick in slot 1: open USB 1** (rbp ignores the knob there) |
-| BACK / VIEW; SHIFT+BACK / SHIFT+VIEW | BACK / SOURCE from the player, SOURCE again on the SOURCE menu (closes it), BROWSE (back to the player) from a browse list; PLAYLIST from the player, back to the player when pressed again from that list, TAG LIST elsewhere / SHORTCUT (on the release); held 1 s, rbp's UTILITY (MENU held 500 ms), where the browse knob, its push and BACK are rbp's own |
+| BACK / VIEW; SHIFT+BACK / SHIFT+VIEW | BACK, SOURCE on the player and on the category column / BROWSE from the player (the last place browsed; SOURCE until a list has been), SOURCE again on the SOURCE menu (closes it), BROWSE (back to the player) from a browse list; PLAYLIST from the player, back to the player when pressed again from that list, TAG LIST elsewhere / SHORTCUT (on the release); held 1 s, rbp's UTILITY (MENU held 500 ms), where the browse knob, its push and BACK are rbp's own |
 | SHIFT + deck 1's browse push | TRACK FILTER (deck 2's SHIFT push not yet recorded) |
 | pad modes HOT CUE / PAD FX1 / BEAT JUMP / SAMPLER | HOT CUE / SLIP LOOP / BEAT JUMP / BEAT LOOP 2 |
 | SHIFT + those: KEYBOARD / PAD FX2 / BEAT LOOP / KEY SHIFT | GATE CUE / RELEASE FX / BEAT LOOP / BEAT JUMP 2 (a SHIFT button goes straight to its mode; pressing a main button again does what SHIFT + it does, and a third press comes back -- the FLX10's double-press behaviour) |
