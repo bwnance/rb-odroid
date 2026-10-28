@@ -94,18 +94,22 @@ static void hooked_booth(void *self, int att)
  * channel's meter reads 12 dB lower, and the master with it. rbp's
  * mixerengine::MixerChannel::update(frames) @0x9e890 takes a block from its deck
  * (getPlayerDataPointer), puts it through its three gain stages (+0x40, +0xe8, +0x120,
- * the first two ramping) and writes it to its own buffer at +0x1c, which EQ, fader and
- * meters take from: the block is scaled there, after update, so the ramps are left be
- * and the deck's own buffer (the external mixer's taps) is not touched. Kept in
+ * the first two ramping) and writes it to its own buffer at +0x1c -- then ends in
+ * MixerChannel::updateFilter(frames) @0x9e3fc (a tail call: its only caller), the
+ * channel's EQ, which takes the block from there. So the block is scaled at
+ * updateFilter's entry: after the gain stages (their ramps left be), before EQ, fader
+ * and meters, and the deck's own buffer (the external mixer's taps) is not touched.
+ * (Scaled after update, as first built, it came after the EQ had read it: no effect,
+ * the operator heard, 2026-10-28.) Kept in
  * /root/settings/headroom (dB, 0 / -3 / -6 / -9 / -12), set from UTILITY (fbshim's
  * utility_rows.c through headroom_set). */
-#define CHANNEL_UPDATE 0x0009e890ul
-/* ldr r3,[r0,#0xd0] ; push {r4,r5,r6,lr} */
-static const uint8_t update_guard[8] = { 0xd0, 0x30, 0x90, 0xe5, 0x70, 0x40, 0x2d, 0xe9 };
+#define CHANNEL_FILTER 0x0009e3fcul
+/* push {r4,r5,r6,r7,r8,lr} ; mov r4,r0 */
+static const uint8_t filter_guard[8] = { 0xf0, 0x41, 0x2d, 0xe9, 0x00, 0x40, 0xa0, 0xe1 };
 #define CHANNEL_OUT 0x1c
 #define HEADROOM_FILE "/root/settings/headroom"
-typedef void (*update_fn)(void *self, int frames);
-static update_fn original_update;
+typedef void (*filter_fn)(void *self, int frames);
+static filter_fn original_filter;
 static volatile float headroom_gain = 1.0f;
 static volatile int headroom_db;
 
@@ -138,18 +142,14 @@ __attribute__((visibility("default"))) int headroom_get(void)
      return headroom_db;
 }
 
-static void hooked_update(void *self, int frames)
+static void hooked_filter(void *self, int frames)
 {
-     float g = headroom_gain, *out;
+     float g = headroom_gain, *out = *(float **)((char *)self + CHANNEL_OUT);
 
-     original_update(self, frames);
-     if (g == 1.0f || frames <= 0 || frames > 4096)
-          return;
-     out = *(float **)((char *)self + CHANNEL_OUT);
-     if (!out)
-          return;
-     for (int i = 0; i < frames * 2; i++)
-          out[i] *= g;
+     if (g != 1.0f && out && frames > 0 && frames <= 4096)
+          for (int i = 0; i < frames * 2; i++)
+               out[i] *= g;
+     original_filter(self, frames);
 }
 
 static void headroom_load(void)
@@ -177,9 +177,9 @@ __attribute__((constructor)) static void masteratt_init(void)
           klog("knobshim2: MASTER ATT.: MasterOut::setATT is not the one measured -- "
                "the setting stays a no-op\n");
      headroom_load();
-     original_update = (update_fn)rbp_hook(CHANNEL_UPDATE, update_guard, (void *)hooked_update);
-     if (!original_update)
-          klog("knobshim2: HEADROOM: MixerChannel::update is not the one measured -- off\n");
+     original_filter = (filter_fn)rbp_hook(CHANNEL_FILTER, filter_guard, (void *)hooked_filter);
+     if (!original_filter)
+          klog("knobshim2: HEADROOM: MixerChannel::updateFilter is not the one measured -- off\n");
      else
           klog("knobshim2: HEADROOM %d dB\n", headroom_db);
      original_booth = (setatt_fn)rbp_hook(BOOTH_SETATT, booth_guard, (void *)hooked_booth);

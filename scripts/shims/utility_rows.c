@@ -36,6 +36,7 @@ static const uint32_t ut_lit_rows = 0x0013d9e4;
 #define UT_ROW_SLIPFLASH    7
 #define UT_ROW_MIXERMODE    23            /* ours go after it, at the MIXER section's end */
 #define UT_ROW_JOGIMAGE     13            /* IMAGE ON JOG DISPLAY: the DECK section's last */
+#define UT_ROW_MASTERATT    18            /* MASTER ATTENUATOR */
 #define UT_ROW_BOOTHATT     19            /* BOOTH MONITOR ATTENUATOR */
 #define UT_ROW_SCREENSAVER  29            /* SCREEN SAVER, in GENERAL */
 #define UT_ROW_JOGLCD       28            /* JOG LCD BRIGHTNESS: the FLX10 has none */
@@ -64,6 +65,7 @@ const uint16_t ut_label_traffic[] = {
 
 static struct ut_table ut_table __attribute__((aligned(8)));
 static struct ut_table ut_deck;      /* rbp's rows with TRAFFIC LIGHT, before the rest */
+static struct ut_table ut_head;      /* ...and OUTPUT HEADROOM */
 static struct ut_table ut_mixer;     /* ...and the DDJ-FLX10's rows */
 static struct ut_table ut_rest;      /* ...and HDMI AUDIO and the sections */
 
@@ -466,10 +468,11 @@ static int ut_bfxq_enter(struct ut_entry *e)
  * applies and keeps it (headroom_get / headroom_set, WEAK: greyed without it). */
 __attribute__((weak)) int headroom_get(void);
 __attribute__((weak)) void headroom_set(int db);
-static const uint16_t *const v_headroom[] = { W('0','d','B'), W('-','3','d','B'),
-                                              W('-','6','d','B'), W('-','9','d','B'),
-                                              W('-','1','2','d','B') };
-static const uint16_t l_headroom[] = { SP6, 'H','E','A','D','R','O','O','M', 0 };
+/* lowest first, 0 dB rightmost, as rbp's attenuator rows run (operator, 2026-10-28) */
+static const uint16_t *const v_headroom[] = { W('-','1','2','d','B'), W('-','9','d','B'),
+                                              W('-','6','d','B'), W('-','3','d','B'),
+                                              W('0','d','B') };
+static const uint16_t l_headroom[] = { SP6, 'O','U','T','P','U','T',' ','H','E','A','D','R','O','O','M', 0 };
 
 static int ut_headroom_setline(struct ut_entry *e, unsigned char **lines)
 {
@@ -477,9 +480,9 @@ static int ut_headroom_setline(struct ut_entry *e, unsigned char **lines)
 
     line_put(lines[0], e->label);
     if (idx == -1) {
-        idx = headroom_get ? -headroom_get() / 3 : -1;
-        if (idx > 4)
-            idx = 4;
+        idx = headroom_get ? 4 + headroom_get() / 3 : -1;
+        if (idx < 0 && headroom_get)
+            idx = 0;
         e->cur = idx;
     }
     line_put(lines[1], idx >= 0 && idx < 5 ? e->values[idx] : 0);
@@ -492,8 +495,8 @@ static int ut_headroom_enter(struct ut_entry *e)
 
     if (v < 0 || v > 4 || v == e->cur || !headroom_set)
         return 0;
-    headroom_set(-3 * v);
-    pointsrc_log("utility: HEADROOM -> %d dB", -3 * v);
+    headroom_set(-3 * (4 - v));
+    pointsrc_log("utility: HEADROOM -> %d dB", -3 * (4 - v));
     e->cur = v;
     return 1;
 }
@@ -674,14 +677,16 @@ int utility_rows_install(void)
     ours[0].fn[UT_FN_SETLINE] = (uint32_t)(uintptr_t)ut_bfxq_setline;
     ours[0].fn[UT_FN_ENTER] = (uint32_t)(uintptr_t)ut_bfxq_enter;
     ours[0].fn[UT_FN_ISGREY] = UTIL_ISGREY;
+    /* OUTPUT HEADROOM right before MASTER ATTENUATOR (operator, 2026-10-28) */
+    struct ut_entry headroom_row = ours[2];
+    headroom_row.label = l_headroom;
+    headroom_row.values = v_headroom;
+    headroom_row.nvalues = 5;
+    headroom_row.fn[UT_FN_SETLINE] = (uint32_t)(uintptr_t)ut_headroom_setline;
+    headroom_row.fn[UT_FN_ENTER] = (uint32_t)(uintptr_t)ut_headroom_enter;
+    headroom_row.fn[UT_FN_ISGREY] = (uint32_t)(uintptr_t)ut_headroom_isgrey;
     ours[1] = ours[2];
-    ours[1].label = l_headroom;
-    ours[1].values = v_headroom;
-    ours[1].nvalues = 5;
-    ours[1].fn[UT_FN_SETLINE] = (uint32_t)(uintptr_t)ut_headroom_setline;
-    ours[1].fn[UT_FN_ENTER] = (uint32_t)(uintptr_t)ut_headroom_enter;
-    ours[1].fn[UT_FN_ISGREY] = (uint32_t)(uintptr_t)ut_headroom_isgrey;
-    k = 3;
+    k = 2;
     if (atoi(env_str("SETTINGS_DJM", "0")))
         k += ut_section(ours + k, src, l_djm, ut_defs, 3, &ours[2]);
     if (atoi(env_str("SETTINGS_VNC", "0")))
@@ -690,14 +695,18 @@ int utility_rows_install(void)
     n = ut_build(&ut_deck, src, UT_RBP_N, UT_ROW_JOGIMAGE, &traffic, 1);
     if (n < 0)
         goto refuse;
-    n = ut_build(&ut_mixer, ut_deck.rows, n, UT_ROW_BOOTHATT + 1, unit_rows, UNIT_MIXER_ROWS);
+    /* rows below are counted in rbp's numbering + 1 (TRAFFIC LIGHT), + 1 (OUTPUT HEADROOM) */
+    n = ut_build(&ut_head, ut_deck.rows, n, UT_ROW_MASTERATT, &headroom_row, 1);
     if (n < 0)
         goto refuse;
-    n = ut_build(&ut_rest, ut_mixer.rows, n, UT_ROW_MIXERMODE + 1 + UNIT_MIXER_ROWS, ours, k);
+    n = ut_build(&ut_mixer, ut_head.rows, n, UT_ROW_BOOTHATT + 2, unit_rows, UNIT_MIXER_ROWS);
+    if (n < 0)
+        goto refuse;
+    n = ut_build(&ut_rest, ut_mixer.rows, n, UT_ROW_MIXERMODE + 2 + UNIT_MIXER_ROWS, ours, k);
     if (n < 0)
         goto refuse;
     /* the demo / screen saver where rbp's SCREEN SAVER was, in GENERAL */
-    n = ut_build(&ut_table, ut_rest.rows, n, UT_ROW_SCREENSAVER + 1 + UNIT_MIXER_ROWS + k,
+    n = ut_build(&ut_table, ut_rest.rows, n, UT_ROW_SCREENSAVER + 2 + UNIT_MIXER_ROWS + k,
                  unit_rows + UNIT_MIXER_ROWS, UNIT_ROWS - UNIT_MIXER_ROWS);
     if (n < 0)
         goto refuse;

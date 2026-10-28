@@ -802,12 +802,14 @@ session; details further down):
    state as it is. UTILITY's MIXER ends with BEAT FX QUANTIZE (rbp's getter shown,
    the panel's key sent: flx10_bfxq_set). JOG LCD BRIGHTNESS is left out of
    UTILITY: the FLX10's jog screens take no brightness from it.
-37. **HEADROOM -- built, to try** (operator, 2026-10-28: rekordbox's setting).
-   UTILITY's MIXER: HEADROOM 0 / -3 / -6 / -9 / -12 dB, the decks' level before the
-   mixer, apart from MASTER ATTENUATOR -- at -12 dB a channel's meter reads 12 dB
-   lower. masteratt.c scales each channel's block after mixerengine::MixerChannel::
-   update @0x9e890 (its output buffer, +0x1c, which EQ, fader and meters read; the
-   ramps and the deck's own buffer are left be). Kept in /root/settings/headroom.
+37. **OUTPUT HEADROOM -- built, to try** (operator, 2026-10-28: rekordbox's
+   setting). UTILITY's MIXER, right before MASTER ATTENUATOR: -12 / -9 / -6 / -3 /
+   0 dB (0 rightmost, as the attenuators run), the decks' level before the mixer,
+   apart from MASTER ATTENUATOR -- at -12 dB a channel's meter reads 12 dB lower.
+   masteratt.c scales each channel's block at MixerChannel::updateFilter @0x9e3fc's
+   entry (update's tail call: after its gain stages, before EQ, fader and meters; the
+   deck's own buffer is left be). Scaled after update, as first built, it came after
+   the EQ had read the block: no effect. Kept in /root/settings/headroom.
    rekordbox's Auto Gain is not on the stick (neither export.pdb nor OneLibrary's
    exportLibrary.db carries a gain), so it was not built.
 38. **Waveforms jumped left/right now and then, picture only -- under test**
