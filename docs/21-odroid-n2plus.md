@@ -407,13 +407,12 @@ session; details further down):
      mode 10 and that view's media record (getLastBrowseModeMediaPointer(10)
      -> 0x326f9b8). A replayed BROWSE -> SHORTCUT -> LOAD after a restart did
      nothing for that reason.
-19. **RB_AUDIO_PERIODS -- committed, off by default, to hear on the decks**
-   (2026-10-27). A deeper master ring for the clicks (docs/09). It did not
-   fix the booth flipping (that was the time CCs); whether it helps the
-   clicks is untested. The unit's own rb.conf has it at 4 (its log: "4
-   periods for the master, not rbp's 2"). To check: play a while and listen
-   for clicks at 4, then at 0; if 4 is clean, make it the ODROID's default.
-
+19. **RB_AUDIO_PERIODS -- closed, kept at 4 on this unit** (2026-10-27).
+   A deeper master ring (docs/09): 4 periods instead of rbp's 2, about 2.9 ms
+   more latency, nothing else. Clicks were never actually heard, so it is not
+   a fix for anything observed; it stays on because every level and balance
+   in item 20 was set with it on. Set in the unit's rb.local.conf; the repo
+   default stays 0.
 20. **Headphones: cue vs master -- fixed** (2026-10-27, by ear). Every
    channel cue was too quiet and the master too loud. The FLX10 builds the
    headphone mix in hardware, and rbp was mixing too (docs/09, Cue / PFL).
