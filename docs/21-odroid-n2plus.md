@@ -844,8 +844,13 @@ session; details further down):
    waveform redrawn at another scale for ~2.3 s, then back; the audio does not
    change. Deck state logged at the time: deck 1's BPM snaps to the master's
    (125.0 -> 131.27) with SYNC on, deck 2's BPM, tempo, SYNC and MASTER never move,
-   and no shim action falls between. So rbp re-scales its waveforms around the
-   other deck's tempo change; left as rbp's. The screen jumps of item 38 looked
+   and no shim action falls between. Traced to calcParticularWave @0x123014: the
+   RX3's beat-aligned display. When the decks' BPMs are within ~5, the active deck's
+   waveform is scaled by the two tempos' ratio (clamped 0.5..2) so the beats line up
+   on screen (a static flag holds the mode), and back when they part -- a sync's BPM
+   jump enters it. The scale reaches ui_PLAYMODE_Set @0x24fb80 (control 0x45e) as the
+   float at +24 of its data block. Kept as the RX3's own (operator, 2026-10-28); to
+   switch it off, force that ratio to 1. The screen jumps of item 38 looked
    like a display matter in the end (operator): the static UI in rbp's frames never
    shifted, nor did the display plane.
 34. **RX3 touch preview -- not working, to look at** (operator, 2026-10-28). The
