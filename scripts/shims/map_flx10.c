@@ -105,6 +105,8 @@
 #define N_BJ_NEXT       95
 #define N_BJ_PREV_SHIFT 97    /* SHIFT: 16 beats back */
 #define N_BJ_NEXT_SHIFT 98
+#define N_BJ_PREV_HELD  112   /* 4 BEAT JUMP < held: the panel's own long press */
+#define N_BJ_NEXT_HELD  113
 #define N_SLIP_REVERSE  21
 #define N_REVERSE       56    /* SHIFT + SLIP REVERSE */
 #define N_QUANTIZE      53
@@ -1153,8 +1155,12 @@ __attribute__((weak)) int flx10_plain_jump(int deck, float beats)
 /* HELD, a jump repeats (operator, 2026-10-28, item 25: to seek): the press jumps
  * once, and from BJ_DELAY_MS on the same jump again every BJ_REPEAT_MS until the
  * button comes up -- a key repeat. 4 beats every 150 ms is ~12x through a 128 BPM
- * track; SHIFT's 16, four times that. Any of the deck's four jump notes ending the
- * hold ends it, SHIFT let go under it or not. */
+ * track; SHIFT's 16, four times that. Any of the deck's jump notes ending the
+ * hold ends it, SHIFT let go under it or not.
+ * Unshifted, the panel does its own long press (measured 2026-10-28): a tap is sent
+ * as 94/95 on and off together at the release, and a hold as 112/113 instead, on
+ * once the panel calls it held and off at the release -- so that one jumps at once
+ * and repeats from BJ_REPEAT_MS. SHIFT's 97/98 come at the press and the release. */
 #define BJ_DELAY_MS  400
 #define BJ_REPEAT_MS 150
 static int bj_held[2];
@@ -1162,7 +1168,7 @@ static unsigned long long bj_next[2];
 
 static void flx10_jump(int deck, int beats);
 
-static void flx10_jump_key(int deck, int beats, int on)
+static void flx10_jump_key(int deck, int beats, int on, int delay_ms)
 {
      if (deck < 0 || deck > 1)
           return;
@@ -1172,7 +1178,7 @@ static void flx10_jump_key(int deck, int beats, int on)
      }
      flx10_jump(deck, beats);
      bj_held[deck] = beats;
-     bj_next[deck] = shim_now_ms() + BJ_DELAY_MS;
+     bj_next[deck] = shim_now_ms() + (unsigned)delay_ms;
 }
 
 static void flx10_jump_tick(unsigned long long t)
@@ -2747,10 +2753,12 @@ static void flx10_note(int ch, int note, int on)
           case N_CUE_SHIFT: case N_MIXPOINT_PREV: case N_MIXPOINT_NEXT:
                flx10_track_note(deck, note, on);
                return;
-          case N_BJ_PREV:       flx10_jump_key(deck, -4, on);  return;
-          case N_BJ_NEXT:       flx10_jump_key(deck, 4, on);   return;
-          case N_BJ_PREV_SHIFT: flx10_jump_key(deck, -16, on); return;
-          case N_BJ_NEXT_SHIFT: flx10_jump_key(deck, 16, on);  return;
+          case N_BJ_PREV:       flx10_jump_key(deck, -4, on, BJ_DELAY_MS);  return;
+          case N_BJ_NEXT:       flx10_jump_key(deck, 4, on, BJ_DELAY_MS);   return;
+          case N_BJ_PREV_SHIFT: flx10_jump_key(deck, -16, on, BJ_DELAY_MS); return;
+          case N_BJ_NEXT_SHIFT: flx10_jump_key(deck, 16, on, BJ_DELAY_MS);  return;
+          case N_BJ_PREV_HELD:  flx10_jump_key(deck, -4, on, BJ_REPEAT_MS); return;
+          case N_BJ_NEXT_HELD:  flx10_jump_key(deck, 4, on, BJ_REPEAT_MS);  return;
           case N_SLIP_REVERSE:
                flx10_slip_reverse(deck, on);
                return;

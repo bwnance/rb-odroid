@@ -617,6 +617,15 @@ int main(void)
      ON(1, 98); ms(400); map_flx10.tick(); OFF(1, 95); ms(150); map_flx10.tick();
      CHECK(pj_n == 6 && pj_b[5] == 16.0f, "SHIFT + > held repeats 16s; the plain > coming up ends it too (%d)", pj_n);
      OFF(1, 98);
+     /* the panel's own long press: 113 / 112, on once it is held, off at the release */
+     pj_n = 0; ON(1, 113);
+     CHECK(pj_n == 1 && pj_b[0] == 4.0f, "long > (113): a jump at once (%d)", pj_n);
+     ms(150); map_flx10.tick(); ms(150); map_flx10.tick();
+     CHECK(pj_n == 3, "...then every 150 ms (%d)", pj_n);
+     OFF(1, 113); ms(300); map_flx10.tick();
+     CHECK(pj_n == 3, "...until it comes up (%d)", pj_n);
+     pj_n = 0; ON(2, 112); ms(150); map_flx10.tick(); OFF(2, 112);
+     CHECK(pj_n == 2 && pj_deck[0] == 1 && pj_b[1] == -4.0f, "long < (112) on deck 2: -4, repeated (%d)", pj_n);
      looping[1] = 1; pj_n = 0; bj_n = 0; ON(2, 97); OFF(2, 97);
      CHECK(pj_n == 0 && bj_n == 1 && bj_t[0] == 11 && bj_deck[0] == 1, "in a loop: rbp's own -16 (loop move)");
      looping[1] = 0;
