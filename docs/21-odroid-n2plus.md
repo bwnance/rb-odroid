@@ -381,7 +381,8 @@ session; details further down):
    bus, because the FLX10 blends our master stream into its headphones
    (item 20), and an attenuator in the unit would likely sit after that blend
    and break the balance. At 24 bits, -12 dB in the samples costs nothing
-   audible. The probe that was staged on the unit is removed.
+   audible. The probe that was staged on the unit is removed. Kept as a
+   low-priority question in item 21.
 18. **MY SETTINGS: a load applies -- checked** (2026-10-27). The operator
    loaded them on the decks; rbp's state was read back from its memory:
    - What rbp read: its load buffer (0x3251f2c) holds MYSETTING.DAT's body
@@ -427,6 +428,17 @@ session; details further down):
    unit's audio) re-laid the configured map, and a device change and the live
    map looked the memory up by card id instead of USB id. All three now use
    lay_base_pairs(g_dev_key). The cold path is not yet seen on the unit.
+
+21. **Hardware attenuators instead of software gain -- low priority, not
+   started** (operator, 2026-10-27). Today every level stage after rbp is in
+   the samples: MASTER ATT. (masteratt.c), RB_AUDIO_MASTER_BOOST_DB, and the
+   cue bus following both (item 20). Worth finding out whether the FLX10 has
+   attenuators of its own to use instead -- a master one among its settings
+   BF 41..4A (item 6; the probe for that, item 17, was dropped), next to the
+   booth one on ch 16 CC 13 -- and where each sits relative to its headphone
+   blend, since anything after that blend would move the cue/master balance
+   item 20 set. Send a setting only on a change, never repeated (the booth
+   lesson).
 
 How rbp sorts a browse list (read 2026-10-27, for whoever needs it next; a
 default playlist sort was built on it and dropped -- the operator loads the sort
