@@ -3017,12 +3017,8 @@ static void flx10_cc(int ch, int cc, int val)
 
 /* ---- the tables ----------------------------------------------------------- */
 
-/* rbp's MASTER LEVEL at 0 dB: its knob table x 1.778 is 1.000 at 820/1023. */
-#define MASTERLVL_0DB 820
-
 static void flx10_build(void)
 {
-     g_masterlvl_pin = MASTERLVL_0DB;     /* see flx10_startup() */
      /* Additive, like every map: see ctrl_bindings_reset() in ctrl_map.h. */
      knob_scale = env_num("KNOB_SCALE", 1);
      if (knob_scale < 1) knob_scale = 1;
@@ -3117,12 +3113,12 @@ static void flx10_build(void)
 
 /* rbp's headphone stream as a plain cue bus: see flx10_startup(). */
 #define HP_ASSERT_MS 40000
-/* rbp's HP LEVEL for that bus: 277/1023 -> its level table's entry 69 of 255,
- * -29.8 dB. Set by ear against the unit's own master in the headphones
- * (operator, 2026-10-27, MASTER ATT. at 0 dB): -24.7 dB with rbp's master at
- * +5 dB, then 5 dB down with it when the master went to 0 dB. rbp's top (0 dB)
- * was far too loud. */
-#define HP_LEVEL_RBP 277
+/* rbp's HP LEVEL for that bus: 578/1023 -> its level table's entry 144 of
+ * 255, -12.9 dB, for MASTER ATT. at 0 dB (the cue then takes MASTER ATT. in
+ * audioshim, g_hp_att) and rbp's master at its +5 dB pin. Set by ear against
+ * the unit's own master in the headphones (operator, 2026-10-27; tuned with
+ * MASTER ATT. at -12 dB). rbp's top (0 dB) was far too loud. */
+#define HP_LEVEL_RBP 578
 static unsigned long long hp_until, hp_next;
 
 static void flx10_hp_tick(unsigned long long t)
@@ -3142,14 +3138,13 @@ static void flx10_startup(void)
       * forced to a type here (the FLX4 forces FILTER because it has no SCFX
       * buttons); the FLX10's buttons select one.
       *
-      * The pin is MASTERLVL_0DB, not the other maps' 1023: rbp's top is +5 dB
-      * (MasterOut::setVolume: the knob's table x 1.778), and on this unit that
-      * boost ran the master hot ahead of UTILITY's MASTER ATT. (operator,
-      * 2026-10-27). rbp_vu.c re-asserts g_masterlvl_pin, set in flx10_build(). */
+      * The pin is 1023, rbp's top, which is +5 dB in rbp (MasterOut::setVolume:
+      * the knob's table x 1.778), not unity -- 820 is 0 dB. Kept at +5 dB on
+      * purpose: at 0 dB the master came out quieter than rekordbox's on the
+      * same unit, MASTER ATT. at -12 dB on both (operator, 2026-10-27). */
      *(volatile uint32_t *)ADDR_MIXER_ROUTE_PLAYER0 = MIXER_ROUTE_INPUT0;
      *(volatile uint32_t *)ADDR_MIXER_ROUTE_PLAYER1 = MIXER_ROUTE_INPUT1;
-     send_rx_key_f(K_MASTERLVL, OP_VALUE, CH_GLOBAL, MASTERLVL_0DB,
-                   (float)MASTERLVL_0DB / 1023.0f);
+     send_rx_key_f(K_MASTERLVL, OP_VALUE, CH_GLOBAL, 1023, 1.0f);
      /* The headphones are the unit's own mix (measured 2026-10-27): it blends
       * the cue it is sent on outputs 3/4 with the master on 1/2 by its own
       * HP MIX, gates the master with its own MASTER CUE (its light is its own

@@ -37,7 +37,6 @@ static int checks, failures;
 /* ---- stubs for what the map reaches in rbp ---- */
 int verbose = 0;
 int g_fader[3];
-int g_masterlvl_pin = 1023;
 int g_fader_seen[3];
 static int looping[2];
 int aloop_is_looping(int deck) { return looping[deck]; }

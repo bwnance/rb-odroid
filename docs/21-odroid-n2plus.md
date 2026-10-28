@@ -416,9 +416,10 @@ session; details further down):
 
 20. **Headphones: cue vs master -- fixed** (2026-10-27, by ear). Every
    channel cue was too quiet and the master too loud. The FLX10 builds the
-   headphone mix in hardware, and rbp was mixing too (docs/09, Cue / PFL), with
-   its master at +5 dB. Now rbp sends a plain cue bus at -29.8 dB, its master
-   at 0 dB, and MASTER ATT. scales the headphones as well. Still open: the
+   headphone mix in hardware, and rbp was mixing too (docs/09, Cue / PFL).
+   Now rbp sends a plain cue bus at -12.9 dB and MASTER ATT. scales the
+   headphones as well. rbp's master stays at its +5 dB pin: at 0 dB it was
+   quieter than rekordbox's (same unit, MASTER ATT. -12 dB on both). Still open: the
    headphone pair came up as 3,2 (left/right swapped) from the pairs memory on
    two restarts that day, 2,3 on others.
 
