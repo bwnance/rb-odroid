@@ -245,7 +245,9 @@ session; details further down):
    screen saver (00 disable, 10 / 20 / 30 demo after 1 / 5 / 10 min, 40 screen
    saver): GENERAL's FLX10 DEMO/SCREEN SAVER row, kept and sent the same way
    (disabled by default). rbp's own SCREEN SAVER dims the RX3's LCD backlight
-   (LcdBacklightPwm::setScreenSaverOn); nothing here drives a backlight. The MASTER / BOOTH / headphone knobs are
+   (LcdBacklightPwm::setScreenSaverOn), which this machine does not have: its
+   row is left out of UTILITY and the setting is put to OFF at start
+   (utility_rows.c; operator, 2026-10-28). The MASTER / BOOTH / headphone knobs are
    applied by the unit and are not in its answer to the controls query, so the
    HDMI mirror still starts at 0 until the MASTER knob moves.
 7. **Key sync -- built, to try on the unit** (2026-10-26). KEY SYNC (short

@@ -4,6 +4,7 @@
 #include "utility_rows.h"
 
 #include <fcntl.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -447,6 +448,29 @@ static void version_init(void)
     version_text[n] = 0;
 }
 
+/* ---- rbp's SCREEN SAVER: off, and not offered (operator, 2026-10-28) ---------
+ * On the RX3 it dims the LCD's backlight (LcdBacklightPwm::setScreenSaverOn), which
+ * this machine does not have. The row is left out of the table, and the setting is
+ * put to OFF whenever it reads ON -- rbp saves that in XdjSettings.dat, so once is
+ * enough. UiGetUtilScreenSaver answers 0 until rbp's StatWatcher is up, so the
+ * watch runs through rbp's start. */
+#define UI_GET_SCREENSAVER 0x000feea0u
+#define UI_SET_SCREENSAVER 0x000feec4u
+#define SCREENSAVER_WATCH_S 120
+
+static void *screensaver_off(void *arg)
+{
+    (void)arg;
+    for (int i = 0; i < SCREENSAVER_WATCH_S; i++) {
+        sleep(1);
+        if (((int (*)(void))(uintptr_t)UI_GET_SCREENSAVER)() != 1)
+            continue;
+        ((void (*)(int))(uintptr_t)UI_SET_SCREENSAVER)(0);
+        pointsrc_log("utility: SCREEN SAVER was ON -- put to OFF");
+    }
+    return NULL;
+}
+
 /* A section: rbp's blank row, MIXER's heading with our label, then the rows of `defs`.
  * Answers how many entries it wrote. */
 static int ut_section(struct ut_entry *out, const struct ut_entry *src, const uint16_t *heading,
@@ -580,7 +604,7 @@ int utility_rows_install(void)
     n = ut_build(&ut_rest, ut_mixer.rows, n, UT_ROW_MIXERMODE + 1 + UNIT_MIXER_ROWS, ours, k);
     if (n < 0)
         goto refuse;
-    /* the demo / screen saver after rbp's SCREEN SAVER, in GENERAL */
+    /* the demo / screen saver where rbp's SCREEN SAVER was, in GENERAL */
     n = ut_build(&ut_table, ut_rest.rows, n, UT_ROW_SCREENSAVER + 1 + UNIT_MIXER_ROWS + k,
                  unit_rows + UNIT_MIXER_ROWS, UNIT_ROWS - UNIT_MIXER_ROWS);
     if (n < 0)
@@ -589,14 +613,25 @@ int utility_rows_install(void)
     for (i = 0; i < n; i++)
         if (ut_table.rows[i].label == src[UT_ROW_VERSION].label)
             ut_table.rows[i].fn[UT_FN_SETLINE] = (uint32_t)(uintptr_t)ut_version_setline;
+    /* SCREEN SAVER left out */
+    for (i = k = 0; i < n; i++)
+        if (ut_table.rows[i].label != src[UT_ROW_SCREENSAVER].label)
+            ut_table.rows[k++] = ut_table.rows[i];
+    n = k;
+    ut_table.count = (uint32_t)n;
     for (i = 0; i < 6; i++)
         if (patch_word(ut_lit_count[i], (uint32_t)(uintptr_t)&ut_table) != 0)
             goto failed;
     if (patch_word(ut_lit_rows, (uint32_t)(uintptr_t)ut_table.rows) != 0)
         goto failed;
-    pointsrc_log("utility: %d rows (TRAFFIC LIGHT after IMAGE ON JOG DISPLAY, the DDJ-FLX10's "
+    {
+        pthread_t th;
+        if (pthread_create(&th, NULL, screensaver_off, NULL) == 0)
+            pthread_detach(th);
+    }
+    pointsrc_log("utility: %d rows (SCREEN SAVER left out, TRAFFIC LIGHT after IMAGE ON JOG DISPLAY, the DDJ-FLX10's "
                  "four after BOOTH MONITOR ATTENUATOR, HDMI AUDIO after MIXER MODE, its demo "
-                 "after SCREEN SAVER%s%s), table at %p", n,
+                 "in SCREEN SAVER's place%s%s), table at %p", n,
                  atoi(env_str("SETTINGS_DJM", "0")) ? ", the DJM section" : "",
                  atoi(env_str("SETTINGS_VNC", "0")) ? ", the VNC section" : "",
                  (void *)&ut_table);
