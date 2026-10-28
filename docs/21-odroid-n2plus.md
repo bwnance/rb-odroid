@@ -838,6 +838,16 @@ session; details further down):
    HP_LEVEL_RBP 578 -> 465 (-13.0 -> -18.0 dB), and on this unit's rb.local.conf
    RB_AUDIO_MASTER_BOOST_DB=0 and RB_AUDIO_MIRROR_BOOST_DB=0.3 (rb.conf's 3.7 / 4
    stay for the other maps, whose trim is rbp's).
+40. **The playing deck's waveform squeezes for ~2 s when the other deck syncs --
+   looked into, rbp's own** (operator, 2026-10-28). Recorded (a frame ring of
+   /dev/fb0): deck 2 playing, deck 1 loaded, its SYNC pressed on and off; deck 2's
+   waveform redrawn at another scale for ~2.3 s, then back; the audio does not
+   change. Deck state logged at the time: deck 1's BPM snaps to the master's
+   (125.0 -> 131.27) with SYNC on, deck 2's BPM, tempo, SYNC and MASTER never move,
+   and no shim action falls between. So rbp re-scales its waveforms around the
+   other deck's tempo change; left as rbp's. The screen jumps of item 38 looked
+   like a display matter in the end (operator): the static UI in rbp's frames never
+   shifted, nor did the display plane.
 34. **RX3 touch preview -- not working, to look at** (operator, 2026-10-28). The
    RX3's own touch preview (touching a list row's waveform to audition the track) is
    the ask; the CDJ's PREVIEW audition is not (struck from item 11).
