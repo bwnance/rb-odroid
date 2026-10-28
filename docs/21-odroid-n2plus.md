@@ -386,8 +386,14 @@ session; details further down):
      heading tap), which fetches the page where it stands: every row shows the
      new field at once, the cursor where it was (a redraw alone does not refetch;
      rows had shown dashes until a scroll). A track's snapshot record is replaced
-     in place, so an old field's record cannot answer. Not covered: under SORT by TRACK rbp sends no second
-     column's rows at all, so that list has no BPM / KEY / chosen column.
+     in place, so an old field's record cannot answer. Under SORT by TRACK rbp sends its second-column stream
+     with its heading alone (one entry), so no row text carries our values: since
+     2026-10-28 (operator) each row's values are composed from the list's own rows
+     on the DB task (browserows.c solo_process, the snapshot as ever) and drawn
+     after the title, with the chosen / BPM / KEY headings and dividers rbp does
+     not draw there. Checked on the unit: TRACK up and down, a scroll, a column
+     change. (The traffic light's green KEY is not shown in that list: rbp marks
+     lit rows in the stream it does not send.)
      RB_BROWSE_COLUMNS=0 removes every hook; RB_BROWSE_COLUMN is only the
      start before a stick or the panel says anything.
    - Lesson (2026-10-28, rbp down ~4 min): a shim must not call stat() -- rbp's

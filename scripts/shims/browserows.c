@@ -733,16 +733,106 @@ static int recall(unsigned id, unsigned field, uint16_t out[SHOWN_LEN])
     return 0;
 }
 
+/* ---- a track list with no second column: SORT by TRACK (operator, 2026-10-28) ------
+ * Sorted by TRACK, rbp's second-column stream comes with its heading alone (one entry,
+ * measured on the unit), so no row text carries our values and the list was TRACK
+ * alone. Its own rows are there all the same: each row's values are composed here, on
+ * the DB task as the stream's would be (the snapshot, never a query), and drawn after
+ * the row's title (draw_text_row), with the headings and dividers rbp does not draw
+ * (draw_image_row, draw_rect_hooked). */
+enum { SOLO_ROWS = 14 };
+static struct { unsigned seq, id; uint16_t value[SHOWN_LEN]; } solo[SOLO_ROWS];
+static unsigned solo_on;
+
+static void solo_put(unsigned row, unsigned id, const uint16_t *value)
+{
+    __atomic_add_fetch(&solo[row].seq, 1u, __ATOMIC_SEQ_CST);
+    solo[row].id = id;
+    static const uint16_t none[1] = { 0 };
+    copy_text(solo[row].value, value ? value : none, SHOWN_LEN - 1);
+    __atomic_add_fetch(&solo[row].seq, 1u, __ATOMIC_SEQ_CST);
+}
+
+/* Row `row`'s values if they are track `id`'s. */
+static int solo_get(unsigned row, unsigned id, uint16_t out[SHOWN_LEN])
+{
+    if (row >= SOLO_ROWS || !id)
+        return 0;
+    unsigned seq = __atomic_load_n(&solo[row].seq, __ATOMIC_SEQ_CST);
+    if ((seq & 1u) || solo[row].id != id)
+        return 0;
+    memcpy(out, solo[row].value, sizeof(solo[row].value));
+    return __atomic_load_n(&solo[row].seq, __ATOMIC_SEQ_CST) == seq;
+}
+
+static void solo_off(void)
+{
+    if (__atomic_exchange_n(&solo_on, 0u, __ATOMIC_SEQ_CST))
+        __atomic_store_n(&layout_on, 0u, __ATOMIC_SEQ_CST);
+}
+
+static void solo_process(uint8_t *context, const struct browse_column *column, unsigned index)
+{
+    unsigned rows = 0x17eacu + index * 0x1d1cu, available = word(context + rows - 4);
+    void *db = (void *)(unsigned long)word(context + (index + 0x1bceu) * 4u + 4u);
+    if (!available || available > SOLO_ROWS || !db || !word(db)) {
+        solo_off();
+        invalidate_metadata();
+        return;
+    }
+    for (unsigned i = 0; i < available; i++)
+        if (!track(half(context + rows + i * 532 + 4))) {
+            solo_off();
+            __atomic_store_n(&track_list, 0u, __ATOMIC_SEQ_CST);
+            invalidate_metadata();
+            return;
+        }
+    unsigned native_sort = word((uint8_t *)db + 16), field = column->field;
+    __atomic_store_n(&sort_now, native_sort, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&list_playlist, ((word((uint8_t *)db + 12) >> 8) & 0xffu) == 0x11u ?
+                     word((uint8_t *)db + 4) : 0u, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&track_list, 1u, __ATOMIC_SEQ_CST);
+    if (!__sync_bool_compare_and_swap(&busy, 0u, 1u))
+        return;
+    metadata_bind(context, db, index, word((uint8_t *)db + 4), native_sort, field);
+    for (unsigned r = 0; r < SOLO_ROWS; r++) {
+        uint16_t value[128] = { 0 };
+        if (r >= available) {
+            solo_put(r, 0, NULL);
+            continue;
+        }
+        unsigned id = word(context + rows + r * 532);
+        if (!metadata_values(db, id, context + rows + r * 532, field, value)) {
+            uint16_t shown_value[SHOWN_LEN];
+            if (recall(id, field, shown_value))
+                copy_text(value, shown_value, 127);
+        }
+        remember(id, field, value);
+        solo_put(r, id, value);
+    }
+    __atomic_store_n(&native_field, 0u, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&cells, field && field != BROWSE_FIELD_BPM && field != BROWSE_FIELD_KEY ?
+                     CELL_CHOSEN : 0u, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&layout_on, 1u, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&solo_on, 1u, __ATOMIC_SEQ_CST);
+    __sync_lock_release(&busy);
+}
+
 void browserows_process(uint8_t *context, uint8_t *message, const struct browse_column *column)
 {
     __atomic_store_n(&list_context, context, __ATOMIC_SEQ_CST);
     /* layout_on changes only when this page decides it: switched off and on around
      * every page, a frame drawn between showed the column blinking (2026-10-28) */
     unsigned index = word(context + 4), bytes = word(message + 0x1c), count = half(message + 0x80);
+    if (count == 1 && index <= 4 && bytes >= 20) {
+        solo_process(context, column, index);       /* SORT by TRACK: no second column */
+        return;
+    }
     if (index > 4 || bytes < 20 || bytes > MAX_MESSAGE - 0x70 || count < 2 || count > 15) {
         invalidate_metadata();
         return;
     }
+    __atomic_store_n(&solo_on, 0u, __ATOMIC_SEQ_CST);
     unsigned rows = 0x17eacu + index * 0x1d1cu, available = word(context + rows - 4);
     if (available > 14 || count > available + 1) {
         invalidate_metadata();
@@ -933,6 +1023,7 @@ static int ensure(void)
 #define LIST_LEFT   108         /* the list's left edge: BROWSE's source buttons, left of
                                  * it, share its layer and stay put */
 #define HEADING_BPM 2045
+#define HEADING_TRACK 2603
 #define HEADING_KEY 2409
 /* The traffic light's green, as rbp's rectangle model holds a colour (word 0x28):
  * alpha in the top byte (row rects read ff000000, ff050a05, ff1c1f00 on the unit,
@@ -1709,6 +1800,19 @@ static void draw_text_row(void *render, void *text)
         draw_cells(render, text, own, own ? n : 0, known ? value : NULL);
         return;
     }
+    if (__atomic_load_n(&solo_on, __ATOMIC_SEQ_CST) && moving(text) &&
+        half((uint8_t *)text + 0x18) == TITLE_LEFT && half((uint8_t *)text + 0x1a) >= LIST_TOP) {
+        /* SORT by TRACK: the title cut at the cells, then the row's values in them */
+        uint32_t clone[21];
+        memcpy(clone, text, sizeof(clone));
+        put_half((uint8_t *)clone + 0x1c, layout_now().title_right);
+        original_draw_text(render, clone);
+        uint16_t value[SHOWN_LEN];
+        unsigned row = (half((uint8_t *)text + 0x1a) - LIST_TOP) / 50u;
+        if (solo_get(row, row_at(text), value))
+            draw_cells(render, text, NULL, 0, value);
+        return;
+    }
     if (listed(text) && half((uint8_t *)text + 0x18) == TITLE_LEFT &&
         half((uint8_t *)text + 0x1c) == TITLE_NATIVE_RIGHT) {
         uint32_t clone[21];
@@ -1966,6 +2070,7 @@ unsigned int browserows_sort_for_tap(unsigned int now, unsigned int sort)
     return 0x4000u | sort | (sort_down(now) ? 0u : 0x8000u);
 }
 
+
 static void draw_image_row(void *render, void *image)
 {
     uint8_t *m = image;
@@ -1984,6 +2089,27 @@ static void draw_image_row(void *render, void *image)
         memcpy(clone, image, sizeof(clone));
         shift_x((uint8_t *)clone, -NUMBER_W);       /* the note icon, the TRACK heading */
         heading_drawn(render, clone);
+        return;
+    }
+    if (__atomic_load_n(&solo_on, __ATOMIC_SEQ_CST) && moving(m) && half(m + 0x1a) < LIST_TOP &&
+        word(m + 0x44) == HEADING_TRACK) {
+        /* SORT by TRACK: rbp heads TRACK alone; ours come after it */
+        struct layout l = layout_now();
+        const struct { int at; unsigned id; } heads[] = {
+            { l.chosen, l.chosen ? heading_image(column->field) : 0 },
+            { l.bpm, HEADING_BPM }, { l.key, HEADING_KEY },
+        };
+        uint32_t clone[21];
+        uint8_t *c = (void *)clone;
+        heading_drawn(render, image);
+        for (unsigned i = 0; i < 3; i++) {
+            if (!heads[i].at || !heads[i].id)
+                continue;
+            memcpy(clone, image, sizeof(clone));
+            shift_x(c, heads[i].at + TEXT_INSET - (int)x);
+            memcpy(c + 0x44, &heads[i].id, 4);
+            heading_drawn(render, c);
+        }
         return;
     }
     if (moving(m) && x >= NATIVE_EDGE && x < NATIVE_EDGE + 50) {
@@ -2035,6 +2161,22 @@ static void draw_rect_hooked(void *render, void *rect)
     if (number_blank && half(m + 0x18) == NUMBER_RIGHT && half(m + 0x1c) == NUMBER_RIGHT + 1 &&
         listed(m))
         return;                                     /* the # column's divider */
+    if (__atomic_load_n(&solo_on, __ATOMIC_SEQ_CST) && moving(m) && half(m + 0x18) == NUMBER_RIGHT &&
+        half(m + 0x1c) == NUMBER_RIGHT + 1) {
+        /* SORT by TRACK: the # column's divider, and one before each of our cells */
+        struct layout l = layout_now();
+        const int at[3] = { l.chosen, l.bpm, l.key };
+        uint32_t clone[21];
+        original_draw_rect(render, rect);
+        for (unsigned i = 0; i < 3; i++) {
+            if (!at[i])
+                continue;
+            memcpy(clone, rect, sizeof(clone));
+            shift_x((uint8_t *)clone, at[i] - NUMBER_RIGHT);
+            original_draw_rect(render, clone);
+        }
+        return;
+    }
     if (moving(m)) {
         unsigned x1 = half(m + 0x18), x2 = half(m + 0x1c);
         uint32_t clone[21];
