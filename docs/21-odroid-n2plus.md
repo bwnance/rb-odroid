@@ -295,8 +295,15 @@ session; details further down):
    matched DirectFB exactly -- trusted" in pointsrc.log). gui_task 82% -> 29%, rbp
    104% -> 39% of a core; the renderer now mostly waits for vblank.
    RB_BLIT_FAST=0 is off.
-11. **rx3-toolkit's track-finding mods -- Key Match deployed, to look at in
-   BROWSE; the third column built, off** (2026-10-27/28). Ported from
+11. **rx3-toolkit's track-finding mods -- built, both OFF: Key Match failed at
+   the decks** (2026-10-27/28). On the operator's 1,200-track playlists the
+   coloured icons showed for a moment, then went, scrolling stopped, and BROWSE
+   answered with WAIT; rbp's CPU climbed meanwhile (health.log). Most likely
+   the database server hook below: one DeviceSQL read per record rbp prepares,
+   which for a big playlist may be the whole list, not the visible page (not
+   proven). RB_KEY_MATCH now defaults to 0. The operator: if this is what big
+   playlists cost, "let's not do this" -- so it stays off unless a version
+   without that per-record read is proven on a 1,200-track list first. Ported from
    rx3-toolkit at cc17a1f (MPL-2.0, each file says so): rx3_harmony.h (the
    rules, as is), keymatch.c, browsecol.c, browserows.c (the toolkit's BROWSE
    row service) and rbp_images.c (its recoloured images), all in knobshim.
@@ -316,8 +323,8 @@ session; details further down):
      detour on NS_GetImageInfoByID @0x1d192c. One addition of ours: a KEY SHIFT
      on the MASTER deck (keyshift.c) turns the reference and rbp's green set
      with it, and a row rbp marked green for the unshifted key loses it.
-     Deployed 2026-10-28 ("key match: on, rules 14" in the log). **Not yet
-     seen in BROWSE**: a fault here shows the first time a track list opens.
+     Deployed 2026-10-28 ("key match: on, rules 14" in the log); failed as
+     above on a big playlist, switched off the same night.
    - **Third column** (RB_BROWSE_COLUMN=artist|bpm|key|time; empty = off, as
      shipped): at the right of a track list, with its heading; folder lists stay
      rbp's. Its value rides inside rbp's own row text after noncharacters and is
@@ -468,6 +475,12 @@ session; details further down):
    was left), and BACK should go to the SOURCE screen. What each does today is
    in the FLX10 map table (the BACK / VIEW row); VIEW from the player opens
    PLAYLIST there, so VIEW is most of the change.
+23. **EQ knobs feel more aggressive than rekordbox on the laptop -- to look
+   into** (operator, 2026-10-28). Is the scale different? To check: how the
+   FLX10's EQ CCs reach rbp (map_flx10.c, and whether the value is passed
+   straight or reshaped), rbp's own EQ curve (the RX3's ISOLATOR/EQ setting
+   and its dB-per-step), against rekordbox's EQ curve for the same knob
+   position -- e.g. the dB at 9, 10 and 11 o'clock on each.
 
 How rbp sorts a browse list (read 2026-10-27, for whoever needs it next; a
 default playlist sort was built on it and dropped -- the operator loads the sort
