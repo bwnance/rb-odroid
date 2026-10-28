@@ -228,6 +228,20 @@ static void look_at_sticks(void)
     }
 }
 
+/* A choice made in rbp's LIST MENU (browsemenu.c): the file, as the gear row writes
+ * it, read at the next page -- the one the pick reloads. */
+void browsecol_choose(const char *word)
+{
+    write_choice(word);
+    __atomic_store_n(&last_tick_ms, now_ms() - 1000u, __ATOMIC_RELAXED);
+}
+
+/* The word in effect ("" or "-" for none yet). */
+const char *browsecol_current(void)
+{
+    return current;
+}
+
 static void tick(void)
 {
     unsigned now = now_ms();
@@ -271,4 +285,7 @@ __attribute__((constructor)) static void browsecol_init(void)
         return;
     }
     klog("knobshim2: browse column: hooks in; the choice is %s\n", choice_path);
+    if (browsemenu_install())
+        klog("knobshim2: browse column: rbp's LIST MENU is not the one measured -- no "
+             "COLUMN there\n");
 }

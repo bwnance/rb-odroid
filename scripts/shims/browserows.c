@@ -97,9 +97,17 @@ static int track(unsigned k)
     }
 }
 
+static unsigned now_ms(void)
+{
+    struct timeval tv;      /* not clock_gettime: glibc 2.13 keeps it in librt */
+    gettimeofday(&tv, NULL);
+    return (unsigned)tv.tv_sec * 1000u + (unsigned)tv.tv_usec / 1000u;
+}
+
 /* Category navigation does not always resend the right-column stream: recheck
- * the live left-list cache rather than a flag the row hook set. */
-static int track_layout(void)
+ * the live left-list cache rather than a flag the row hook set. 1 a track list,
+ * 0 another list, -1 not readable now. */
+static int track_cache(void)
 {
     const uint8_t *context = __atomic_load_n(&list_context, __ATOMIC_SEQ_CST);
     if (!context)
@@ -108,7 +116,39 @@ static int track_layout(void)
     if (index > 4)
         return 0;
     unsigned offset = 0x17eacu + index * 0x1d1cu, count = word(context + offset - 4);
-    return count && count <= 14 && track(half(context + offset + 4));
+    unsigned kind = half(context + offset + 4);
+    if (!count || count > 14 || !(kind & 255u))
+        return -1;
+    return track(kind);
+}
+
+/* The cache is rewritten on rbp's DB task while a scroll loads the next page, and
+ * the render thread reads it on every draw: a frame that caught it half-written
+ * was drawn with rbp's own layout, the column blinking out (operator, 2026-10-28).
+ * So a reading that is not a track list counts only once it has held for
+ * TRACK_HOLD_MS; one that cannot be read keeps the last answer. A real move to a
+ * folder list shows the column that long at most. */
+#define TRACK_HOLD_MS 150u
+static int track_layout(void)
+{
+    static unsigned answer, last_track_ms, held, held_logged_ms;
+    int now = track_cache();
+    unsigned ms = now_ms();
+    if (now > 0) {
+        answer = 1;
+        last_track_ms = ms;
+        return 1;
+    }
+    if (now < 0 || (answer && ms - last_track_ms < TRACK_HOLD_MS)) {
+        if (answer && ++held % 256u == 1u && ms - held_logged_ms > 2000u) {
+            held_logged_ms = ms;
+            klog("knobshim2: browse column: kept through a list being rewritten (%u so far)\n",
+                 held);
+        }
+        return (int)answer;
+    }
+    answer = 0;
+    return 0;
 }
 
 static unsigned copy_text(uint16_t *out, const uint16_t *in, unsigned max)
@@ -190,8 +230,8 @@ static int values_for(void *db, unsigned id, unsigned key, unsigned field, uint1
  * visible records, so the client's rows need no per-track DB round trip. Each
  * page replaces the snapshot, across USB remounts too. */
 struct local_metadata {
-    unsigned id, drive, key, bpm, length, valid, generation, has_artist, has_key;
-    uint16_t artist[128];
+    unsigned id, drive, key, bpm, length, valid, generation, has_text, has_key;
+    uint16_t text[128];         /* the ARTIST or ALBUM name, whichever the column shows */
 };
 static struct local_metadata local_page[32];
 static unsigned local_gate, local_next, local_generation;
@@ -231,7 +271,13 @@ static void *local_record(void *context, const uint32_t *record, unsigned drive,
         /* Each lookup is a DeviceSQL read on the stick being browsed: fetch only
          * what the column shows. */
         unsigned wanted = c ? c->field : 0;
-        int want_artist = wanted == BROWSE_FIELD_ARTIST;
+        /* djdbContent's column 5 is the artist id, 6 the album's (SortTrackSetListBuf
+         * selects djdbArtist/djdbAlbum with them). Get_DsqlTableString's kinds are
+         * its own: 7 reads djdbArtist, 8 djdbAlbum (2 is a djdbContent column, the
+         * file's path -- what ALBUM showed at first, 2026-10-28). */
+        unsigned name_column = wanted == BROWSE_FIELD_ARTIST ? 5u
+                             : wanted == BROWSE_FIELD_ALBUM  ? 6u : 0u;
+        unsigned name_kind = wanted == BROWSE_FIELD_ARTIST ? 7u : 8u;
         int want_key = wanted == BROWSE_FIELD_KEY;
         struct local_metadata item;
         memset(&item, 0, sizeof(item));
@@ -245,16 +291,16 @@ static void *local_record(void *context, const uint32_t *record, unsigned drive,
             void *row = edb_next(set, &error);
             if (row && !error) {
                 const void *bpm = edb_column(row, 8), *length = edb_column(row, 9),
-                           *artist = edb_column(row, 5);
-                if (bpm && length && artist) {
+                           *named = name_column ? edb_column(row, name_column) : bpm;
+                if (bpm && length && named) {
                     item.bpm = word(bpm);
                     item.length = half(length);
                     item.valid = 1;
-                    if (want_artist) {
+                    if (name_column) {
                         uint16_t *name = 0;
-                        if (table_string(7, word(artist), item.id, &name, 1, drive) >= 0) {
-                            copy_text(item.artist, name, 127);
-                            item.has_artist = 1;
+                        if (table_string(name_kind, word(named), item.id, &name, 1, drive) >= 0) {
+                            copy_text(item.text, name, 127);
+                            item.has_text = 1;
                         } else
                             item.valid = 0;
                         if (name)
@@ -282,8 +328,8 @@ static void *local_record(void *context, const uint32_t *record, unsigned drive,
 
 static int local_field(unsigned field)
 {
-    return !field || field == BROWSE_FIELD_ARTIST || field == BROWSE_FIELD_TIME ||
-           field == BROWSE_FIELD_BPM || field == BROWSE_FIELD_KEY;
+    return !field || field == BROWSE_FIELD_ARTIST || field == BROWSE_FIELD_ALBUM ||
+           field == BROWSE_FIELD_TIME || field == BROWSE_FIELD_BPM || field == BROWSE_FIELD_KEY;
 }
 
 static unsigned decimal_text(uint16_t *out, unsigned value)
@@ -304,10 +350,10 @@ static int local_value(const struct local_metadata *item, unsigned field, uint16
     out[0] = 0;
     if (!field)
         return 1;
-    if (field == BROWSE_FIELD_ARTIST) {
-        if (!item->has_artist)
+    if (field == BROWSE_FIELD_ARTIST || field == BROWSE_FIELD_ALBUM) {
+        if (!item->has_text)
             return 0;
-        copy_text(out, item->artist, 127);
+        copy_text(out, item->text, 127);
         return 1;
     }
     if (field == BROWSE_FIELD_KEY) {
@@ -334,14 +380,18 @@ static int local_value(const struct local_metadata *item, unsigned field, uint16
     return 1;
 }
 
+/* This unit's own stick, whose rows the snapshot sees: db[1] is the drive, db[2]
+ * the database kind; a remote player's connection has connection[1] set. */
+static int local_connection(void *db)
+{
+    const uint8_t *connection = (void *)(unsigned long)word(db);
+    return original_local_page && original_local_record && connection &&
+           !word(connection + 4) && word((uint8_t *)db + 8) == 1;
+}
+
 static int local_values(void *db, unsigned id, unsigned field, uint16_t value[128], unsigned *key)
 {
-    if (!original_local_page || !original_local_record || !local_field(field))
-        return 0;
-    const uint8_t *connection = (void *)(unsigned long)word(db);
-    /* db[1] is the drive, db[2] the database kind; a remote player's connection
-     * has connection[1] set and cannot use this snapshot */
-    if (!connection || word(connection + 4) || word((uint8_t *)db + 8) != 1)
+    if (!local_connection(db) || !local_field(field))
         return 0;
     unsigned drive = word((uint8_t *)db + 4);
     struct local_metadata item;
@@ -430,6 +480,21 @@ static unsigned metadata_values(void *db, unsigned id, const uint8_t identity[53
             metadata_cache[slot].key = key;
             metadata_cache[slot].key_valid = key <= 24;
         }
+    }
+    /* A local stick's values come from the snapshot only. Asking the database
+     * from here nests a query inside the row build on rbp's DB_Client task: with
+     * ALBUM shown under another sort, scrolling then ran rbp's GUI->DB message pool
+     * dry -- GetGuiDbMsg answered NULL, GetList cleared it, and rbp's own SIGSEGV
+     * handler retried that store forever (the freeze of 2026-10-28). A row the
+     * snapshot missed shows a dash and is asked again on the next page. */
+    if (local_connection(db)) {
+        if (field)
+            memcpy(value, metadata_cache[slot].value, 256);
+        if (field == BROWSE_FIELD_KEY && metadata_cache[slot].key_valid)
+            browserows_key_text(metadata_cache[slot].key, value);
+        if (!metadata_cache[slot].values_valid)
+            metadata_cache[slot].used = 0;
+        return metadata_cache[slot].key_valid ? metadata_cache[slot].key : 0;
     }
     unsigned key = 0;
     if (need_key) {

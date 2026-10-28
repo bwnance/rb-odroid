@@ -29,6 +29,22 @@ void browserows_set(const struct browse_column *column);
  * chance to look for a new choice. Set before installing; it must be cheap. */
 extern void (*browserows_tick)(void);
 
+/* ---- the choice (browsecol.c) and its LIST MENU entry (browsemenu.c) ------- */
+/* A word's field (0 for off or unknown) and its heading. */
+unsigned int browsecol_field(const char *value, const uint16_t **caption);
+/* Make `word` the choice, from the next page on; the word in effect. */
+void browsecol_choose(const char *word);
+const char *browsecol_current(void);
+/* COLUMN in LIST MENU, beside SORT; once. 0 = in. */
+int browsemenu_install(void);
+/* LIST MENU as rbp just built it in `context` gets COLUMN as its third entry;
+ * answers 1 if it did. */
+int browsemenu_add_column(uint8_t *context);
+/* COLUMN's own menu, OFF..TIME, the current one checked, into `context`. */
+void browsemenu_fill(uint8_t *context, unsigned int first, const char *current);
+/* The word of that menu's item `item`, or NULL. */
+const char *browsemenu_word(unsigned int item);
+
 /* ---- for the test --------------------------------------------------------- */
 /* rbp's track-key lookup the KEY column calls, reassignable */
 extern unsigned int (*browserows_track_key)(void *db, unsigned int id);

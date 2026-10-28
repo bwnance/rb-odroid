@@ -356,14 +356,44 @@ session; details further down):
      symbol: stat") and rbp crash-looped. Check new imports with
      `arm-linux-gnueabi-nm -D --undefined-only knobshim.so | grep -v @` before a
      deploy; 64-bit atomics are out too (libatomic).
-   - **Next** (operator, 2026-10-28): the column choice in rbp's own browse MENU
-     beside SORT, as a second way to it (not a button combo);
+   - **COLUMN in LIST MENU** (operator's ask, 2026-10-28; browsemenu.c): a
+     playlist's LIST MENU is SORT, PLAYSTATE and now COLUMN, which opens OFF /
+     ARTIST / ALBUM / BPM / KEY / TIME with the current one checked; a pick
+     writes /run/rbp/browse.column as the gear row does, and closes the menu the
+     way a SORT pick does (the list reloads under its own sort, with the new
+     column). Read from rbp 1.20: SendBrowseMenu @0x257dd0 builds each level of
+     the menu into context+0x43378 (type word per depth, 0x400 = LIST MENU;
+     entries 0x210 apart from +0x22c: id, state, UTF-16 text); a depth-0 pick in
+     SelectRightMenu @0x2596cc steps to depth 1 for any item and keeps it in
+     context+0x6fd0/+0x6fcc, so a third entry steps down like SORT; at depth 1
+     we build our list and take the pick (SendSortedBrwsList @0x256030 to close),
+     and the level's title, rbp's "PLAYSTATE" for any item but SORT, becomes
+     COLUMN in SetMbxComAddString @0x1bb7f8 while that one menu is sent.
+     SendRightMenu @0x256218 gets the third entry. Every guard checked against
+     the binary. Deployed 2026-10-28.
+   - **Fixed 2026-10-28: BROWSE froze after a sort change and a scroll.** The
+     DB_Client thread spun at 100% in rbp's own SIGSEGV handler (which returns,
+     so the fault repeats; crashcatch never sees it): GetList @0x1bbb70 cleared a
+     NULL message, because GetGuiDbMsg's pool had come back empty-handed (not a
+     timeout: that one waits and retries). Read with ptrace on the stuck thread:
+     pc in libc memset, lr 0x1bbb98. Only the column's per-row DB-client queries
+     (values_for: dbcl_GetSongData_Track and the record stream) could make that
+     happen, and they ran only for ALBUM, the one field the server-side snapshot
+     did not carry -- so only when the sort was not ALBUM, i.e. after a sort
+     change. Now the snapshot carries ALBUM too (djdbContent column 6, the album
+     id, as SortTrackSetListBuf reads it; its name via Get_DsqlTableString kind
+     8, djdbAlbum -- kind 2 is a djdbContent column, the file's path, which is
+     what the first try showed), and a local stick's rows never query the database from the row builder:
+     a row the snapshot missed shows a dash and is asked again on the next page.
+     A remote player's list (PRO DJ LINK) still uses the toolkit's queries.
+   - **Next** (operator, 2026-10-28):
      BPM and KEY as separate columns rather than rbp's merged "170.0 bpm - 4B";
      the preview waveform switchable off for room; the CDJ's PREVIEW (audition
      from the list) and text size. The toolkit's tap-a-heading sort is not
      ported.
    - test_browse: the row rewrite on a synthetic rbp context (folder lists
-     left alone), the column's transport, the literal relocation.
+     left alone), the column's transport, the literal relocation, and COLUMN's
+     LIST MENU entry and submenu on a synthetic menu block.
 12. **Four-deck mode -- wished for, not started** (operator, 2026-10-26). The
    FLX10 is a four-deck controller (DECK 1/3 and 2/4 select); the RX3 and its
    rbp are two-deck: PlayEngine's player vector holds two (SyncMaster counts 2

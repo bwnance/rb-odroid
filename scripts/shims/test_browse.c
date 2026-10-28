@@ -16,7 +16,6 @@ static int checks, failures;
         printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__);      \
         printf("\n"); } } while (0)
 
-unsigned int browsecol_field(const char *value, const uint16_t **caption);
 unsigned int browsecol_page_column(const uint8_t *page, unsigned int size);
 const char *browsecol_category_word(unsigned category);
 int is_rbp_process(void) { return 0; }
@@ -223,6 +222,99 @@ static void test_stick_column(void)
     CHECK(browsecol_page_column(page, 4096) == 0, "an index page is not read");
 }
 
+/* rbp's browse context around its popup menus, as browsemenu.c reads it */
+#define M 0x43378u
+#define ENTRY(i) (M + 0x22cu + (i) * 0x210u)
+static uint8_t menu_context[ENTRY(20)];
+static uint8_t menu_owner[0x20];
+
+static void put_text(uint8_t *at, const char *s)
+{
+    while (*s) {
+        put16(at, (uint8_t)*s++);
+        at += 2;
+    }
+    put16(at, 0);
+}
+
+/* LIST MENU as SendBrowseMenu builds it in a playlist, depth 0 */
+static void list_menu(void)
+{
+    memset(menu_context, 0, sizeof menu_context);
+    put32(menu_context, 2);
+    put32(menu_owner + 0x10, 0x51);
+    put32(menu_context + 0x6f54, (unsigned)(unsigned long)menu_owner);
+    put32(menu_context + M, 0x400);
+    put32(menu_context + M + 0xc, 2);
+    put32(menu_context + ENTRY(0), 0x51);
+    put32(menu_context + ENTRY(0) + 4, 1);
+    put_text(menu_context + ENTRY(0) + 0xc, "SORT");
+    put32(menu_context + ENTRY(1), 0x51);
+    put32(menu_context + ENTRY(1) + 4, 0x401);
+    put_text(menu_context + ENTRY(1) + 0xc, "PLAYSTATE");
+}
+
+static unsigned w32(const uint8_t *p) { unsigned v; memcpy(&v, p, 4); return v; }
+
+static void test_menu(void)
+{
+    list_menu();
+    CHECK(browsemenu_add_column(menu_context) && w32(menu_context + M + 0xc) == 3,
+          "LIST MENU gets a third entry");
+    CHECK(same((const void *)(menu_context + ENTRY(2) + 0xc), "COLUMN") &&
+          w32(menu_context + ENTRY(2)) == 0x51 && w32(menu_context + ENTRY(2) + 4) == 1,
+          "COLUMN, as SORT is: its id, state 1");
+    CHECK(same((const void *)(menu_context + ENTRY(0) + 0xc), "SORT") &&
+          same((const void *)(menu_context + ENTRY(1) + 0xc), "PLAYSTATE") &&
+          w32(menu_context + ENTRY(1) + 4) == 0x401, "SORT and PLAYSTATE untouched");
+    CHECK(!browsemenu_add_column(menu_context) && w32(menu_context + M + 0xc) == 3,
+          "sent again (a scroll): not added twice");
+
+    list_menu();
+    put32(menu_context + M, 0xa00);
+    CHECK(!browsemenu_add_column(menu_context), "another menu: left alone");
+    list_menu();
+    put32(menu_context + 0x6fc8, 1);
+    CHECK(!browsemenu_add_column(menu_context), "a menu one level down: left alone");
+    list_menu();
+    put_text(menu_context + ENTRY(0) + 0xc, "SORTED");
+    CHECK(!browsemenu_add_column(menu_context), "first entry not SORT: left alone");
+    list_menu();
+    put32(menu_context, 1);
+    CHECK(!browsemenu_add_column(menu_context), "not BROWSE: left alone");
+
+    /* COLUMN picked: rbp steps to depth 1 with the item in +0x6fd0 / +0x6fcc */
+    list_menu();
+    browsemenu_add_column(menu_context);
+    put32(menu_context + 0x6fc8, 1);
+    put32(menu_context + 0x6fd0, 2);
+    menu_context[0x6fcc] = 2;
+    browsemenu_fill(menu_context, 0, "album");
+    static const char *const shown[] = { "OFF", "ARTIST", "ALBUM", "BPM", "KEY", "TIME" };
+    unsigned ok = w32(menu_context + M + 0xc) == 6 && w32(menu_context + M + 4) == 0x500 &&
+                  w32(menu_context + M) == 0x400;
+    for (unsigned i = 0; i < 6; i++)
+        ok = ok && same((const void *)(menu_context + ENTRY(i) + 0xc), shown[i]) &&
+             w32(menu_context + ENTRY(i)) == 0x51 &&
+             w32(menu_context + ENTRY(i) + 4) == (i == 2 ? 0x463u : 0x63u);
+    CHECK(ok, "OFF..TIME, ALBUM checked, at depth 1; LIST MENU's type kept below it");
+    CHECK(w32(menu_context + ENTRY(6)) == 0 && u16(menu_context + ENTRY(6) + 0xc) == 0,
+          "nothing after TIME");
+    browsemenu_fill(menu_context, 0, "off");
+    CHECK(w32(menu_context + ENTRY(0) + 4) == 0x463 && w32(menu_context + ENTRY(2) + 4) == 0x63,
+          "off: OFF checked");
+    browsemenu_fill(menu_context, 0, "length");
+    CHECK(w32(menu_context + ENTRY(5) + 4) == 0x463, "length is TIME");
+    CHECK(!strcmp(browsemenu_word(0), "off") && !strcmp(browsemenu_word(2), "album") &&
+          !strcmp(browsemenu_word(5), "time") && browsemenu_word(6) == NULL,
+          "items as the words the column file takes");
+    for (unsigned i = 0; i < 6; i++) {
+        const uint16_t *caption = NULL;
+        unsigned field = browsecol_field(browsemenu_word(i), &caption);
+        CHECK(i ? field != 0 : field == 0, "item %u's word is one the column reads", i);
+    }
+}
+
 int main(void)
 {
     test_relocate();
@@ -230,6 +322,7 @@ int main(void)
     test_stick_column();
     test_transport();
     test_config();
+    test_menu();
     printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);
     return failures ? 1 : 0;
 }
