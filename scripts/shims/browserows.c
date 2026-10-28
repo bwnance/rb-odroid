@@ -33,6 +33,8 @@
 #define ROW_HOOK 0x001c8048ul       /* GetRightBrowseOne2One(context, message, request) */
 #define SEP 0xfdd0u                 /* noncharacters: the column's value rides in the row */
 #define END 0xfdd1u
+#define PART 0xfdd2u               /* between the chosen field, BPM and KEY in that value */
+#define LIT 0xfdd3u                /* ...and before a KEY rbp's traffic light lit */
 #define MAX_MESSAGE 8192u
 /* Lib_Obj_CTRL_LIST_BROWSE property index 55, not the generated name suffix 220. */
 #define COLUMN_HEADING_ID 55
@@ -80,6 +82,13 @@ static unsigned track_list;
 /* 1 while the page on screen carries the column: a track list whose own second
  * column is another field. The drawing below moves things only then. */
 static unsigned layout_on;
+/* ...and which cells it has: the chosen field's, rbp's own second column. BPM and
+ * KEY are always there. */
+#define CELL_CHOSEN 1u
+#define CELL_NATIVE 2u
+static unsigned cells;
+/* ...and the field rbp's own column holds, read from its rows past any lit ones */
+static unsigned native_field;
 /* 1 while the rows' numbers (rbp's # column) are dashes: set and cleared by the
  * numbers rbp draws */
 static unsigned number_blank;
@@ -227,6 +236,7 @@ static int values_for(void *db, unsigned id, unsigned key, unsigned field, uint1
     }
     return consumed == total && formatted;
 }
+int (*browserows_values)(void *, unsigned int, unsigned int, unsigned int, uint16_t *) = values_for;
 
 /* ---- the database server's page snapshot ----------------------------------------
  * Local USB metadata captured on the database SERVER task while it prepares the
@@ -236,7 +246,8 @@ struct local_metadata {
     unsigned id, drive, key, bpm, length, valid, generation, has_text, has_key;
     uint16_t text[128];         /* the ARTIST or ALBUM name, whichever the column shows */
 };
-static struct local_metadata local_page[32];
+enum { LOCAL_SLOTS = 64 };
+static struct local_metadata local_page[LOCAL_SLOTS];
 static unsigned local_gate, local_next, local_generation;
 static int (*original_local_page)(void *, void *);
 static void *(*original_local_record)(void *, const uint32_t *, unsigned, unsigned, unsigned, unsigned);
@@ -253,14 +264,24 @@ static void (*edb_free)(void *) = (void *)0x175038u;
 static int local_lock(void) { return !__sync_lock_test_and_set(&local_gate, 1u); }
 static void local_unlock(void) { __sync_lock_release(&local_gate); }
 
-static int local_page_rows(void *context, void *request)
+/* A new page no longer empties the snapshot: scrolling fast, the client built a
+ * page's rows after the server had begun the next one, found nothing and showed
+ * dashes (operator, 2026-10-28). Records are kept in a ring by track and stick. */
+static void invalidate_metadata(void);
+
+void browserows_forget(void)
 {
-    __sync_fetch_and_add(&local_generation, 1u);
     if (local_lock()) {
         memset(local_page, 0, sizeof(local_page));
         local_next = 0;
         local_unlock();
     }
+    invalidate_metadata();
+}
+
+static int local_page_rows(void *context, void *request)
+{
+    __sync_fetch_and_add(&local_generation, 1u);
     return original_local_page(context, request);
 }
 
@@ -281,7 +302,6 @@ static void *local_record(void *context, const uint32_t *record, unsigned drive,
         unsigned name_column = wanted == BROWSE_FIELD_ARTIST ? 5u
                              : wanted == BROWSE_FIELD_ALBUM  ? 6u : 0u;
         unsigned name_kind = wanted == BROWSE_FIELD_ARTIST ? 7u : 8u;
-        int want_key = wanted == BROWSE_FIELD_KEY;
         struct local_metadata item;
         memset(&item, 0, sizeof(item));
         item.generation = __atomic_load_n(&local_generation, __ATOMIC_SEQ_CST);
@@ -315,13 +335,12 @@ static void *local_record(void *context, const uint32_t *record, unsigned drive,
         if (set)
             edb_close(set);
         if (item.valid) {
-            if (want_key) {
-                item.key = local_key(item.id, drive);
-                item.has_key = 1;
-            }
+            /* every row shows KEY now (operator, 2026-10-28), whatever the column */
+            item.key = local_key(item.id, drive);
+            item.has_key = 1;
             if (local_lock()) {
                 local_page[local_next] = item;
-                local_next = (local_next + 1u) % 32u;
+                local_next = (local_next + 1u) % LOCAL_SLOTS;
                 local_unlock();
             }
         }
@@ -392,28 +411,23 @@ static int local_connection(void *db)
            !word(connection + 4) && word((uint8_t *)db + 8) == 1;
 }
 
-static int local_values(void *db, unsigned id, unsigned field, uint16_t value[128], unsigned *key)
+/* The snapshot's record for track `id` on `db`'s stick, if this page has it. */
+static int local_item(void *db, unsigned id, struct local_metadata *out)
 {
-    if (!local_connection(db) || !local_field(field))
+    if (!local_connection(db))
         return 0;
     unsigned drive = word((uint8_t *)db + 4);
-    struct local_metadata item;
     int found = 0;
     if (!local_lock())
         return 0;
-    unsigned generation = __atomic_load_n(&local_generation, __ATOMIC_SEQ_CST);
-    for (unsigned i = 0; i < 32; i++)
-        if (local_page[i].valid && local_page[i].generation == generation &&
-            local_page[i].id == id && local_page[i].drive == drive) {
-            item = local_page[i];
+    for (unsigned i = 0; i < LOCAL_SLOTS; i++)
+        if (local_page[i].valid && local_page[i].id == id && local_page[i].drive == drive) {
+            *out = local_page[i];
             found = 1;
             break;
         }
     local_unlock();
-    if (!found)
-        return 0;
-    *key = item.key;
-    return local_value(&item, field, value);
+    return found;
 }
 
 /* ---- the client's cache ----------------------------------------------------------
@@ -426,9 +440,9 @@ static struct {
     unsigned connection, index, depth, sort, field, epoch;
 } metadata_scope;
 static struct {
-    unsigned used, id, key, key_valid, values_valid;
+    unsigned used, id, key, key_valid, values_valid, bpm_valid;
     uint8_t identity[532];
-    uint16_t value[128];
+    uint16_t value[128], bpm[16];
 } metadata_cache[METADATA_SLOTS];
 static unsigned metadata_next, metadata_epoch;
 
@@ -455,12 +469,43 @@ static void metadata_bind(const void *context, void *db, unsigned index, unsigne
     }
 }
 
-static unsigned metadata_values(void *db, unsigned id, const uint8_t identity[532], int need_key,
-                                unsigned field, uint16_t value[128])
+/* rbp's traffic light on this row (its key matches the MASTER's): the KEY part
+ * starts with LIT, and the KEY cell carries the green key icon (draw_cells). */
+static void lit_key(uint16_t value[128])
 {
-    value[0] = 0;
-    if (!need_key && !field)
-        return 0;
+    unsigned n = 0, last = 0;
+    while (n < 126 && value[n]) {
+        if (value[n] == PART)
+            last = n;
+        n++;
+    }
+    if (!last)
+        return;
+    memmove(value + last + 2, value + last + 1, (n - last) * 2);
+    value[last + 1] = LIT;
+}
+
+/* `out` = the chosen field's text, PART, the BPM, PART, the KEY: every row carries
+ * all three (operator, 2026-10-28: BPM and KEY always, as columns of their own). */
+static void compose(uint16_t out[128], const uint16_t *chosen, const uint16_t *bpm, unsigned key)
+{
+    uint16_t key_text[4];
+    unsigned n = 0;
+    browserows_key_text(key, key_text);
+    for (unsigned i = 0; chosen[i] && n < 100; i++)
+        out[n++] = chosen[i];
+    out[n++] = PART;
+    for (unsigned i = 0; bpm[i] && i < 15; i++)
+        out[n++] = bpm[i];
+    out[n++] = PART;
+    for (unsigned i = 0; key_text[i]; i++)
+        out[n++] = key_text[i];
+    out[n] = 0;
+}
+
+static int metadata_values(void *db, unsigned id, const uint8_t identity[532], unsigned field,
+                           uint16_t value[128])
+{
     unsigned slot = METADATA_SLOTS;
     for (unsigned i = 0; i < METADATA_SLOTS; i++)
         if (metadata_cache[i].used && metadata_cache[i].id == id &&
@@ -476,13 +521,14 @@ static unsigned metadata_values(void *db, unsigned id, const uint8_t identity[53
         metadata_cache[slot].id = id;
         memcpy(metadata_cache[slot].identity, identity, 532);
     }
-    {
-        unsigned key = 0;
-        if (local_values(db, id, field, metadata_cache[slot].value, &key)) {
-            metadata_cache[slot].values_valid = 1;
-            metadata_cache[slot].key = key;
-            metadata_cache[slot].key_valid = key <= 24;
-        }
+    struct local_metadata item;
+    if (local_item(db, id, &item) && (!field || local_field(field))) {
+        metadata_cache[slot].values_valid = local_value(&item, field, metadata_cache[slot].value);
+        uint16_t bpm[128];
+        metadata_cache[slot].bpm_valid = local_value(&item, BROWSE_FIELD_BPM, bpm);
+        copy_text(metadata_cache[slot].bpm, bpm, 15);
+        metadata_cache[slot].key = item.key;
+        metadata_cache[slot].key_valid = item.key <= 24;
     }
     /* A local stick's values come from the snapshot only. Asking the database
      * from here nests a query inside the row build on rbp's DB_Client task: with
@@ -490,33 +536,40 @@ static unsigned metadata_values(void *db, unsigned id, const uint8_t identity[53
      * dry -- GetGuiDbMsg answered NULL, GetList cleared it, and rbp's own SIGSEGV
      * handler retried that store forever (the freeze of 2026-10-28). A row the
      * snapshot missed shows a dash and is asked again on the next page. */
-    if (local_connection(db)) {
-        if (field)
-            memcpy(value, metadata_cache[slot].value, 256);
-        if (field == BROWSE_FIELD_KEY && metadata_cache[slot].key_valid)
-            browserows_key_text(metadata_cache[slot].key, value);
-        if (!metadata_cache[slot].values_valid)
-            metadata_cache[slot].used = 0;
-        return metadata_cache[slot].key_valid ? metadata_cache[slot].key : 0;
-    }
-    unsigned key = 0;
-    if (need_key) {
+    if (!local_connection(db)) {
         if (!metadata_cache[slot].key_valid) {
             metadata_cache[slot].key = browserows_track_key(db, id);
             metadata_cache[slot].key_valid = metadata_cache[slot].key >= 1 &&
                                              metadata_cache[slot].key <= 24;
         }
-        key = metadata_cache[slot].key;
-    }
-    if (field) {
-        if (!metadata_cache[slot].values_valid)
+        if (field && !metadata_cache[slot].values_valid)
             metadata_cache[slot].values_valid =
-                values_for(db, id, key, field, metadata_cache[slot].value);
-        memcpy(value, metadata_cache[slot].value, 256);
-        if (field == BROWSE_FIELD_KEY)
-            browserows_key_text(key, value);
+                browserows_values(db, id, metadata_cache[slot].key, field, metadata_cache[slot].value);
+        if (!metadata_cache[slot].bpm_valid) {
+            uint16_t bpm[128];
+            metadata_cache[slot].bpm_valid =
+                browserows_values(db, id, 0, BROWSE_FIELD_BPM, bpm);
+            copy_text(metadata_cache[slot].bpm, bpm, 15);
+        }
     }
-    return key;
+    static const uint16_t dash[] = { 0x2014, 0 }, none[] = { 0 };
+    const uint16_t *chosen = metadata_cache[slot].value;
+    if (field == BROWSE_FIELD_KEY && metadata_cache[slot].key_valid) {
+        browserows_key_text(metadata_cache[slot].key, metadata_cache[slot].value);
+        metadata_cache[slot].values_valid = 1;
+    }
+    if (!field)
+        chosen = none;
+    else if (!chosen[0])
+        chosen = dash;
+    compose(value, chosen, metadata_cache[slot].bpm[0] ? metadata_cache[slot].bpm : dash,
+            metadata_cache[slot].key_valid ? metadata_cache[slot].key : 0);
+    if (!metadata_cache[slot].values_valid || !metadata_cache[slot].bpm_valid ||
+        !metadata_cache[slot].key_valid) {
+        metadata_cache[slot].used = 0;          /* asked again on the next page */
+        return 0;
+    }
+    return 1;
 }
 
 /* The column's value travels inside its own row, so queued updates, scrolling and
@@ -568,7 +621,7 @@ static unsigned busy;
  * 2026-10-28); the drawing then finds the row's track and asks here. Written on
  * the database task, read on the renderer: a sequence count, odd while an entry is
  * being written, tells the reader to look again. */
-enum { SHOWN_SLOTS = 64, SHOWN_LEN = 64 };
+enum { SHOWN_SLOTS = 64, SHOWN_LEN = 128 };
 static struct {
     unsigned seq, id, field;
     uint16_t value[SHOWN_LEN];
@@ -637,34 +690,40 @@ void browserows_process(uint8_t *context, uint8_t *message, const struct browse_
             return;
         }
     __atomic_store_n(&track_list, 1u, __ATOMIC_SEQ_CST);
-    unsigned source = 20;
+    /* rbp's own second column: its rows' kind. 51 and 52 are key icons -- the KEY
+     * column's, and 52 (green) is also what rbp's traffic light puts on any row whose
+     * key matches the MASTER's, whatever the column (seen 2026-10-28: a lit ARTIST row
+     * is kind 52 with the artist's text). So the first row that is neither says the
+     * field, and only a list of nothing but key icons is KEY. BPM and KEY have columns
+     * of their own now, so rbp's goes when it is either (its BPM is "170.0 bpm - 4A",
+     * the two merged); and the chosen field is not shown twice. */
+    unsigned source = 20, native = BROWSE_FIELD_KEY;
     for (unsigned i = 0; i < count; i++) {
         if (source + 22 > bytes) {
             invalidate_metadata();
             return;
         }
-        unsigned len = half(message + 0x70 + source + 20);
+        unsigned len = half(message + 0x70 + source + 20), kind = half(message + 0x70 + source);
         if (len > 255 || source + 22 + len * 2 > bytes) {
             invalidate_metadata();
             return;
         }
+        if (i && native == BROWSE_FIELD_KEY && kind != 51 && kind != 52)
+            native = kind;
         source += 22 + len * 2;
     }
-    /* rbp's own second column: the first track row's kind (its key icons, 51 and
-     * 52, are the KEY column). The same field twice is not shown. */
-    unsigned native = half(message + 0x84u + 22u + half(message + 0x98u) * 2u);
-    if (native == 51 || native == 52)
-        native = BROWSE_FIELD_KEY;
+    unsigned field = column->field, bits = 0;
+    if (field && field != native && field != BROWSE_FIELD_BPM && field != BROWSE_FIELD_KEY)
+        bits |= CELL_CHOSEN;
+    if (native != BROWSE_FIELD_BPM && native != BROWSE_FIELD_KEY)
+        bits |= CELL_NATIVE;
     static unsigned last_native, last_field;
-    if (native != last_native || column->field != last_field) {
+    if (native != last_native || field != last_field) {
         last_native = native;
-        last_field = column->field;
-        klog("knobshim2: browse column: rbp's second column is field %u, ours %u%s\n", native,
-             column->field, native == column->field ? " -- the same, not shown" : "");
-    }
-    if (native == column->field) {
-        __atomic_store_n(&layout_on, 0u, __ATOMIC_SEQ_CST);
-        return;
+        last_field = field;
+        klog("knobshim2: browse column: rbp's second column is field %u (%s), ours %u (%s)\n",
+             native, bits & CELL_NATIVE ? "shown" : "not shown", field,
+             bits & CELL_CHOSEN ? "shown" : "not shown");
     }
     unsigned depth = word((uint8_t *)db + 4);
     if (!__sync_bool_compare_and_swap(&busy, 0u, 1u)) {
@@ -673,7 +732,7 @@ void browserows_process(uint8_t *context, uint8_t *message, const struct browse_
     }
     memcpy(rebuilt, message, 0x84);
     source = 20;
-    unsigned dest = 20, field = column->field;
+    unsigned dest = 20;
     metadata_bind(context, db, index, depth, native_sort, field);
     for (unsigned i = 0; i < count; i++) {
         uint8_t *entry = message + 0x70 + source;
@@ -681,12 +740,22 @@ void browserows_process(uint8_t *context, uint8_t *message, const struct browse_
         uint16_t value[128] = { 0 };
         if (i) {
             unsigned id = word(context + rows + (i - 1) * 532);
-            metadata_values(db, id, context + rows + (i - 1) * 532, field == BROWSE_FIELD_KEY,
-                            field, value);
-            if (!value[0]) {
-                value[0] = 0x2014;
-                value[1] = 0;
+            /* a row the snapshot has not got: what was last shown for its track, not
+             * dashes, until it has */
+            if (!metadata_values(db, id, context + rows + (i - 1) * 532, field, value)) {
+                uint16_t shown_value[SHOWN_LEN];
+                if (recall(id, field, shown_value)) {
+                    unsigned n = 0;
+                    while (n < 127 && shown_value[n] && shown_value[n] != LIT)
+                        value[n] = shown_value[n], n++;
+                    if (shown_value[n] == LIT)      /* the lit mark goes: this page decides */
+                        for (unsigned k = n + 1; k < SHOWN_LEN && shown_value[k] && n < 127; k++)
+                            value[n++] = shown_value[k];
+                    value[n] = 0;
+                }
             }
+            if (half(entry) == 52)
+                lit_key(value);
             remember(id, field, value);
             dest += browserows_append(rebuilt + 0x70 + dest, entry, value);
         } else {
@@ -699,6 +768,8 @@ void browserows_process(uint8_t *context, uint8_t *message, const struct browse_
     /* 15 maximum-length rows fit rbp's own 8 KiB message */
     memcpy(rebuilt + 0x1c, &dest, 4);
     memcpy(message, rebuilt, 0x70 + dest);
+    __atomic_store_n(&native_field, native, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&cells, bits, __ATOMIC_SEQ_CST);
     __atomic_store_n(&layout_on, 1u, __ATOMIC_SEQ_CST);
     __sync_lock_release(&busy);
 }
@@ -756,18 +827,77 @@ static int ensure(void)
  * column's icon at 864 and its text 898..1258 (..1020 on the selected row, where
  * the floating LOAD buttons sit); 1-pixel dividers at 326, 379, 434 and 855, header
  * and body; and the headings as images at y 16: TRACK (2603) at 442, the second
- * column's (BPM 2045 ...) at 862. With the column on, as on a CDJ-3000:
- *     TRACK 434..740 | the column 740..1040 | rbp's second column 1040..1280
- * -- the title cut at 729, a divider and the field's own heading image at 740, and
- * everything of the second column moved 185 right. */
+ * column's (BPM 2045 ...) at 862. Laid out now, from the right (operator,
+ * 2026-10-28: BPM and KEY always, as two columns, KEY rightmost):
+ *     TRACK | the chosen field | rbp's second column | BPM | KEY
+ * the chosen field's cell only when it is a field rbp is not already showing and
+ * not BPM or KEY; rbp's own only when it is not BPM or KEY (cells). Each cell is a
+ * divider, the field's own heading image and the text, TEXT_INSET in; rbp's second
+ * column -- icon, text, heading -- is moved whole into its cell. */
 #define LIST_LAYER  0x0801u
 #define NATIVE_EDGE 855         /* rbp's divider before its second column */
-#define COL_X       740         /* ours */
-#define SHIFT       185         /* rbp's second column: 855 -> 1040 */
+#define KEY_X       1205
+#define BPM_X       1110
+#define NATIVE_W    190         /* with both middle cells */
+#define CHOSEN_W    220
+#define MIDDLE_W    330         /* one middle cell alone: the CDJ-3000's ARTIST width */
 #define TITLE_LEFT  474
 #define TITLE_NATIVE_RIGHT 844
-#define TITLE_RIGHT 729
 #define TEXT_INSET  7           /* heading and text after a divider, as rbp's */
+#define TEXT_NUDGE  2           /* rows' text and icons lowered (nudged(), below) */
+#define LIST_LEFT   108         /* the list's left edge: BROWSE's source buttons, left of
+                                 * it, share its layer and stay put */
+#define HEADING_BPM 2045
+#define HEADING_KEY 2409
+/* The traffic light's green, as rbp's rectangle model holds a colour (word 0x28):
+ * alpha in the top byte (row rects read ff000000, ff050a05, ff1c1f00 on the unit,
+ * 2026-10-28), green in the middle byte whichever way red and blue sit -- so equal
+ * red and blue keep this green either way. A text model's word 0x28 is not a colour
+ * but a palette entry, in its second byte (white text 0x00, the playing row's green
+ * 0x18): swept on the unit 2026-10-28, entries 1..11 are rekordbox's track colours
+ * 30 is black -- the key's colour on the green. rbp does not smooth a glyph's
+ * edge against what is under it but toward dark, so a dark grey (22, ~57,65,66)
+ * came out with a jagged dark outline; black hides it (operator, 2026-10-28). Giving
+ * the text its own background (model 0x40/0x44) to smooth against painted the box
+ * black instead. */
+#define KEY_LIT_COLOUR  0xff20b020u
+#define KEY_LIT_TEXT    (30u << 8)
+
+
+struct layout { int chosen, native, bpm, key, title_right; unsigned bits; };
+
+/* Where this page's cells are; chosen/native are 0 for a cell not shown. */
+static struct layout layout_now(void)
+{
+    struct layout l;
+    int x = BPM_X;
+    l.bits = __atomic_load_n(&cells, __ATOMIC_SEQ_CST);
+    l.key = KEY_X;
+    l.bpm = BPM_X;
+    int both = (l.bits & (CELL_NATIVE | CELL_CHOSEN)) == (CELL_NATIVE | CELL_CHOSEN);
+    l.native = (l.bits & CELL_NATIVE) ? (x -= both ? NATIVE_W : MIDDLE_W) : 0;
+    l.chosen = (l.bits & CELL_CHOSEN) ? (x -= both ? CHOSEN_W : MIDDLE_W) : 0;
+    l.title_right = x - 11;
+    return l;
+}
+
+/* The right edge of the cell starting at `x`. */
+static int cell_end(const struct layout *l, int x)
+{
+    if (x == l->chosen)
+        return l->native ? l->native : l->bpm;
+    if (x == l->native)
+        return l->bpm;
+    if (x == l->bpm)
+        return l->key;
+    return 1280;
+}
+
+/* The page's first cell right of TRACK: where rbp's row rectangles now meet. */
+static int first_cell(const struct layout *l)
+{
+    return l->chosen ? l->chosen : l->native ? l->native : l->bpm;
+}
 /* rbp's # column, 379..434 (its heading and each row's number), shows only dashes
  * in a list sorted by anything but CUSTOM: then it goes, and TRACK -- note icon,
  * title, heading -- moves into its 55 px (operator, 2026-10-28). */
@@ -838,9 +968,10 @@ static void scroll_prepare(unsigned lane, unsigned row)
     unsigned left = glyph ? half((uint8_t *)glyph + 0x18) : 0;
     /* the title scrolls inside its narrowed cell */
     if (glyph)
-        put_half((uint8_t *)glyph + 0x1c, TITLE_RIGHT);
+        put_half((uint8_t *)glyph + 0x1c, layout_now().title_right);
     if (glyph && number_blank && left == TITLE_LEFT)
         put_half((uint8_t *)glyph + 0x18, TITLE_LEFT - NUMBER_W);
+
     memcpy(source, scroll_text[lane], (n + 1) * 2);
     original_scroll_prepare(lane, row);
     memcpy(source, saved, sizeof(saved));
@@ -860,7 +991,14 @@ static void scroll_prepare(unsigned lane, unsigned row)
 
 static void scroll_start(const uint16_t *text, void *glyph, unsigned lane)
 {
+    /* ui_ListBrowse_StartTextScroll creates the scroller's window at the glyph's x
+     * and y (0x295860, 0x295870): as low as the rest of its row (TEXT_NUDGE) */
+    unsigned top = glyph ? half((uint8_t *)glyph + 0x1a) : 0;
+    if (glyph && lane < 2 && column && layout_on)
+        put_half((uint8_t *)glyph + 0x1a, top + TEXT_NUDGE);
     original_scroll_start(text, glyph, lane);
+    if (glyph)
+        put_half((uint8_t *)glyph + 0x1a, top);
     if (lane < 2 && column && scroll_owned[lane]) {
         unsigned timer = word(scroll_state + lane * 0x74 + 0x10);
         scroll_kill(0x82a, timer);
@@ -1005,6 +1143,127 @@ static void shift_x(uint8_t *m, int dx)
  * 0x34, its length byte at 0x38; rbp's font, colour and alignment are kept. */
 /* The track of the row whose second-column glyph `model` is: rbp's glyph IDs per
  * row (the scroll table's right lane) and the list's own rows, in the same order. */
+/* rbp's row rectangles right of TRACK, by row, as last drawn: the KEY cell of a row
+ * the traffic light lit is one of them, recoloured (light_key_cell). Written and read
+ * on the render thread only. */
+enum { LIST_ROWS = 12 };
+static unsigned traffic_light = 1;  /* UTILITY's TRAFFIC LIGHT (browserows_traffic_light) */
+
+void browserows_traffic_light(int on)
+{
+    __atomic_store_n(&traffic_light, on ? 1u : 0u, __ATOMIC_RELAXED);
+}
+
+static uint32_t row_rect[LIST_ROWS][21];
+static unsigned row_rect_ok[LIST_ROWS];
+
+static void keep_row_rect(const uint8_t *m)
+{
+    int y = half(m + 0x1a);
+    unsigned row = y >= 50 ? (unsigned)(y - 50) / 50u : LIST_ROWS;
+    if (row < LIST_ROWS) {
+        memcpy(row_rect[row], m, sizeof(row_rect[row]));
+        row_rect_ok[row] = 1;
+    }
+}
+
+/* The KEY cell of the row `text` is in, filled green: rbp's traffic light on it. */
+static void light_key_cell(void *render, const void *text)
+{
+    int y = half((const uint8_t *)text + 0x1a);
+    unsigned row = y >= 50 ? (unsigned)(y - 50) / 50u : LIST_ROWS;
+    if (row >= LIST_ROWS || !row_rect_ok[row])
+        return;
+    uint32_t clone[21];
+    uint8_t *c = (void *)clone;
+    memcpy(clone, row_rect[row], sizeof(clone));
+    put_half(c + 0x18, KEY_X + 1);
+    put_half(c + 0x1c, 1280);
+    /* rbp's row rectangle reaches 3 px into the next row, which paints over it
+     * when drawn after: drawn here, after the row, it would show (53 px, seen).
+     * Then 1 px in at the top and the bottom both, so two lit rows in a row keep a
+     * line between them, centred on the row's edge (operator, 2026-10-28). */
+    /* On the selected row the gap would show its blue: under the green goes black
+     * there, across the cell (operator, 2026-10-28). A grey row's colour has its
+     * three colour bytes about equal; the selection's are not. */
+    unsigned colour = word(c + 0x28), r = colour >> 16 & 255u, g = colour >> 8 & 255u,
+             b = colour & 255u, hi = r > g ? (r > b ? r : b) : (g > b ? g : b),
+             lo = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    if (hi - lo > 60) {
+        put_half(c + 0x1e, half(c + 0x1e) - 3);
+        put_word(c + 0x28, 0xff000000u);
+        original_draw_rect(render, c);
+        put_half(c + 0x1e, half(c + 0x1e) + 3);
+    }
+    put_half(c + 0x1a, half(c + 0x1a) + 1);
+    put_half(c + 0x1e, half(c + 0x1e) - 4);
+    put_word(c + 0x28, KEY_LIT_COLOUR);
+    original_draw_rect(render, c);
+}
+
+/* One text of rbp's, drawn again with `text` between x0 and x1: its font, colour and
+ * alignment kept (align 0), or centred (1) or right-aligned (2) across them; its
+ * colour too, unless `colour` gives one. The alignment is the model's byte 0x3c, a
+ * 3x3 grid: its third is the horizontal (0 left, 1 centre, 2 right: 0x1d274c takes
+ * the rect's right edge for 2), its remainder the vertical -- NS_PALRender_DrawText
+ * @0x1d23e4 divides it by 3 at 0x1d2724. The first try had the two swapped and
+ * moved the BPM down instead (2026-10-28). */
+static void draw_at(void *render, const void *model, const uint16_t *text, unsigned n,
+                    int x0, int x1, int align, uint32_t colour)
+{
+    uint32_t clone[21];
+    uint8_t *c = (void *)clone;
+    memcpy(clone, model, sizeof(clone));
+    if (colour)
+        put_word(c + 0x28, colour);
+    if (align)
+        c[0x3c] = (uint8_t)(3u * (unsigned)align + c[0x3c] % 3u);
+    uint32_t ptr = (uint32_t)(unsigned long)text;
+    memcpy(c + 0x34, &ptr, 4);
+    c[0x38] = (uint8_t)n;
+    put_half(c + 0x18, x0);
+    put_half(c + 0x1c, x1);
+    original_draw_text(render, c);
+}
+
+/* A row's second-column text: rbp's own `prefix` moved into its cell (or left out),
+ * then the row's `value` -- the chosen field, PART, BPM, PART, KEY -- in theirs. */
+static void draw_cells(void *render, const void *model, const uint16_t *prefix, unsigned split,
+                       const uint16_t *value)
+{
+    struct layout l = layout_now();
+    /* rbp's text where its icon was: the icon is not drawn (draw_image_hooked) */
+    if (l.native)
+        draw_at(render, model, prefix, split, l.native + TEXT_INSET,
+                cell_end(&l, l.native) - 12, 0, 0);
+    const uint16_t *part[3] = { value, NULL, NULL };
+    unsigned len[3] = { 0, 0, 0 }, p = 0;
+    for (unsigned i = 0; value && value[i] && p < 3; i++) {
+        if (value[i] == PART) {
+            if (++p < 3)
+                part[p] = value + i + 1;
+            continue;
+        }
+        len[p]++;
+    }
+    if (l.chosen && len[0])
+        draw_at(render, model, part[0], len[0], l.chosen + TEXT_INSET,
+                cell_end(&l, l.chosen) - 12, 0, 0);
+    if (part[1] && len[1])
+        draw_at(render, model, part[1], len[1], l.bpm + TEXT_INSET, l.key - 10, 2, 0);
+    uint32_t key_colour = 0;
+    if (part[2] && len[2] && part[2][0] == LIT) {
+        if (__atomic_load_n(&traffic_light, __ATOMIC_RELAXED)) {
+            light_key_cell(render, model);
+            key_colour = KEY_LIT_TEXT;
+        }
+        part[2]++;
+        len[2]--;
+    }
+    if (part[2] && len[2])
+        draw_at(render, model, part[2], len[2], l.key + TEXT_INSET, 1274, 0, key_colour);
+}
+
 static unsigned row_track(const void *model)
 {
     void *root = (void *)(unsigned long)word(root_pointer);
@@ -1034,34 +1293,14 @@ static int column_draw(void *render, void *model)
     }
     if (!browserows_split(s, n, &split, &extra))
         return 0;
-    uint32_t clone[21];
-    uint8_t *c = (void *)clone;
     uint16_t prefix[256] = { 0 }, value[128] = { 0 };
     memcpy(prefix, s, split * 2);
     memcpy(value, s + split + 1, extra * 2);
-    unsigned left = half(m + 0x18), right = half(m + 0x1c);
-    if (right == 1020)          /* the selected row: the LOAD buttons are hidden */
-        right = 1258;
-    /* rbp's value, moved */
-    memcpy(clone, model, sizeof(clone));
-    uint32_t ptr = (uint32_t)(unsigned long)prefix;
-    memcpy(c + 0x34, &ptr, 4);
-    c[0x38] = (uint8_t)split;
-    put_half(c + 0x18, left + SHIFT);
-    put_half(c + 0x1c, right + SHIFT > 1272 ? 1272 : right + SHIFT);
-    original_draw_text(render, c);
-    /* ours */
-    memcpy(clone, model, sizeof(clone));
-    ptr = (uint32_t)(unsigned long)value;
-    memcpy(c + 0x34, &ptr, 4);
-    c[0x38] = (uint8_t)extra;
-    put_half(c + 0x18, COL_X + TEXT_INSET);
-    put_half(c + 0x1c, NATIVE_EDGE + SHIFT - 12);
-    original_draw_text(render, c);
+    draw_cells(render, model, prefix, split, value);
     return 1;
 }
 
-static void draw_text_hooked(void *render, void *text)
+static void draw_text_row(void *render, void *text)
 {
     if (browserows_tick)
         browserows_tick();
@@ -1094,29 +1333,18 @@ static void draw_text_hooked(void *render, void *text)
     if (moving(text) && half((uint8_t *)text + 0x18) >= NATIVE_EDGE &&
         half((uint8_t *)text + 0x18) < NATIVE_EDGE + 60) {
         /* a second-column text without our value (a row rbp redrew from its own
-         * strings): still moved, so the column keeps its place */
-        uint32_t clone[21];
-        uint8_t *c = (void *)clone;
-        unsigned right = half((uint8_t *)text + 0x1c);
-        memcpy(clone, text, sizeof(clone));
-        if (right == 1020)
-            right = 1258;
-        put_half(c + 0x18, half(c + 0x18) + SHIFT);
-        put_half(c + 0x1c, right + SHIFT > 1272 ? 1272 : right + SHIFT);
-        original_draw_text(render, c);
-        /* ...and our value, from what was shown for that row's track */
+         * strings): still laid out, rbp's text in its cell and ours from what was
+         * shown for that row's track */
+        const uint16_t *own = (void *)(unsigned long)word((uint8_t *)text + 0x34);
+        unsigned n = ((uint8_t *)text)[0x38];
+        if (own && n == 255)
+            for (n = 0; n < 255 && own[n];)
+                n++;
         uint16_t value[SHOWN_LEN];
         unsigned id = row_track(text);
         const struct browse_column *col = column;
-        if (id && col && recall(id, col->field, value)) {
-            memcpy(clone, text, sizeof(clone));
-            uint32_t ptr = (uint32_t)(unsigned long)value;
-            memcpy(c + 0x34, &ptr, 4);
-            c[0x38] = 255;
-            put_half(c + 0x18, COL_X + TEXT_INSET);
-            put_half(c + 0x1c, NATIVE_EDGE + SHIFT - 12);
-            original_draw_text(render, c);
-        }
+        int known = id && col && recall(id, col->field, value);
+        draw_cells(render, text, own, own ? n : 0, known ? value : NULL);
         return;
     }
     if (listed(text) && half((uint8_t *)text + 0x18) == TITLE_LEFT &&
@@ -1124,7 +1352,7 @@ static void draw_text_hooked(void *render, void *text)
         uint32_t clone[21];
         memcpy(clone, text, sizeof(clone));
         if (moving(text))
-            put_half((uint8_t *)clone + 0x1c, TITLE_RIGHT);
+            put_half((uint8_t *)clone + 0x1c, layout_now().title_right);
         if (number_blank)
             put_half((uint8_t *)clone + 0x18, TITLE_LEFT - NUMBER_W);
         original_draw_text(render, clone);
@@ -1133,7 +1361,7 @@ static void draw_text_hooked(void *render, void *text)
     original_draw_text(render, text);
 }
 
-static void draw_image_hooked(void *render, void *image)
+static void draw_image_row(void *render, void *image)
 {
     uint8_t *m = image;
     if (column && __atomic_load_n(&layout_on, __ATOMIC_SEQ_CST)) {
@@ -1154,17 +1382,38 @@ static void draw_image_hooked(void *render, void *image)
         return;
     }
     if (moving(m) && x >= NATIVE_EDGE && x < NATIVE_EDGE + 50) {
+        /* rbp's second column's heading (above y 50): moved into its cell, or left
+         * out with it, and bringing ours. Its row icons are not drawn (operator,
+         * 2026-10-28: no person icon by the artist, as on a CDJ-3000); the traffic
+         * light's green key icon among them -- the KEY cell lights instead. */
+        struct layout l = layout_now();
         uint32_t clone[21];
         uint8_t *c = (void *)clone;
-        memcpy(clone, image, sizeof(clone));
-        shift_x(c, SHIFT);
-        original_draw_image(render, c);
-        unsigned heading = heading_image(column->field);
-        if (half(m + 0x1a) < 50 && heading) {      /* the second column's heading */
+        if (half(m + 0x1a) >= 50)
+            return;
+        if (l.native) {
+            /* rbp heads its column from its first row, so a lit first row (a key
+             * icon) made ARTIST read KEY: the heading of the field the rows hold */
+            unsigned own = heading_image(__atomic_load_n(&native_field, __ATOMIC_SEQ_CST));
             memcpy(clone, image, sizeof(clone));
-            shift_x(c, COL_X + TEXT_INSET - (int)x);
-            memcpy(c + 0x44, &heading, 4);
+            shift_x(c, l.native - NATIVE_EDGE);
+            if (own)
+                memcpy(c + 0x44, &own, 4);
             original_draw_image(render, c);
+        }
+        if (half(m + 0x1a) < 50) {
+            const struct { int at; unsigned id; } headings[] = {
+                { l.chosen, l.chosen ? heading_image(column->field) : 0 },
+                { l.bpm, HEADING_BPM }, { l.key, HEADING_KEY },
+            };
+            for (unsigned i = 0; i < 3; i++) {
+                if (!headings[i].at || !headings[i].id)
+                    continue;
+                memcpy(clone, image, sizeof(clone));
+                shift_x(c, headings[i].at + TEXT_INSET - (int)x);
+                memcpy(c + 0x44, &headings[i].id, 4);
+                original_draw_image(render, c);
+            }
         }
         return;
     }
@@ -1182,21 +1431,26 @@ static void draw_rect_hooked(void *render, void *rect)
         uint32_t clone[21];
         uint8_t *c = (void *)clone;
         memcpy(clone, rect, sizeof(clone));
-        if (x1 == NATIVE_EDGE && x2 == NATIVE_EDGE + 1) {       /* the divider: ours, and moved */
-            shift_x(c, COL_X - NATIVE_EDGE);
-            original_draw_rect(render, c);
-            memcpy(clone, rect, sizeof(clone));
-            shift_x(c, SHIFT);
-            original_draw_rect(render, c);
+        struct layout l = layout_now();
+        if (x1 == NATIVE_EDGE && x2 == NATIVE_EDGE + 1) {       /* the divider: one per cell */
+            const int at[4] = { l.chosen, l.native, l.bpm, l.key };
+            for (unsigned i = 0; i < 4; i++) {
+                if (!at[i])
+                    continue;
+                memcpy(clone, rect, sizeof(clone));
+                shift_x(c, at[i] - NATIVE_EDGE);
+                original_draw_rect(render, c);
+            }
             return;
         }
         if (x2 == NATIVE_EDGE + 2 && x1 < NATIVE_EDGE) {         /* a row's left part */
-            put_half(c + 0x1c, x2 + SHIFT);
+            put_half(c + 0x1c, first_cell(&l) + 2);
             original_draw_rect(render, c);
             return;
         }
         if (x1 == NATIVE_EDGE + 2 && x2 > x1) {                  /* a row's right part */
-            put_half(c + 0x18, x1 + SHIFT);
+            keep_row_rect(m);
+            put_half(c + 0x18, first_cell(&l) + 2);
             original_draw_rect(render, c);
             return;
         }
@@ -1206,14 +1460,38 @@ static void draw_rect_hooked(void *render, void *rect)
 
 void browserows_set(const struct browse_column *c)
 {
+    /* BPM and KEY show whatever is chosen: "none" is a column of no field */
+    static const struct browse_column none = { 0, NULL };
+    if (!c)
+        c = &none;
     const struct browse_column *was = __atomic_exchange_n(&column, c, __ATOMIC_SEQ_CST);
-    if (was != c) {
-        /* the next page decides the layout afresh */
-        if (!c)
-            __atomic_store_n(&layout_on, 0u, __ATOMIC_SEQ_CST);
-        invalidate_metadata();
-    }
+    if (was != c)
+        invalidate_metadata();      /* the next page decides the layout afresh */
 }
+
+/* rbp's list rows set their text 2-3 px above the middle (capitals 13..31 of 50,
+ * measured on the unit): every row's texts and icons go down TEXT_NUDGE px
+ * (operator, 2026-10-28). In place and put back, not a copy: the hooks below know
+ * rbp's per-row glyphs by their address. Headings, above y 50, stay. Measured
+ * after: capitals 15..33 of 50. */
+
+static void nudged(void (*draw)(void *, void *), void *render, void *model)
+{
+    uint8_t *m = model;
+    if (half(m + 0x1a) < 50 || half(m + 0x18) < LIST_LEFT || !listed(m)) {
+        draw(render, model);
+        return;
+    }
+    unsigned y0 = half(m + 0x1a), y1 = half(m + 0x1e);
+    put_half(m + 0x1a, y0 + TEXT_NUDGE);
+    put_half(m + 0x1e, y1 + TEXT_NUDGE);
+    draw(render, model);
+    put_half(m + 0x1a, y0);
+    put_half(m + 0x1e, y1);
+}
+
+static void draw_text_hooked(void *render, void *text) { nudged(draw_text_row, render, text); }
+static void draw_image_hooked(void *render, void *image) { nudged(draw_image_row, render, image); }
 
 int browserows_install(void)
 {

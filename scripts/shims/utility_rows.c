@@ -34,6 +34,7 @@ static const uint32_t ut_lit_rows = 0x0013d9e4;
 #define UTIL_RESET          0x0013a99c
 #define UT_ROW_SLIPFLASH    7
 #define UT_ROW_MIXERMODE    23            /* ours go after it, at the MIXER section's end */
+#define UT_ROW_JOGIMAGE     13            /* IMAGE ON JOG DISPLAY: the DECK section's last */
 #define UT_STRSET_OFF_ON    0x00513db8u   /* SLIP FLASHING's values: OFF, ON */
 #define UTIL_SETLINE_MIXERMODE 0x0013b118u /* checked, not called */
 #define UT_ROW_MIXERCAT     15            /* MIXER: its heading row, copied for ours */
@@ -42,6 +43,7 @@ static const uint32_t ut_lit_rows = 0x0013d9e4;
 #define UTIL_SETLINE_BLANK  0x0013a9b4u
 
 #define MIRROR_FILE_DEFAULT "/run/rbp/mirror.mode"
+#define TRAFFIC_FILE_DEFAULT "/run/rbp/browse.trafficlight"
 #define UT_LINE_LEN   32                  /* +32 the length, +34 the text */
 #define UT_LINE_TEXT  34
 #define UT_LINE_BYTES 512
@@ -49,8 +51,14 @@ static const uint32_t ut_lit_rows = 0x0013d9e4;
 /* "      HDMI AUDIO": six spaces, as rbp indents a row under its section */
 static const uint16_t ut_label_mirror[] = {
     ' ', ' ', ' ', ' ', ' ', ' ', 'H', 'D', 'M', 'I', ' ', 'A', 'U', 'D', 'I', 'O', 0 };
+/* "      TRAFFIC LIGHT": BROWSE's KEY cell lit green on a row whose key matches the
+ * MASTER's (browserows.c, which reads the file; operator, 2026-10-28) */
+const uint16_t ut_label_traffic[] = {
+    ' ', ' ', ' ', ' ', ' ', ' ', 'T', 'R', 'A', 'F', 'F', 'I', 'C', ' ', 'L', 'I', 'G', 'H',
+    'T', 0 };
 
 static struct ut_table ut_table __attribute__((aligned(8)));
+static struct ut_table ut_deck;      /* rbp's rows with TRAFFIC LIGHT, before the rest */
 
 int ut_build(struct ut_table *dst, const struct ut_entry *src, int n, int after,
              const struct ut_entry *ours, int n_ours)
@@ -69,16 +77,24 @@ int ut_build(struct ut_table *dst, const struct ut_entry *src, int n, int after,
     return k;
 }
 
-static const char *mirror_path(void)
+/* The two OFF/ON rows share their handlers and differ in the file they keep. */
+static const char *mirror_path(const struct ut_entry *e)
 {
+    if (e->label == ut_label_traffic)
+        return env_str("BROWSE_TRAFFIC_FILE", TRAFFIC_FILE_DEFAULT);
     return env_str("AUDIO_MIRROR_FILE", MIRROR_FILE_DEFAULT);
 }
 
+static const char *row_name(const struct ut_entry *e)
+{
+    return e->label == ut_label_traffic ? "TRAFFIC LIGHT" : "HDMI AUDIO";
+}
+
 /* 0 = OFF, 1 = ON; no file, or anything but "off", is ON (audioshim's rule). */
-static int mirror_read(void)
+static int mirror_read(const struct ut_entry *e)
 {
     char buf[16];
-    int fd = open(mirror_path(), O_RDONLY | O_CLOEXEC), n;
+    int fd = open(mirror_path(e), O_RDONLY | O_CLOEXEC), n;
 
     if (fd < 0)
         return 1;
@@ -90,10 +106,10 @@ static int mirror_read(void)
     return strncmp(buf, "off", 3) == 0 ? 0 : 1;
 }
 
-static int mirror_write(int on)
+static int mirror_write(const struct ut_entry *e, int on)
 {
     const char *w = on ? "on\n" : "off\n";
-    int fd = open(mirror_path(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644), ok;
+    int fd = open(mirror_path(e), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644), ok;
 
     if (fd < 0)
         return -1;
@@ -121,7 +137,7 @@ int ut_mirror_setline(struct ut_entry *e, unsigned char **lines)
 
     line_put(lines[0], e->label);
     if (idx == -1) {
-        idx = mirror_read();
+        idx = mirror_read(e);
         e->cur = idx;
     }
     line_put(lines[1], idx >= 0 && (uint32_t)idx < (e->nvalues & 0xffff) ?
@@ -138,12 +154,12 @@ int ut_mirror_enter(struct ut_entry *e)
     if (v == e->cur)
         return 0;
     e->cur = v;
-    if (mirror_write(v) != 0)
-        pointsrc_log("utility: HDMI AUDIO -> %s, but %s could not be written",
-                     v ? "ON" : "OFF", mirror_path());
+    if (mirror_write(e, v) != 0)
+        pointsrc_log("utility: %s -> %s, but %s could not be written", row_name(e),
+                     v ? "ON" : "OFF", mirror_path(e));
     else
-        pointsrc_log("utility: HDMI AUDIO -> %s (wrote %s)", v ? "ON" : "OFF",
-                     mirror_path());
+        pointsrc_log("utility: %s -> %s (wrote %s)", row_name(e), v ? "ON" : "OFF",
+                     mirror_path(e));
     return 1;
 }
 
@@ -420,13 +436,19 @@ int utility_rows_install(void)
     ours[0].fn[UT_FN_ENTER] = (uint32_t)(uintptr_t)ut_mirror_enter;
     ours[0].fn[UT_FN_ISGREY] = UTIL_ISGREY;
     ours[0].fn[7] = UTIL_RESET;
+    /* TRAFFIC LIGHT ends the DECK section (operator, 2026-10-28: not under MIXER) */
+    struct ut_entry traffic = ours[0];
+    traffic.label = ut_label_traffic;
     k = 1;
     if (atoi(env_str("SETTINGS_DJM", "0")))
         k += ut_section(ours + k, src, l_djm, ut_defs, 3, &ours[0]);
     if (atoi(env_str("SETTINGS_VNC", "0")))
         k += ut_section(ours + k, src, l_vnc, ut_defs + 3, 3, &ours[0]);
 
-    n = ut_build(&ut_table, src, UT_RBP_N, UT_ROW_MIXERMODE, ours, k);
+    n = ut_build(&ut_deck, src, UT_RBP_N, UT_ROW_JOGIMAGE, &traffic, 1);
+    if (n < 0)
+        goto refuse;
+    n = ut_build(&ut_table, ut_deck.rows, n, UT_ROW_MIXERMODE + 1, ours, k);
     if (n < 0)
         goto refuse;
     for (i = 0; i < 6; i++)
@@ -434,7 +456,8 @@ int utility_rows_install(void)
             goto failed;
     if (patch_word(ut_lit_rows, (uint32_t)(uintptr_t)ut_table.rows) != 0)
         goto failed;
-    pointsrc_log("utility: %d rows (HDMI AUDIO after MIXER MODE%s%s), table at %p", n,
+    pointsrc_log("utility: %d rows (TRAFFIC LIGHT after IMAGE ON JOG DISPLAY, HDMI AUDIO "
+                 "after MIXER MODE%s%s), table at %p", n,
                  atoi(env_str("SETTINGS_DJM", "0")) ? ", the DJM section" : "",
                  atoi(env_str("SETTINGS_VNC", "0")) ? ", the VNC section" : "",
                  (void *)&ut_table);

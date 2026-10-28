@@ -150,6 +150,9 @@ static unsigned stick_column(const char *path)
 
 /* ---- the choice ------------------------------------------------------------- */
 static char choice_path[128];
+/* UTILITY's TRAFFIC LIGHT row (utility_rows.c, in fbshim) writes on or off here; no
+ * file, or anything but "off", is on */
+static char traffic_path[128];
 static const char *start_word = "";
 static unsigned tick_gate;
 static unsigned last_tick_ms;     /* 32 bits: armv5 has no 64-bit atomics */
@@ -217,6 +220,7 @@ static void look_at_sticks(void)
         close(fd);
         if (same)
             continue;
+        browserows_forget();        /* its track ids are not the last stick's */
         memcpy(sticks[s].head, head, sizeof head);
         sticks[s].size = size;
         sticks[s].there = 1;
@@ -266,6 +270,14 @@ static void tick(void)
         word[strcspn(word, " \t\r\n")] = 0;
     }
     apply(word[0] ? word : start_word);
+    char traffic[8] = { 0 };
+    fd = open(traffic_path, O_RDONLY);
+    if (fd >= 0) {
+        ssize_t n = read(fd, traffic, sizeof traffic - 1);
+        close(fd);
+        traffic[n > 0 ? n : 0] = 0;
+    }
+    browserows_traffic_light(strncmp(traffic, "off", 3) != 0);
     __sync_lock_release(&tick_gate);
 }
 
@@ -276,6 +288,8 @@ __attribute__((constructor)) static void browsecol_init(void)
     snprintf(choice_path, sizeof choice_path, "%s",
              env_str("BROWSE_COLUMN_FILE", "/run/rbp/browse.column"));
     start_word = env_str("BROWSE_COLUMN", "");
+    snprintf(traffic_path, sizeof traffic_path, "%s",
+             env_str("BROWSE_TRAFFIC_FILE", "/run/rbp/browse.trafficlight"));
     if (start_word[0] && strcmp(start_word, "0") && strcmp(start_word, "off") && find(start_word) < 0)
         klog("knobshim2: browse column: RB_BROWSE_COLUMN=%s is not artist, album, bpm, key or "
              "time -- off until chosen\n", start_word);

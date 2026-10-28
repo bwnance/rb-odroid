@@ -8,7 +8,9 @@
  * builds one at load -- rbp's 33 rows with ours inserted -- and points rbp's
  * seven literal-pool words at it (docs/21 has the measurements). The first row
  * is HDMI AUDIO, after MIXER MODE (operator, 2026-10-26), which writes the same
- * /run/rbp/mirror.mode the shim's own panel does.
+ * /run/rbp/mirror.mode the shim's own panel does. TRAFFIC LIGHT (2026-10-28) ends
+ * the DECK section, after IMAGE ON JOG DISPLAY, and writes
+ * /run/rbp/browse.trafficlight for BROWSE's KEY cell.
  *
  * The table building and the row's handlers are pure enough for a host test
  * (test_utility.c); utility_rows_install() is the part that touches rbp.
@@ -54,6 +56,9 @@ int ut_build(struct ut_table *dst, const struct ut_entry *src, int n, int after,
  * is OFF and 1 ON, the order of the value strings it borrows. */
 int ut_mirror_setline(struct ut_entry *e, unsigned char **lines);
 int ut_mirror_enter(struct ut_entry *e);
+/* The TRAFFIC LIGHT row's label: a row with it keeps BROWSE_TRAFFIC_FILE
+ * (/run/rbp/browse.trafficlight) instead of mirror.mode, with the same two handlers. */
+extern const uint16_t ut_label_traffic[];
 
 /* The DJM and VNC rows (RB_SETTINGS_DJM / RB_SETTINGS_VNC), by the panel's row number
  * (settings_zone.h's ST_ROW_*): the value index the unit is on, and the word choosing

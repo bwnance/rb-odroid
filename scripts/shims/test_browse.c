@@ -105,13 +105,46 @@ static const uint8_t *row_entry(unsigned row)
     return message + 0x70 + at;
 }
 
+static int stub_values(void *d, unsigned id, unsigned key, unsigned field, uint16_t *out)
+{
+    static const char bpm[] = "170.0";
+    (void)d; (void)id; (void)key;
+    unsigned n = 0;
+    if (field == BROWSE_FIELD_BPM)
+        for (; bpm[n]; n++)
+            out[n] = (uint16_t)bpm[n];
+    out[n] = 0;
+    return 1;
+}
+
+/* Row `row`'s value as "chosen|bpm|key" in ASCII (PART as '|', LIT as '*', a dash as
+ * '~'), or "" when it carries none. */
+static const char *row_value(unsigned row)
+{
+    static char out[160];
+    const uint8_t *e = row_entry(row);
+    const uint16_t *s = (const void *)(e + 22);
+    unsigned split, extra, n = 0;
+    out[0] = 0;
+    if (!browserows_split(s, u16(e + 20), &split, &extra))
+        return out;
+    for (unsigned i = 0; i < extra && n < sizeof out - 1; i++) {
+        uint16_t c = s[split + 1 + i];
+        out[n++] = c == 0xfdd2 ? '|' : c == 0xfdd3 ? '*' : c == 0x2014 ? '~' : (char)c;
+    }
+    out[n] = 0;
+    return out;
+}
+
 static void test_rows(void)
 {
     static const unsigned ids[3] = { 1, 2, 3 };
     static const uint16_t caption[] = { 'K', 'E', 'Y', 0 };
     static const struct browse_column column = { BROWSE_FIELD_KEY, caption };
+    static const struct browse_column none = { 0, NULL };
     unsigned split, extra;
     browserows_track_key = stub_track_key;
+    browserows_values = stub_values;
     track_keys[1] = KEY(10, 0);
     track_keys[2] = 0;              /* no key known */
     track_keys[3] = KEY(12, 1);
@@ -120,18 +153,14 @@ static void test_rows(void)
     browserows_process(context, message, &column);
     const uint8_t *e = row_entry(1);
     const uint16_t *s = (const void *)(e + 22);
-    CHECK(browserows_split(s, u16(e + 20), &split, &extra) && split == 3 && extra == 3 &&
-          s[0] == 'O' && s[split + 1] == '1' && s[split + 2] == '0' && s[split + 3] == 'A',
-          "row 1: its title, then 10A");
+    CHECK(browserows_split(s, u16(e + 20), &split, &extra) && split == 3 && s[0] == 'O',
+          "row 1: its own text first");
+    CHECK(!strcmp(row_value(1), "10A|170.0|10A"), "row 1: the chosen KEY, BPM, KEY: %s",
+          row_value(1));
     CHECK(u16(e) == 13, "row category kept");
-    e = row_entry(2);
-    s = (const void *)(e + 22);
-    CHECK(browserows_split(s, u16(e + 20), &split, &extra) && extra == 1 && s[split + 1] == 0x2014,
-          "no key: a dash");
-    e = row_entry(3);
-    s = (const void *)(e + 22);
-    CHECK(browserows_split(s, u16(e + 20), &split, &extra) && s[split + 1] == '1' &&
-          s[split + 2] == '2' && s[split + 3] == 'B', "row 3: 12B");
+    CHECK(!strcmp(row_value(2), "~|170.0|"), "no key: a dash for the chosen KEY, no KEY: %s",
+          row_value(2));
+    CHECK(!strcmp(row_value(3), "12B|170.0|12B"), "row 3: 12B: %s", row_value(3));
     e = row_entry(0);
     CHECK(u16(e + 20) == 5 && u16(e) == 0x10, "the heading row as rbp made it");
     unsigned bytes;
@@ -142,9 +171,21 @@ static void test_rows(void)
     native_kind = 52;               /* rbp's own second column is KEY (a green key row) */
     build(ids);
     browserows_process(context, message, &column);
-    e = row_entry(1);
-    CHECK(!browserows_split((const void *)(e + 22), u16(e + 20), &split, &extra) &&
-          u16(e + 20) == 3, "KEY already shown by rbp: not shown twice");
+    CHECK(!strcmp(row_value(1), "10A|170.0|*10A"),
+          "rbp showing KEY, every row green: BPM and KEY carried, KEY lit: %s", row_value(1));
+    native_kind = 13;
+
+    build(ids);
+    browserows_process(context, message, &none);
+    CHECK(!strcmp(row_value(1), "|170.0|10A") && !strcmp(row_value(3), "|170.0|12B"),
+          "no column chosen: BPM and KEY all the same: %s", row_value(1));
+
+    native_kind = 7;                /* rbp's own column is ARTIST... */
+    build(ids);
+    put16((uint8_t *)row_entry(1), 52);     /* ...and the traffic light lit row 1 */
+    browserows_process(context, message, &none);
+    CHECK(!strcmp(row_value(1), "|170.0|*10A") && !strcmp(row_value(2), "|170.0|"),
+          "a lit row's KEY is marked, the others not: %s / %s", row_value(1), row_value(2));
     native_kind = 13;
 
     build(ids);

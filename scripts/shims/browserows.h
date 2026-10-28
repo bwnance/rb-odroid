@@ -23,6 +23,11 @@ struct browse_column {
 /* Every hook the column needs, once, for good; until a column is set they pass
  * everything through. 0 = in. */
 int browserows_install(void);
+/* UTILITY's TRAFFIC LIGHT: a row whose key matches the MASTER's lights its KEY
+ * cell green (on), or not. */
+void browserows_traffic_light(int on);
+/* A stick went in, out or was re-exported: forget every value read from one. */
+void browserows_forget(void);
 /* The column shown from the next page on; NULL = none. Any thread. */
 void browserows_set(const struct browse_column *column);
 /* Called often from rbp's threads (a page built, a text drawn): the chooser's
@@ -48,6 +53,9 @@ const char *browsemenu_word(unsigned int item);
 /* ---- for the test --------------------------------------------------------- */
 /* rbp's track-key lookup the KEY column calls, reassignable */
 extern unsigned int (*browserows_track_key)(void *db, unsigned int id);
+/* ...and its field lookup (a remote player's rows: BPM and the chosen field) */
+extern int (*browserows_values)(void *db, unsigned int id, unsigned int key, unsigned int field,
+                                uint16_t *out);
 /* The rewrite itself, on rbp's row message, after GetRightBrowseOne2One built it. */
 void browserows_process(uint8_t *context, uint8_t *message, const struct browse_column *column);
 /* "12A"-style text for rbp key 1..24; empty otherwise. */

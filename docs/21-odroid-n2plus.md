@@ -388,6 +388,46 @@ session; details further down):
      what the first try showed), and a local stick's rows never query the database from the row builder:
      a row the snapshot missed shows a dash and is asked again on the next page.
      A remote player's list (PRO DJ LINK) still uses the toolkit's queries.
+   - **BPM and KEY, always, as two columns** (operator, 2026-10-28: rbp's BPM
+     column carries the key too, "170.0 bpm - 7A"). Every track list is now
+     TRACK | the chosen field | rbp's second column | BPM | KEY, KEY at the far
+     right (BPM 1110..1205, KEY 1205..1280, rbp's column 190 px, the chosen 220).
+     rbp's own column goes when it is BPM or KEY; the chosen one when it is off,
+     BPM, KEY, or what rbp already shows. BPM is the number alone ("170.0"), KEY
+     like "10A". Each row carries the three values behind rbp's text, joined by
+     U+FDD2; the server-side snapshot now reads every record's key as well as its
+     BPM, so a local stick still never queries from the row builder. Seen on the
+     unit with a CUSTOM-ordered playlist: # | TRACK | ARTIST | BPM | KEY.
+   - **The traffic light on the KEY cell** (operator, 2026-10-28). rbp marks a row
+     whose key matches the MASTER's by giving it kind 52 and drawing its green key
+     icon (images 2577..2579) where its second column's icon goes. That icon, and
+     the person icon by an ARTIST (2028..2031), are no longer drawn; instead the
+     row's KEY cell is filled green and its key drawn black. The fill is the row's
+     own rectangle (3 px shorter: rbp's reaches into the next row) recoloured
+     0xff20b020 -- rectangle colours are ARGB in word 0x28. A text's word 0x28 is a
+     palette entry in its second byte instead (white 0x00, the playing row's green
+     0x18); swept on the unit, entries 1..11 are rekordbox's track colours, 30
+     is black, which the lit key is drawn in. rbp smooths a glyph's edge toward
+     dark, not toward what is under it, so a dark grey (22) wore a jagged dark
+     outline on the green; giving the text its own background to smooth against
+     painted the box black. The box is inset 1 px top and bottom, so two lit rows
+     keep a 2 px line between them, and on the selected row it has a black
+     underlay so the blue does not show around it. Every list row's text and
+     icons are drawn 2 px lower (capitals 15..33 of 50, from 13..31), the
+     selected row's scrolling title too (lowered around
+     ui_ListBrowse_StartTextScroll, which places the scroller's window). A lit first row also made rbp head its column KEY; the heading is
+     now the field the rows hold. UTILITY's new TRAFFIC LIGHT row (OFF / ON, ON by
+     default; the end of the DECK section, after IMAGE ON JOG DISPLAY -- not under
+     MIXER, the operator's word) writes /run/rbp/browse.trafficlight, which
+     browsecol.c re-reads with browse.column.
+   - **Fixed 2026-10-28: BPM and KEY blanked to dashes now and then while
+     scrolling.** Each new page emptied the server-side snapshot, and scrolling
+     fast a page's rows were built after the next page had begun. The snapshot is
+     now a ring of 64 records by track and stick, emptied only when a stick goes
+     in, out or is re-exported; a row it still misses shows that track's last
+     values. BPM is right-aligned (the text model's alignment byte 0x3c is a 3x3
+     grid, its third the horizontal: 0x1d2724 in NS_PALRender_DrawText), and one
+     middle cell alone is the CDJ-3000's ARTIST width, 330 px.
    - **The # column goes when it is only dashes** (operator, 2026-10-28): sorted
      by anything but CUSTOM, rbp's # column (379..434) shows "---" in every row.
      Then its texts, its heading and its divider (434) are not drawn and TRACK
@@ -576,6 +616,15 @@ session; details further down):
    both files carry another session's uncommitted edits), pitch_state.c (the maps
    still publish the tempo position), and comments in other modules and in
    docs/07-touch.md / docs/08-controls.md that name the drawers as history.
+29. **SOURCE does not refresh when a USB stick goes in -- to look at** (operator,
+   2026-10-28). The SOURCE screen keeps showing the old state until something
+   else redraws it.
+30. **The sort should survive going back to SOURCE -- wished for** (operator,
+   2026-10-28). A sort chosen in a list is lost when BROWSE goes back to SOURCE.
+31. **Sort triangles on the headings -- wished for** (operator, 2026-10-28). As on
+   the CDJ-3000 (the operator's photo): a small triangle by each column heading
+   (#, TRACK, ARTIST, BPM, KEY), tapped to sort the list by that column. The
+   toolkit's tap-a-heading sort (not ported, item 11) is the starting point.
 
 How rbp sorts a browse list (read 2026-10-27, for whoever needs it next; a
 default playlist sort was built on it and dropped -- the operator loads the sort

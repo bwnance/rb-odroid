@@ -129,6 +129,38 @@ int main(void)
         unlink(path);
     }
 
+    /* TRAFFIC LIGHT: the same handlers, its own file */
+    {
+        static unsigned char l0[600], l1[600];
+        unsigned char *lines[2] = { l0, l1 };
+        char path[] = "/tmp/test_utility_XXXXXX", mirror[] = "/tmp/test_utility_XXXXXX";
+        struct ut_entry e;
+        int fd = mkstemp(path);
+
+        close(fd);
+        unlink(path);
+        fd = mkstemp(mirror);
+        close(fd);
+        file_put(mirror, "off\n");
+        setenv("BROWSE_TRAFFIC_FILE", path, 1);
+        setenv("AUDIO_MIRROR_FILE", mirror, 1);
+        memset(&e, 0, sizeof e);
+        e.label = ut_label_traffic;
+        e.values = offon;
+        e.nvalues = 2;
+        e.cur = e.edit = -1;
+        CHECK(ut_mirror_setline(&e, lines) == 0 && line_is(l0, "      TRAFFIC LIGHT") &&
+              line_is(l1, "ON") && e.cur == 1, "TRAFFIC LIGHT: no file reads ON, not mirror.mode's OFF");
+        e.edit = 0;
+        CHECK(ut_mirror_enter(&e) == 1 && file_is(path, "off\n") && file_is(mirror, "off\n"),
+              "TRAFFIC LIGHT OFF writes its own file");
+        e.edit = 1;
+        CHECK(ut_mirror_enter(&e) == 1 && file_is(path, "on\n") && file_is(mirror, "off\n"),
+              "...and ON, leaving mirror.mode alone");
+        unlink(path);
+        unlink(mirror);
+    }
+
     /* the DJM and VNC rows: where the unit is, and what a choice writes */
     {
         struct settings_state S;
