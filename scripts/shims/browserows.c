@@ -77,6 +77,7 @@ static const struct { unsigned address, a, b; } called[] = {
     {0x112e10, 0xe30f38b8, 0xe3403326},
     {0x18e260, 0xe92d4070, 0xe24dd008}, {0x18e2a0, 0xe92d4070, 0xe1a04001},
     {0x18e730, 0xe92d4010, 0xe1a04000}, {0x1cec2c, 0xe3500000, 0x0a00000a},
+    {0x1ca214, 0xe92d4010, 0xe1a04000},
 };
 
 /* ---- rows --------------------------------------------------------------------- */
@@ -741,6 +742,30 @@ static int recall(unsigned id, unsigned field, uint16_t out[SHOWN_LEN])
  * the row's title (draw_text_row), with the headings and dividers rbp does not draw
  * (draw_image_row, draw_rect_hooked). */
 enum { SOLO_ROWS = 14 };
+/* rbp's traffic light, as GetRightPrepareList @0x1b8850 asks it for a KEY row:
+ * GetTrafficLightOnFlg(context, the key's UTF-16 text) is 1 when the key is one of the
+ * four UpdateTrafficLightKeySet keeps beside the MASTER's (context +0x10b08..0x10b14).
+ * Under SORT by TRACK there is no KEY row for it to mark, so the rows ask it here. */
+static int (*traffic_flag)(const void *, const uint16_t *) = (void *)0x001ca214u;
+
+/* `value` without a lit mark, and whether rbp's traffic light lights its KEY part. */
+static int key_lit(const void *context, uint16_t value[128])
+{
+    unsigned n = 0, k = 0, last = 0;
+    for (; n < 127 && value[n]; n++)
+        if (value[n] != LIT)
+            value[k++] = value[n];
+    value[k] = 0;
+    for (n = 0; n < k; n++)
+        if (value[n] == PART)
+            last = n + 1;
+    if (!last || last >= k)
+        return 0;
+    uint16_t key[8] = { 0 };
+    for (unsigned i = 0; i < 7 && value[last + i]; i++)
+        key[i] = value[last + i];
+    return traffic_flag(context, key) == 1;
+}
 static struct { unsigned seq, id; uint16_t value[SHOWN_LEN]; } solo[SOLO_ROWS];
 static unsigned solo_on;
 
@@ -807,6 +832,8 @@ static void solo_process(uint8_t *context, const struct browse_column *column, u
             if (recall(id, field, shown_value))
                 copy_text(value, shown_value, 127);
         }
+        if (key_lit(context, value))
+            lit_key(value);
         remember(id, field, value);
         solo_put(r, id, value);
     }

@@ -392,8 +392,8 @@ session; details further down):
      on the DB task (browserows.c solo_process, the snapshot as ever) and drawn
      after the title, with the chosen / BPM / KEY headings and dividers rbp does
      not draw there. Checked on the unit: TRACK up and down, a scroll, a column
-     change. (The traffic light's green KEY is not shown in that list: rbp marks
-     lit rows in the stream it does not send.)
+     change. The traffic light there asks rbp's own GetTrafficLightOnFlg @0x1ca214
+     per row (what GetRightPrepareList does for a KEY row), with the row's key.
      RB_BROWSE_COLUMNS=0 removes every hook; RB_BROWSE_COLUMN is only the
      start before a stick or the panel says anything.
    - Lesson (2026-10-28, rbp down ~4 min): a shim must not call stat() -- rbp's
