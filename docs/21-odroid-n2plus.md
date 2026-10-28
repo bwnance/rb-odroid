@@ -530,10 +530,12 @@ session; details further down):
    an FLX10 browse load had left it off; whether the FLX10 times its own FX ON
    press to the beat is unmeasured. TRANS's gate itself is the right way
    round (BeatEffectTrans::execute: on for the first part of each cycle).
-17. **MASTER ATT. on the FLX10's own attenuator -- dropped** (2026-10-27).
+17. **MASTER ATT. on the FLX10's own attenuator -- done after all, 2026-10-28,
+   under item 21** (BF 42; item 6 has the settings). Dropped on 2026-10-27; the
+   reason it was dropped is now the thing to check by ear (item 20's note).
    The idea was to drive the unit's master attenuator (if it has one among
    its settings BF 41..4A, item 6) instead of scaling the samples
-   (masteratt.c). Not wanted any more: MASTER ATT. now also scales the cue
+   (masteratt.c). Why it was dropped then: MASTER ATT. now also scales the cue
    bus, because the FLX10 blends our master stream into its headphones
    (item 20), and an attenuator in the unit would likely sit after that blend
    and break the balance. At 24 bits, -12 dB in the samples costs nothing
