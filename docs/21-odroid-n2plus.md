@@ -300,6 +300,9 @@ session; details further down):
    glass: a fault there shows the first time BROWSE is used, not at start.
    Suggested order: Key Match first (no touch needed), then Browse Columns'
    third column without the sort.
+   The operator's wish (2026-10-27): columns chosen as on a CDJ-3000, with the
+   preview waveform switchable off to make room -- ARTIST beside the title in
+   a track list, for one.
 12. **Four-deck mode -- wished for, not started** (operator, 2026-10-26). The
    FLX10 is a four-deck controller (DECK 1/3 and 2/4 select); the RX3 and its
    rbp are two-deck: PlayEngine's player vector holds two (SyncMaster counts 2
@@ -342,6 +345,11 @@ session; details further down):
    FLX10's input selector to that switch. Channels 3/4 need mixer channels 3/4
    first: the four-deck item (12).
 14. Parked: HOT CUE mode switch lag.
+15. **A loaded track survives its USB's eject -- wished for, not started**
+   (operator, 2026-10-27). Today ejecting the stick takes the decks' tracks
+   with it. Probably a copy of each loaded track (audio and analysis) held off
+   the stick -- in RAM or on the eMMC -- and rbp kept reading that copy; how
+   rbp reacts to its media going away is the first thing to read.
 
 How rbp sorts a browse list (read 2026-10-27, for whoever needs it next; a
 default playlist sort was built on it and dropped -- the operator loads the sort
@@ -359,9 +367,10 @@ from the stick's MY SETTINGS instead):
   KEY 12, BITRATE 13, CUE 14, COLOR 15, PLAYCOUNT 16); the SORT menu is the
   stick's own (dbcl_GetRightMenu) -- here BPM, DEFAULT, BPM (UNSORTED),
   ALPHABET, ARTIST, ALBUM, RATING.
-- rbp's popups (LIST MENU, its SORT, MY SETTINGS) take the selector only after
-  it has turned in them: a push straight after MENU fell through to the list
-  under it and opened the TRACK MENU.
+- rbp's popups (LIST MENU, its SORT, MY SETTINGS) ignore a selector press and
+  release sent in the same instant unless the knob has turned in them (a push
+  straight after MENU fell through to the list and opened the TRACK MENU); a
+  press held ~50 ms is taken either way, so the FLX10's push holds it.
 
 Done 2026-10-26 (start-up splash, rbp's TRANS picture):
 - For RB_SPLASH_MS (8000) after rbp's first frame the screen shows a picture on
