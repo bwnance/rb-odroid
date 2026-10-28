@@ -57,6 +57,7 @@
 #include "envutil.h"
 #include "pointsrc.h"          /* pointsrc_log, for the vsync counter below */
 #include "drm_card.h"          /* which DRM card scans out, for the vblank wait */
+#include "drmband.h"           /* drm_live_mode(), for the band hold */
 
 #include <stdarg.h>
 #include <errno.h>
@@ -240,6 +241,50 @@ int usleep(useconds_t usec)
     return (int)syscall(SYS_nanosleep, &ts, NULL);
 }
 
+/* THE BAND HOLD (2026-10-28, the operator: "the swipe down from top ... flickers"). On
+ * this board the menu's band is painted onto rbp's own page (no overlay plane carries
+ * it: meson's one overlay takes YUV and sits under the primary), after each rbp frame,
+ * from the hook below. But rbp starts its next frame the moment the vblank wait returns,
+ * which is just when the top of the screen -- the band -- is being scanned out, and
+ * rbp's title bar is among the first things it draws: the scan caught rbp's pixels
+ * where the band was. So while the band is open on the page, rbp's return from the wait
+ * is held until the scan is past the band's last row: the blank's lines, the band's,
+ * and FB_BAND_HOLD_LINES more. rbp's frame is ~13.5 ms of the 16.7 (fb_frame_stats), so
+ * ~2 ms fits; it costs nothing with the band shut. FB_BAND_HOLD=0 turns it off. */
+#define FB_BAND_HOLD_LINES 8
+#define FB_BAND_HOLD_MAX_NS 4000000L
+
+static void fb_band_hold(int drm_fd, const union fb_drm_wait_vblank *vb)
+{
+    static int timing = -1;                 /* -1 unread, 0 none, 1 read */
+    static unsigned int vtotal, vdisplay, line_ns;
+    int bottom = menu_page_band_bottom();
+    struct timespec until;
+    long ns;
+
+    if (bottom <= 0)
+        return;
+    if (timing < 0) {
+        timing = env_flag("FB_BAND_HOLD", 1) &&
+                 drm_live_mode(drm_fd, &vtotal, &vdisplay, &line_ns) == 0;
+        pointsrc_log(timing ? "fb: band hold on (%u/%u lines, %u ns a line)"
+                            : "fb: band hold off", vtotal, vdisplay, line_ns);
+    }
+    if (!timing)
+        return;
+    ns = (long)(vtotal - vdisplay + (unsigned)bottom + FB_BAND_HOLD_LINES) * (long)line_ns;
+    if (ns <= 0 || ns > FB_BAND_HOLD_MAX_NS)
+        return;
+    /* from the vblank's own timestamp (CLOCK_MONOTONIC), not from now */
+    until.tv_sec = vb->reply.tval_sec;
+    until.tv_nsec = vb->reply.tval_usec * 1000L + ns;
+    while (until.tv_nsec >= 1000000000L) {
+        until.tv_nsec -= 1000000000L;
+        until.tv_sec++;
+    }
+    syscall(SYS_clock_nanosleep, CLOCK_MONOTONIC, TIMER_ABSTIME, &until, NULL);
+}
+
 static int fb_vblank_wait(void)
 {
     static int state = -1;          /* -1 unknown, 0 off/failed, 1 on */
@@ -276,6 +321,7 @@ static int fb_vblank_wait(void)
         fb_vblank_on = 0;                  /* rbp's own limiter paces it again */
         return -1;
     }
+    fb_band_hold(drm_fd, &vb);
     return 0;
 }
 

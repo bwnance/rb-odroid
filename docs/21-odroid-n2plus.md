@@ -356,9 +356,9 @@ session; details further down):
      row drawn without one finds its track through rbp's per-row glyph IDs and the
      list's own rows, and draws the remembered value.
    - **Which column** (operator, 2026-10-28): the stick's own MY SETTINGS >
-     Column by default, changed live from the gear SETTINGS panel's new BROWSE
-     COLUMN row (OFF / ARTIST / ALBUM / BPM / KEY / TIME; the panel is ten rows
-     now, 677 px). Both go through /run/rbp/browse.column, which browsecol.c
+     Column by default, changed live from LIST MENU > COLUMN. (The gear SETTINGS
+     panel's BROWSE COLUMN row, added with it, is gone again -- operator,
+     2026-10-28; the panel is nine rows.) Both go through /run/rbp/browse.column, which browsecol.c
      re-reads a few times a second; a stick put in or re-exported writes its own
      Column there. rekordbox keeps that Column in export.pdb, **table 18** (the
      players' SORT list: rows of 8 bytes -- rekordbox's id, rbp's
@@ -764,6 +764,21 @@ session; details further down):
    of browserows.c's drawing. The switch redraws at once through
    Pub_GuiCom_SndDispInvalidate(0x1000) (BrowseUpdateList). Checked on the unit, both
    ways, and the button is absent on folder lists.
+33. **The swipe-down menu flickered -- fixed, to confirm by eye** (operator,
+   2026-10-28; fb_shim.c, menu_draw.c, drmband.c). On this board the band is painted
+   onto rbp's own page: the plane route cannot be had (meson's one overlay plane takes
+   YUV and sits under the primary; with fb_shim's vblank fd holding DRM master the
+   SET_MASTER failed first, but freeing it only showed there was no plane to have).
+   rbp starts each frame as the vblank wait returns -- while the top rows, the band,
+   are being scanned out -- and its title bar is drawn early, so the scan caught rbp's
+   pixels over the band. While the band is open on the page, rbp's return from the
+   wait is now held until the scan is past it: from the vblank's timestamp, the
+   blank's lines + the band's + 8, at the live mode's line time (1280x800, 828 lines,
+   20.1 us a line: ~1.85 ms of rbp's 16.7). FB_BAND_HOLD=0 turns it off. The centred
+   boxes (SETTINGS, the chooser, the FX picker) are page-painted too and not held.
+34. **RX3 touch preview -- not working, to look at** (operator, 2026-10-28). The
+   RX3's own touch preview (touching a list row's waveform to audition the track) is
+   the ask; the CDJ's PREVIEW audition is not (struck from item 11).
 
 How rbp sorts a browse list (read 2026-10-27, for whoever needs it next; a
 default playlist sort was built on it and dropped -- the operator loads the sort

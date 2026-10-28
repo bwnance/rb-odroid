@@ -253,6 +253,25 @@ static int live_crtc(int fd, unsigned int *id, unsigned int *index)
     return -1;
 }
 
+/* The live CRTC's mode, for the timing of a scanout: 0 when read. */
+int drm_live_mode(int fd, unsigned int *vtotal, unsigned int *vdisplay, unsigned int *line_ns)
+{
+    unsigned int id, index;
+    struct drm_mode_crtc c;
+
+    if (live_crtc(fd, &id, &index) != 0)
+        return -1;
+    memset(&c, 0, sizeof c);
+    c.crtc_id = id;
+    if (real_ioctl(fd, DRM_IOCTL_MODE_GETCRTC, &c) < 0 || !c.mode.clock || !c.mode.htotal ||
+        c.mode.vtotal <= c.mode.vdisplay)
+        return -1;
+    *vtotal = c.mode.vtotal;
+    *vdisplay = c.mode.vdisplay;
+    *line_ns = (unsigned int)((unsigned long long)c.mode.htotal * 1000000ull / c.mode.clock);
+    return 0;
+}
+
 /* The first overlay plane that can carry `fourcc` on crtc[index] and is not
  * already bound to some crtc. Unbound is the strong condition: the primary
  * carrying rbp's picture reports crtc_id = 102 (bound), so this cannot pick it,

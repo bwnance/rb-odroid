@@ -355,4 +355,8 @@ void drm_band_hide(struct drm_band *b);
  * drawer closing leaves the other drawer's plane on the glass. */
 void drm_band_teardown(struct drm_band *b);
 
+/* The live CRTC's vertical total, visible lines and one line's time in ns, read on `fd`:
+ * 0 when read. For timing against the scanout (fb_shim.c's band hold). */
+int  drm_live_mode(int fd, unsigned int *vtotal, unsigned int *vdisplay, unsigned int *line_ns);
+
 #endif /* RBPI4B_DRMBAND_H */

@@ -36,6 +36,10 @@ int menu_draw_start(void);
  * idempotent. */
 void menu_frame_tick(void);
 
+/* The first screen row below the band while it is open on the page route, else 0
+ * (fb_shim.c's band hold). */
+int menu_page_band_bottom(void);
+
 /* The start-up splash (splash.h) over rbp's whole page, for as long as it is up.
  * Called by fb_shim.c's FBIO_WAITFORVSYNC interposer only -- rbp's render thread,
  * once per frame, after menu_frame_tick() so nothing of the shim's shows either. */

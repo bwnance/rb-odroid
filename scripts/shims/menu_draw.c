@@ -1707,6 +1707,16 @@ void menu_splash_tick(void)
                  g.fb_pitch, g.view.dw, g.view.dh, g.view.bpp, menu_now_ms64());
 }
 
+/* The first screen row below the band while it is open and painted ON THE PAGE (no
+ * plane), 0 otherwise: rbp's next frame can draw over those rows while they are being
+ * scanned out, so fb_shim.c holds rbp's frame until the scan is past them. */
+int menu_page_band_bottom(void)
+{
+    if (!g.ok || g.band_ok || !g.painted_open || !menu_is_open())
+        return 0;
+    return g.fb_by + menu_panel_ph();
+}
+
 void menu_frame_tick(void)
 {
     int open, fp;

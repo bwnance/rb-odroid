@@ -13,7 +13,6 @@
  * 2026-10-14 -- and carries none of its label or box state.
  */
 #include "settings_zone.h"
-#include <string.h>       /* strcmp(), the BROWSE COLUMN row's words */
 #include <stdio.h>        /* snprintf(), for the two deck rows' channel pairs -- the first
                            * formatting this module has ever done, and the same call its
                            * sibling side_paint.c already makes in this shim. */
@@ -26,7 +25,7 @@
  * one of these against menu_font.h. */
 static const char *const row_labels[SB_ROWS] = {
     "MIXER ROUTE", "USB1 STOP", "USB2 STOP", "HDMI AUDIO", "SHARE", "ENCODE",
-    "POINTER INJECT", "DECK 1 PAIR", "DECK 2 PAIR", "BROWSE COLUMN"
+    "POINTER INJECT", "DECK 1 PAIR", "DECK 2 PAIR"
 };
 
 /* ---------------------------------------------------------------------------
@@ -80,7 +79,7 @@ static const char *const val_mirror[]  = { "ON", "OFF" };   /* on is the default
  * stick's name out of the state, and the two deck rows, whose value is a channel pair
  * formatted out of the state. Every function below has to allow for that. */
 static const char *const *const row_values[SB_ROWS] = {
-    val_mixer, NULL, NULL, val_mirror, val_share, val_encode, val_pointer, NULL, NULL, NULL
+    val_mixer, NULL, NULL, val_mirror, val_share, val_encode, val_pointer, NULL, NULL
 };
 
 /* THE YARDSTICK each row's value column is measured against, which is NOT always its widest
@@ -93,7 +92,7 @@ static const char *const *const row_values[SB_ROWS] = {
  * not fit is trimmed. */
 static const char *const row_yardstick[SB_ROWS] = {
     "INTERNAL", ST_USB_EMPTY, ST_USB_EMPTY, "OFF", "OFF", "HWJPEG", "OFF",
-    ST_PAIR_WIDEST, ST_PAIR_WIDEST, "ARTIST"
+    ST_PAIR_WIDEST, ST_PAIR_WIDEST
 };
 
 /* The word a tap writes, per row, INDEXED THE SAME WAY the display table is: the value
@@ -117,33 +116,8 @@ static const char *const next_mirror[]  = { "off", "on" };
  * happened when the second USB row was added and this table was not, and test_settings.c's
  * per-row value checks are what caught it. */
 static const char *const *const row_next[SB_ROWS] = {
-    next_mixer, NULL, NULL, next_mirror, next_share, next_encode, next_pointer, NULL, NULL, NULL
+    next_mixer, NULL, NULL, next_mirror, next_share, next_encode, next_pointer, NULL, NULL
 };
-
-/* THE BROWSE COLUMN'S CYCLE, which is six long and so not a table above: what the row reads,
- * and the word browsecol.c takes, in the same order. */
-#define ST_BROWSE_N 6
-static const char *const val_browse[ST_BROWSE_N] = {
-    "OFF", "ARTIST", "ALBUM", "BPM", "KEY", "TIME"
-};
-static const char *const next_browse[ST_BROWSE_N] = {
-    "off", "artist", "album", "bpm", "key", "time"
-};
-
-static int browse_index(const struct settings_state *S)
-{
-    return S && S->browse_column > 0 && S->browse_column < ST_BROWSE_N ? S->browse_column : 0;
-}
-
-int settings_browse_index(const char *word)
-{
-    int i;
-
-    for (i = 0; word && i < ST_BROWSE_N; i++)
-        if (strcmp(word, next_browse[i]) == 0)
-            return i;
-    return 0;
-}
 
 /* ---------------------------------------------------------------------------
  * THE DECK PAIRS, and the two things the tables above cannot express.
@@ -439,8 +413,6 @@ const char *settings_row_text(int row, const struct settings_state *S)
     }
     if (row == ST_ROW_DECK1 || row == ST_ROW_DECK2)
         return deck_pair_text(row == ST_ROW_DECK1 ? 0 : 1, S);
-    if (row == ST_ROW_BROWSE)
-        return val_browse[browse_index(S)];
     {
         int i = row_value_index(row, S);
 
@@ -490,8 +462,6 @@ int settings_row_live(int row, const struct settings_state *S)
     case ST_ROW_POINTER:
     case ST_ROW_MIRROR:
         return 1;
-    case ST_ROW_BROWSE:
-        return 1;
     case ST_ROW_DECK1:
     case ST_ROW_DECK2:
         /* ALWAYS OPERABLE, and the one row here that does not gate on the unit's state. The
@@ -515,8 +485,6 @@ const char *settings_next_value(int row, const struct settings_state *S)
             return 0;
         return deck_pair_next(row == ST_ROW_DECK1 ? 0 : 1, S);
     }
-    if (row == ST_ROW_BROWSE)
-        return next_browse[(browse_index(S) + 1) % ST_BROWSE_N];
     if (row < 1 || row > SB_ROWS || !row_next[row - 1])
         return 0;
     /* A dim row answers nothing. The fire already refuses it (settings_feed()), and this
@@ -531,7 +499,7 @@ const char *settings_next_value(int row, const struct settings_state *S)
 /* ---------------------------------------------------------------- the layout */
 
 /* The rows shown, top to bottom, by number. Every row until something says otherwise. */
-static int shown[SB_ROWS] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+static int shown[SB_ROWS] = { 1, 2, 3, 4, 5, 6, 7, 8, 9 };
 static int n_shown = SB_ROWS;
 
 static int row_is_djm(int row)
