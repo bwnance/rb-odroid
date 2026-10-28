@@ -589,12 +589,21 @@ session; details further down):
 23. **EQ knobs vs rekordbox on the laptop -- closed** (operator, 2026-10-28):
    they felt more aggressive at first; on a second listen they match.
 24. **Switching a channel's input away from the RX3 leaves the deck playing
-   -- to look into** (operator, 2026-10-28). Turning the FLX10's input
-   selector (B to A etc.) off the computer/RX3 position, the inactive deck's
-   audio keeps playing through. Likely what the selector sends is not acted
-   on: check what the FLX10 reports for the selector (MIDI or HID) and whether
-   map_flx10.c / audioshim mute or drop that channel's deck feed when it is
-   not on the RX3 position.
+   -- looked into, needs the selector's message** (operator, 2026-10-28). Why: rbp
+   mixes in software and the FLX10 plays back only four channels (master and
+   headphones, item 6), so the unit cannot mute one deck itself. Its per-channel
+   source selector (USB A / USB B / the external inputs) only tells the computer,
+   as with rekordbox, which then drops that deck from its mix -- and map_flx10.c
+   binds nothing to it (unmapped messages are logged only when verbose). The FLX10
+   had left USB (04:07) when this was looked at, so its message could not be read.
+   Next, with the FLX10 on: `aseqdump -p 20:0` (or RB_MIDI_DUMP) while flipping each
+   channel's selector off USB B and back. Then the fix is one routing word per
+   channel, no hook: rbp_abi.h's ADDR_MIXER_ROUTE_PLAYER0/1 point players 0/1 at mixer
+   inputs 0/1 (MIXER_ROUTE_INPUT0/1, 0x01149f08 + 8 x input); pointed at a silent
+   input (aux, input 4: audioshim answers rbp's capture with silence) the deck drops
+   out of the mix, as the RX3's own DECK/LINE switch does, and back on USB B it is
+   restored. The same move later carries the line input (item 13). Channels 3/4 wait
+   for item 12.
 25. **BEAT JUMP held repeats, to seek -- done** (operator, 2026-10-28; map_flx10.c).
    The press jumps once as before; held, the same jump repeats from 400 ms every
    150 ms until it comes up (~12x through a 128 BPM track with 4 beats, four times
