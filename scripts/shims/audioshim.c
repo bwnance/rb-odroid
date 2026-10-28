@@ -2866,6 +2866,16 @@ int snd_pcm_hw_params_set_periods_near(snd_pcm_t *pcm, snd_pcm_hw_params_t *para
 
     init_real_alsa();
     alog("audioshim: set_periods_near req=%u\n", val ? *val : 0);
+    /* RB_AUDIO_PERIODS (rb.conf): a deeper ring than rbp's two 64-frame periods,
+     * which have run dry on the ODROID -- silently, as clicks */
+    if (is_rbp_master(pcm) && val) {
+        int want = atoi(env_str("AUDIO_PERIODS", "0"));
+        if (want > (int)*val && want <= 64) {
+            alog("audioshim: AUDIO_PERIODS: %d periods for the master, not rbp's %u\n",
+                 want, *val);
+            *val = (unsigned int)want;
+        }
+    }
     if (is_forwardable(pcm) && real_snd_pcm_hw_params_set_periods_near) {
         err = real_snd_pcm_hw_params_set_periods_near(pcm, params, val, dir);
         alog("audioshim: real set_periods_near res=%d periods=%u\n", err, val ? *val : 0);

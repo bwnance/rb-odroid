@@ -390,10 +390,12 @@ session; details further down):
    Beat FX quantize on). Unloaded on 2026-10-27 (deck 1 at +-6). After a LOAD,
    read rbp's state back and compare field by field. rbp keeps its settings in
    the chroot's /root/settings/XdjSettings.dat; deploys leave it alone.
-19. **RB_AUDIO_PERIODS -- experiment, uncommitted.** audioshim.c / rb.conf /
-   start-rb.sh in the working tree; a deeper master ring for the clicks. It
-   did not fix the booth flipping (that was the time CCs) -- whether it helps
-   the clicks is untested. The unit's own rb.conf still has it at 4.
+19. **RB_AUDIO_PERIODS -- committed, off by default, to hear on the decks**
+   (2026-10-27). A deeper master ring for the clicks (docs/09). It did not
+   fix the booth flipping (that was the time CCs); whether it helps the
+   clicks is untested. The unit's own rb.conf has it at 4 (its log: "4
+   periods for the master, not rbp's 2"). To check: play a while and listen
+   for clicks at 4, then at 0; if 4 is clean, make it the ODROID's default.
 
 How rbp sorts a browse list (read 2026-10-27, for whoever needs it next; a
 default playlist sort was built on it and dropped -- the operator loads the sort

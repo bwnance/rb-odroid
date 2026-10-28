@@ -125,6 +125,14 @@ same as the shipped default: it parses to `S24_LE` and hands rbp's words over
 untouched, which is correct in exactly one case — the `plughw` fallback above,
 where the plug chain is doing the packing.
 
+`RB_AUDIO_PERIODS` deepens the master's ring. rbp asks for the RX3's geometry
+(two 64-frame periods, 2.9 ms), and the shim forwards that unless this asks for
+more (up to 64): each extra period is 1.45 ms of latency. On the ODROID with the
+FLX10 that ring has run dry (avail_max 637 of 128, 2026-10-27), and since the
+stream never stops on an underrun, the only sign is a click. The default, 0,
+keeps rbp's own. A reopen replays the deeper ring too, because `g_nego` records
+the count after the override.
+
 ### The format constants are hand-rolled, and one of them was wrong
 
 `audioshim.so` deliberately does not link the target's ALSA headers — it links only
