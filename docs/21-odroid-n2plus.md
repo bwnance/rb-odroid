@@ -614,6 +614,9 @@ session; details further down):
    unit's audio) re-laid the configured map, and a device change and the live
    map looked the memory up by card id instead of USB id. All three now use
    lay_base_pairs(g_dev_key). The cold path is not yet seen on the unit.
+   **Also changed 2026-10-28: the trim is centred on 0 dB now (item 39), with
+   rbp's master pin, HP_LEVEL_RBP and the master boost moved to keep the master
+   and cue levels; the numbers above are the old structure's.**
    **Changed 2026-10-28 -- check this first when the headphone mix is looked
    at again: the master is no longer attenuated in software; the FLX10 does
    it** (item 21). MASTER ATT. now sets the unit's own attenuator (BF 42), the
@@ -818,6 +821,20 @@ session; details further down):
    blitfast.c's fused RGB16-keyed blit, whose one-span skip flag (fused_gfxs) is
    shared by every drawing thread. /run/rbp/blitfast.off at start turns it off; no
    jump seen so far with it off.
+39. **TRIM centred on 0 dB -- built, to hear** (operator, 2026-10-28: "dead centre
+   on the trim knob should be 0 dB ... all the way right +9, all the way left
+   -infinity"). rbp's trim is DigitalTrimCurve @0x423468 (256 gains, Trim::setValue
+   @0x9cb38): silence, -8.71 dB at the centre, 0 dB at the top -- the RX3's headroom,
+   made up after the mixer (the +5 dB master pin and the 3.7 dB boost), so the
+   master matched rekordbox while the channel meters read ~8.7 dB low (noticed with
+   OUTPUT HEADROOM). masteratt.c's trim_centre_zero(), called from the FLX10's
+   startup, rebuilds it: the left half rbp's own shape lifted 8.71 dB, the right
+   half its -8.71..0 dB stretched to 0..+9 dB (read live: -inf, -21.6 at a quarter,
+   0.0 at the centre, +4.3, +9.0). To keep the master and the cue where they were:
+   rbp's master pinned at 820 (0 dB) instead of 1023 (rbp_vu.c's rbp_master_pin),
+   HP_LEVEL_RBP 578 -> 465 (-13.0 -> -18.0 dB), and on this unit's rb.local.conf
+   RB_AUDIO_MASTER_BOOST_DB=0 and RB_AUDIO_MIRROR_BOOST_DB=0.3 (rb.conf's 3.7 / 4
+   stay for the other maps, whose trim is rbp's).
 34. **RX3 touch preview -- not working, to look at** (operator, 2026-10-28). The
    RX3's own touch preview (touching a list row's waveform to audition the track) is
    the ask; the CDJ's PREVIEW audition is not (struck from item 11).

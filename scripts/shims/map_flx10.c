@@ -57,6 +57,10 @@
 #include "shimutil.h"
 #include "shmstate.h"       /* g_cue_mix / g_cue_gain / g_mirror_gain */
 
+/* masteratt.c: rbp's trim curve recentred on 0 dB; rbp_vu.c: the master level it re-sends */
+int trim_centre_zero(void) __attribute__((weak));
+extern int rbp_master_pin __attribute__((weak));
+
 /* masteratt.c: the attenuations rbp last applied, and the switch that leaves them to
  * the unit (flx10_unit_tick). WEAK: the host test has no masteratt.o. */
 extern volatile int masteratt_master __attribute__((weak));
@@ -3274,8 +3278,14 @@ static void flx10_build(void)
  * 255, -12.9 dB, for MASTER ATT. at 0 dB (the cue then takes MASTER ATT. in
  * audioshim, g_hp_att) and rbp's master at its +5 dB pin. Set by ear against
  * the unit's own master in the headphones (operator, 2026-10-27; tuned with
- * MASTER ATT. at -12 dB). rbp's top (0 dB) was far too loud. */
-#define HP_LEVEL_RBP 578
+ * MASTER ATT. at -12 dB). rbp's top (0 dB) was far too loud.
+ * Since the trim is centred on 0 dB (masteratt.c, 2026-10-28) the channel is 8.71 dB
+ * hotter and the 3.7 dB master boost is gone (rb.local.conf), so the cue keeps its
+ * level -- -18.0 dB from the channel, by ear -- at entry 116: 465. */
+#define HP_LEVEL_RBP 465
+/* rbp's master pinned at 0 dB (entry 204 of its table x 1.778): with the trim centred
+ * on 0 dB the +5 dB pin and the boost are no longer needed. */
+#define MASTER_PIN_RBP 820
 static unsigned long long hp_until, hp_next;
 
 static void flx10_hp_tick(unsigned long long t)
@@ -3301,7 +3311,12 @@ static void flx10_startup(void)
       * same unit, MASTER ATT. at -12 dB on both (operator, 2026-10-27). */
      *(volatile uint32_t *)ADDR_MIXER_ROUTE_PLAYER0 = MIXER_ROUTE_INPUT0;
      *(volatile uint32_t *)ADDR_MIXER_ROUTE_PLAYER1 = MIXER_ROUTE_INPUT1;
-     send_rx_key_f(K_MASTERLVL, OP_VALUE, CH_GLOBAL, 1023, 1.0f);
+     if (trim_centre_zero)
+          trim_centre_zero();
+     if (&rbp_master_pin)
+          rbp_master_pin = MASTER_PIN_RBP;
+     send_rx_key_f(K_MASTERLVL, OP_VALUE, CH_GLOBAL, MASTER_PIN_RBP,
+                   (float)MASTER_PIN_RBP / 1023.0f);
      /* The headphones are the unit's own mix (measured 2026-10-27): it blends
       * the cue it is sent on outputs 3/4 with the master on 1/2 by its own
       * HP MIX, gates the master with its own MASTER CUE (its light is its own

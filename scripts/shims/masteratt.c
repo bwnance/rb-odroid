@@ -26,6 +26,8 @@
  */
 #include <fcntl.h>
 #include <math.h>
+#include <string.h>
+#include <sys/mman.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -166,6 +168,60 @@ static void headroom_load(void)
      buf[n] = '\0';
      headroom_db = atoi(buf);
      headroom_gain = headroom_gain_of(headroom_db);
+}
+
+/* ---- TRIM, centred on 0 dB (operator, 2026-10-28) ------------------------------------
+ * rbp's trim is DigitalTrimCurve @0x423468, 256 gains Trim::setValue @0x9cb38 indexes
+ * with the knob x 255: silence, -8.71 dB at the centre (128), 0 dB from 254 -- the RX3's
+ * own headroom, which this port won back after the mixer (the +5 dB master pin and the
+ * +3.7 dB master boost), so the master matched rekordbox while the channel meters read
+ * ~8.7 dB low. A mixer's trim runs from silence through 0 dB at the centre to +9 dB:
+ * the table is rebuilt to that, the left half rbp's own shape lifted by its centre's
+ * 8.71 dB, the right half rbp's -8.71..0 dB stretched to 0..+9 dB. The master pin and
+ * the headphone level come down to match (map_flx10.c), so the master and the cue are
+ * where they were. */
+#define TRIM_CURVE 0x00423468ul
+#define TRIM_TOP_DB 9.0f
+
+/* The new gain for entry i of rbp's curve `c` (256 entries). Pure, for the test. */
+float trim_curve_entry(const float *c, int i)
+{
+     float centre = c[128], centre_db, db;
+
+     if (i <= 128 || c[i] <= 0.0f)
+          return c[i] / centre;
+     centre_db = 20.0f * log10f(centre);
+     db = 20.0f * log10f(c[i]);
+     return powf(10.0f, (db - centre_db) * (TRIM_TOP_DB / -centre_db) / 20.0f);
+}
+
+/* Rebuild rbp's trim curve, once: 1 when done. */
+__attribute__((visibility("default"))) int trim_centre_zero(void)
+{
+     static int done;
+     float *c = (float *)TRIM_CURVE, out[256];
+     long pg = sysconf(_SC_PAGESIZE);
+     uintptr_t lo = (uintptr_t)c & ~((uintptr_t)pg - 1),
+               hi = ((uintptr_t)(c + 256) + (uintptr_t)pg - 1) & ~((uintptr_t)pg - 1);
+
+     if (done)
+          return 1;
+     /* the table as measured: silence, -8.71 dB in the middle, 0 dB at the top */
+     if (c[0] != 0.0f || c[255] != 1.0f || c[128] < 0.36f || c[128] > 0.375f) {
+          klog("knobshim2: TRIM: rbp's curve is not the one measured -- left\n");
+          return 0;
+     }
+     for (int i = 0; i < 256; i++)
+          out[i] = trim_curve_entry(c, i);
+     if (mprotect((void *)lo, hi - lo, PROT_READ | PROT_WRITE) != 0) {
+          klog("knobshim2: TRIM: the curve could not be made writable -- left\n");
+          return 0;
+     }
+     memcpy(c, out, sizeof out);
+     mprotect((void *)lo, hi - lo, PROT_READ);
+     done = 1;
+     klog("knobshim2: TRIM: centre 0 dB, top +%.1f dB (was -8.7 / 0 dB)\n", (double)TRIM_TOP_DB);
+     return 1;
 }
 
 __attribute__((constructor)) static void masteratt_init(void)

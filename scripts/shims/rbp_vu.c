@@ -237,13 +237,18 @@ static int vu_encode(int steps)
  * the FLX4 has plenty of absolute controls and, since 2026-10-01, a meter too.
  *
  * t is the caller's 40 Hz tick; the work happens every other second. */
+/* rbp's master level, pinned: 1023 (+5 dB in rbp) unless a map that recentres the trim
+ * says 0 dB (map_flx10.c). */
+int rbp_master_pin = 1023;
+
 static void mixer_defaults_tick(unsigned long t)
 {
      if (t < 1200 && (t % 80) == 0) {
           int asked = led_query_absolute();
           /* rbp's mixer inits after we load, so the one-shot unity master
            * level in init() is dropped - re-assert it for ~30 s. */
-          send_rx_key_f(K_MASTERLVL, OP_VALUE, CH_GLOBAL, 1023, 1.0f);
+          send_rx_key_f(K_MASTERLVL, OP_VALUE, CH_GLOBAL, rbp_master_pin,
+                        (float)rbp_master_pin / 1023.0f);
           /* ...and seed the two channel faders, when nobody is going to report
            * them. rbp's mixer engine builds with them at ZERO -- the safe
            * default for a panel that reports where its faders are, which is
