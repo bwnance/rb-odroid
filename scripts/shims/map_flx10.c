@@ -4005,22 +4005,34 @@ __attribute__((visibility("default"))) int flx10_unit_put(int is_cc, int num, in
      return 1;
 }
 
-/* The four the shim's rows set (utility_rows.c): master / booth mono-stereo, the
- * peak limiter, the mic to the master. Kept on this machine beside rbp's own
- * settings (operator, 2026-10-28: "stored on the linux pc and set and sent at
- * startup"), one "NN VV" hex line each; until a row is changed, rekordbox's
- * defaults (stereo, stereo, on, on). flx10_unit_tick sends them as it does rbp's. */
+/* The five the shim's rows set (utility_rows.c): master / booth mono-stereo, the
+ * peak limiter, the mic to the master (notes, 7F / 00) and the unit's demo /
+ * screen saver (CC 0x44: 00 disable, 10 / 20 / 30 demo after 1 / 5 / 10 min, 40
+ * screen saver -- the operator's reading of rekordbox's list). Kept on this
+ * machine beside rbp's own settings (operator, 2026-10-28: "stored on the linux pc
+ * and set and sent at startup"), one "NN VV" hex line each; until a row is changed,
+ * rekordbox's defaults (stereo, stereo, on, on) and the demo disabled.
+ * flx10_unit_tick sends them as it does rbp's. */
 #define STORED_FILE "/root/settings/flx10.dat"
-static const int stored_note[4] = { 0x47, 0x48, 0x49, 0x4A };
-static int stored_val[4] = { 0x7F, 0x7F, 0x7F, 0x7F };
+#define STORED_N 5
+static const int stored_note[STORED_N] = { 0x47, 0x48, 0x49, 0x4A, 0x44 };
+static const int stored_cc[STORED_N] = { 0, 0, 0, 0, 1 };
+static int stored_val[STORED_N] = { 0x7F, 0x7F, 0x7F, 0x7F, 0x00 };
 static int stored_loaded;
 
 static int stored_index(int num)
 {
-     for (int i = 0; i < 4; i++)
+     for (int i = 0; i < STORED_N; i++)
           if (stored_note[i] == num)
                return i;
      return -1;
+}
+
+static int stored_valid(int i, long val)
+{
+     if (stored_cc[i])
+          return val >= 0 && val <= 0x40 && val % 0x10 == 0;
+     return val == 0 || val == 0x7F;
 }
 
 static void stored_load(void)
@@ -4046,7 +4058,7 @@ static void stored_load(void)
           if (p == end)
                break;
           int i = stored_index((int)num);
-          if (i >= 0 && (val == 0 || val == 0x7F))
+          if (i >= 0 && stored_valid(i, val))
                stored_val[i] = (int)val;
           while (*p == '\n' || *p == ' ')
                p++;
@@ -4058,7 +4070,7 @@ static int stored_save(void)
      char buf[64];
      int n = 0, fd, ok;
 
-     for (int i = 0; i < 4; i++)
+     for (int i = 0; i < STORED_N; i++)
           n += snprintf(buf + n, sizeof buf - (size_t)n, "%02X %02X\n", stored_note[i],
                         stored_val[i]);
      fd = open(STORED_FILE, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
@@ -4069,7 +4081,7 @@ static int stored_save(void)
      return ok;
 }
 
-/* One of the four as kept here (7F / 00), -1 for another number (fbshim's rows). */
+/* One of the five as kept here, -1 for another number (fbshim's rows). */
 __attribute__((visibility("default"))) int flx10_setting_get(int num)
 {
      int i = stored_index(num);
@@ -4084,15 +4096,15 @@ __attribute__((visibility("default"))) int flx10_setting_get(int num)
 __attribute__((visibility("default"))) int flx10_setting_set(int num, int val)
 {
      int i = stored_index(num);
-     if (i < 0 || (val != 0 && val != 0x7F))
+     if (i < 0 || !stored_valid(i, val))
           return 0;
      if (!stored_loaded)
           stored_load();
      stored_val[i] = val;
      if (!stored_save())
           klog("knobshim2: FLX10: %s could not be written\n", STORED_FILE);
-     if (flx10_unit_get(0, num) != val)
-          flx10_unit_put(0, num, val);
+     if (flx10_unit_get(stored_cc[i], num) != val)
+          flx10_unit_put(stored_cc[i], num, val);
      return 1;
 }
 
@@ -4114,10 +4126,10 @@ static void flx10_unit_tick(unsigned long long t)
           if (want >= 0 && flx10_unit_get(rows[i].is_cc, rows[i].num) != want)
                flx10_unit_put(rows[i].is_cc, rows[i].num, want);
      }
-     for (int i = 0; i < 4; i++) {
+     for (int i = 0; i < STORED_N; i++) {
           int want = flx10_setting_get(stored_note[i]);
-          if (flx10_unit_get(0, stored_note[i]) != want)
-               flx10_unit_put(0, stored_note[i], want);
+          if (flx10_unit_get(stored_cc[i], stored_note[i]) != want)
+               flx10_unit_put(stored_cc[i], stored_note[i], want);
      }
 }
 

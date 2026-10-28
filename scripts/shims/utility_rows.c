@@ -36,6 +36,7 @@ static const uint32_t ut_lit_rows = 0x0013d9e4;
 #define UT_ROW_MIXERMODE    23            /* ours go after it, at the MIXER section's end */
 #define UT_ROW_JOGIMAGE     13            /* IMAGE ON JOG DISPLAY: the DECK section's last */
 #define UT_ROW_BOOTHATT     19            /* BOOTH MONITOR ATTENUATOR */
+#define UT_ROW_SCREENSAVER  29            /* SCREEN SAVER, in GENERAL */
 #define UT_ROW_VERSION      32            /* VERSION No.: "Ver Can't get version." here */
 #define UT_STRSET_OFF_ON    0x00513db8u   /* SLIP FLASHING's values: OFF, ON */
 #define UTIL_SETLINE_MIXERMODE 0x0013b118u /* checked, not called */
@@ -62,6 +63,7 @@ const uint16_t ut_label_traffic[] = {
 static struct ut_table ut_table __attribute__((aligned(8)));
 static struct ut_table ut_deck;      /* rbp's rows with TRAFFIC LIGHT, before the rest */
 static struct ut_table ut_mixer;     /* ...and the DDJ-FLX10's rows */
+static struct ut_table ut_rest;      /* ...and HDMI AUDIO and the sections */
 
 int ut_build(struct ut_table *dst, const struct ut_entry *src, int n, int after,
              const struct ut_entry *ours, int n_ours)
@@ -353,27 +355,43 @@ static const uint16_t l_booth_st[]  = { SP6, 'B','O','O','T','H',' ','M','O','N'
 static const uint16_t l_peak[]      = { SP6, 'P','E','A','K',' ','L','I','M','I','T','E','R', 0 };
 static const uint16_t l_mic_master[] = { SP6, 'M','I','C',' ','O','U','T',' ','T','O',' ',
                                          'M','A','S','T','E','R', 0 };
-static const struct { const uint16_t *label; int note; const uint16_t *const *values; } unit_defs[] = {
-    { l_master_st,  0x47, v_monostereo },
-    { l_booth_st,   0x48, v_monostereo },
-    { l_peak,       0x49, v_offon },
-    { l_mic_master, 0x4A, v_offon },
+/* the unit's demo / screen saver, CC 0x44 = index x 0x10 (operator, 2026-10-28) */
+static const uint16_t *const v_demo[] = {
+    W('D','I','S','A','B','L','E'), W('D','E','M','O',' ','1','m','i','n'),
+    W('D','E','M','O',' ','5','m','i','n'), W('D','E','M','O',' ','1','0','m','i','n'),
+    W('S','C','R','E','E','N',' ','S','A','V','E','R') };
+static const uint16_t l_demo[] = { SP6, 'F','L','X','1','0',' ','D','E','M','O','/',
+                                   'S','C','R','E','E','N',' ','S','A','V','E','R', 0 };
+/* step 0: a note, index 1 = 7F; otherwise the value is index x step */
+static const struct {
+    const uint16_t *label; int num; const uint16_t *const *values; int nvalues, step;
+} unit_defs[] = {
+    { l_master_st,  0x47, v_monostereo, 2, 0 },
+    { l_booth_st,   0x48, v_monostereo, 2, 0 },
+    { l_peak,       0x49, v_offon,      2, 0 },
+    { l_mic_master, 0x4A, v_offon,      2, 0 },
+    { l_demo,       0x44, v_demo,       5, 0x10 },   /* in GENERAL, not MIXER */
 };
 #define UNIT_ROWS (int)(sizeof unit_defs / sizeof unit_defs[0])
+#define UNIT_MIXER_ROWS 4
 
-static int unit_note_of(const struct ut_entry *e)
+static int unit_def_of(const struct ut_entry *e)
 {
     for (int i = 0; i < UNIT_ROWS; i++)
         if (unit_defs[i].label == e->label)
-            return unit_defs[i].note;
+            return i;
     return -1;
 }
 
 /* The row's index for the kept value, -1 without knobshim's map. */
 static int unit_index(const struct ut_entry *e)
 {
-    int note = unit_note_of(e), v = note >= 0 && flx10_setting_get ? flx10_setting_get(note) : -1;
-    return v < 0 ? -1 : v ? 1 : 0;
+    int d = unit_def_of(e), v = d >= 0 && flx10_setting_get ? flx10_setting_get(unit_defs[d].num) : -1;
+    if (v < 0)
+        return -1;
+    if (!unit_defs[d].step)
+        return v ? 1 : 0;
+    return v / unit_defs[d].step < unit_defs[d].nvalues ? v / unit_defs[d].step : -1;
 }
 
 static int ut_unit_setline(struct ut_entry *e, unsigned char **lines)
@@ -383,18 +401,19 @@ static int ut_unit_setline(struct ut_entry *e, unsigned char **lines)
     line_put(lines[0], e->label);
     if (idx == -1)
         e->cur = idx = unit_index(e);
-    line_put(lines[1], idx >= 0 && idx < 2 ? e->values[idx] : 0);
+    line_put(lines[1], idx >= 0 && (uint32_t)idx < (e->nvalues & 0xffff) ? e->values[idx] : 0);
     return 0;
 }
 
 static int ut_unit_enter(struct ut_entry *e)
 {
-    int v = e->edit, note = unit_note_of(e);
+    int v = e->edit, d = unit_def_of(e), val;
 
-    if (note < 0 || v < 0 || v > 1 || v == e->cur)
+    if (d < 0 || v < 0 || v >= unit_defs[d].nvalues || v == e->cur)
         return 0;
-    if (!flx10_setting_set || !flx10_setting_set(note, v ? 0x7F : 0x00)) {
-        pointsrc_log("utility: DDJ-FLX10 setting 0x%02X -> %d not kept", note, v);
+    val = unit_defs[d].step ? v * unit_defs[d].step : v ? 0x7F : 0x00;
+    if (!flx10_setting_set || !flx10_setting_set(unit_defs[d].num, val)) {
+        pointsrc_log("utility: DDJ-FLX10 setting 0x%02X -> %d not kept", unit_defs[d].num, v);
         return 0;
     }
     e->cur = v;
@@ -541,6 +560,7 @@ int utility_rows_install(void)
         unit_rows[i] = ours[0];
         unit_rows[i].label = unit_defs[i].label;
         unit_rows[i].values = unit_defs[i].values;
+        unit_rows[i].nvalues = (uint32_t)unit_defs[i].nvalues;
         unit_rows[i].fn[UT_FN_SETLINE] = (uint32_t)(uintptr_t)ut_unit_setline;
         unit_rows[i].fn[UT_FN_ENTER] = (uint32_t)(uintptr_t)ut_unit_enter;
         unit_rows[i].fn[UT_FN_ISGREY] = (uint32_t)(uintptr_t)ut_unit_isgrey;
@@ -554,10 +574,15 @@ int utility_rows_install(void)
     n = ut_build(&ut_deck, src, UT_RBP_N, UT_ROW_JOGIMAGE, &traffic, 1);
     if (n < 0)
         goto refuse;
-    n = ut_build(&ut_mixer, ut_deck.rows, n, UT_ROW_BOOTHATT + 1, unit_rows, UNIT_ROWS);
+    n = ut_build(&ut_mixer, ut_deck.rows, n, UT_ROW_BOOTHATT + 1, unit_rows, UNIT_MIXER_ROWS);
     if (n < 0)
         goto refuse;
-    n = ut_build(&ut_table, ut_mixer.rows, n, UT_ROW_MIXERMODE + 1 + UNIT_ROWS, ours, k);
+    n = ut_build(&ut_rest, ut_mixer.rows, n, UT_ROW_MIXERMODE + 1 + UNIT_MIXER_ROWS, ours, k);
+    if (n < 0)
+        goto refuse;
+    /* the demo / screen saver after rbp's SCREEN SAVER, in GENERAL */
+    n = ut_build(&ut_table, ut_rest.rows, n, UT_ROW_SCREENSAVER + 1 + UNIT_MIXER_ROWS + k,
+                 unit_rows + UNIT_MIXER_ROWS, UNIT_ROWS - UNIT_MIXER_ROWS);
     if (n < 0)
         goto refuse;
     version_init();
@@ -570,7 +595,8 @@ int utility_rows_install(void)
     if (patch_word(ut_lit_rows, (uint32_t)(uintptr_t)ut_table.rows) != 0)
         goto failed;
     pointsrc_log("utility: %d rows (TRAFFIC LIGHT after IMAGE ON JOG DISPLAY, the DDJ-FLX10's "
-                 "four after BOOTH MONITOR ATTENUATOR, HDMI AUDIO after MIXER MODE%s%s), table at %p", n,
+                 "four after BOOTH MONITOR ATTENUATOR, HDMI AUDIO after MIXER MODE, its demo "
+                 "after SCREEN SAVER%s%s), table at %p", n,
                  atoi(env_str("SETTINGS_DJM", "0")) ? ", the DJM section" : "",
                  atoi(env_str("SETTINGS_VNC", "0")) ? ", the VNC section" : "",
                  (void *)&ut_table);

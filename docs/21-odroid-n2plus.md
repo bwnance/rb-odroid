@@ -242,7 +242,10 @@ session; details further down):
    rekordbox's defaults until changed) and sent at every start like rbp's own --
    the connect sequence never sends any of these from the capture: MASTER / BOOTH MONO/STEREO (9F 47 / 48, 7F stereo), PEAK
    LIMITER (9F 49) and MIC OUT TO MASTER (9F 4A). BF 44 is the unit's demo /
-   screen saver (00..40), not used. The MASTER / BOOTH / headphone knobs are
+   screen saver (00 disable, 10 / 20 / 30 demo after 1 / 5 / 10 min, 40 screen
+   saver): GENERAL's FLX10 DEMO/SCREEN SAVER row, kept and sent the same way
+   (disabled by default). rbp's own SCREEN SAVER dims the RX3's LCD backlight
+   (LcdBacklightPwm::setScreenSaverOn); nothing here drives a backlight. The MASTER / BOOTH / headphone knobs are
    applied by the unit and are not in its answer to the controls query, so the
    HDMI mirror still starts at 0 until the MASTER knob moves.
 7. **Key sync -- built, to try on the unit** (2026-10-26). KEY SYNC (short

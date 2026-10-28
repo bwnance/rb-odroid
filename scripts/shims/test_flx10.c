@@ -635,6 +635,10 @@ int main(void)
           CHECK(flx10_setting_set(0x47, 0x00) == 1 && flx10_setting_get(0x47) == 0x00 &&
                 flx10_setting_set(0x47, 0x10) == 0, "master mono kept; a value not 00 / 7F refused");
           flx10_setting_set(0x47, 0x7F);
+          CHECK(flx10_setting_get(0x44) == 0x00 && flx10_setting_set(0x44, 0x40) == 1 &&
+                flx10_setting_get(0x44) == 0x40 && flx10_setting_set(0x44, 0x7F) == 0 &&
+                flx10_setting_set(0x44, 0x15) == 0, "demo / screen saver: disabled by default, 00..40 by 10s");
+          flx10_setting_set(0x44, 0x00);
      }
      /* the panel's own long press: 113 / 112, on once it is held, off at the release */
      pj_n = 0; ON(1, 113);
