@@ -2057,6 +2057,29 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
         }
     }
 
+    /* THE BEAT FX PANEL, NOT TOUCHED AT ALL with POINT_FX_TOUCH off (operator,
+     * 2026-10-28, docs/21 item 27: "it is buggy and i don't like it"). The switch already
+     * turned the shim's own taps there off; rbp's own touch controls in the panel and its
+     * STATUS / BEAT FX toggle under ZOOM / GRID are kept from rbp too now. Measured on
+     * the performance screen: the panel x 1090..1269, y 57..362; the toggle y 432..481.
+     * A press kept from rbp keeps its release, wherever the finger went. */
+    {
+        static int fx_blocked;
+        int in_panel = x >= 1086 && x < 1274 &&
+                       ((y >= 53 && y < 366) || (y >= 428 && y < 485));
+        if (fx_blocked) {
+            if (!down)
+                fx_blocked = 0;
+            return;
+        }
+        if (down && !fx_touch && in_panel && rbp_perf_screen() && !menu_is_open() &&
+            !settings_is_open()) {
+            fx_blocked = 1;
+            pointsrc_log("pointsrc: touch on the BEAT FX panel at %d,%d kept from rbp", x, y);
+            return;
+        }
+    }
+
     /* THE BROWSE HEADINGS: a tap on a track list's heading sorts it by that column, as
      * on a CDJ-3000 (knobshim's browsesort.c, which also says which heading). Weak: an
      * fbshim without knobshim beside it has no headings to sort. */
@@ -3072,19 +3095,48 @@ static void *inject_thread(void *arg)
 {
     (void)arg;
     for (;;) {
-        /* no stat(): rbp's glibc 2.13 has none. Opening a FIFO waits for a writer;
-         * no file fails at once. */
-        FILE *f = fopen(INJECT_FIFO, "r");
-        if (!f) {
+        /* Non-blocking, so a FIFO taken away while nobody writes to it cannot leave this
+         * thread waiting on it for ever; the path is looked at again each second. No
+         * stat(): rbp's glibc 2.13 has none. */
+        int fd = open(INJECT_FIFO, O_RDONLY | O_NONBLOCK);
+        if (fd < 0) {
             sleep(2);
             continue;
         }
-        char line[64];
-        int d, x, y;
-        while (fgets(line, sizeof line, f))
-            if (sscanf(line, "%d %d %d", &d, &x, &y) == 3)
-                pointer_report(d != 0, x, y, menu_enabled, 0);
-        fclose(f);
+        char buf[256];
+        size_t have = 0;
+        unsigned long long checked = shim_now_ms();
+        for (;;) {
+            struct pollfd p = { fd, POLLIN, 0 };
+            int ready = real_poll(&p, 1, 200);
+            if (ready > 0) {
+                ssize_t n = read(fd, buf + have, sizeof buf - 1 - have);
+                if (n > 0) {
+                    have += (size_t)n;
+                    buf[have] = 0;
+                    char *line = buf, *end;
+                    while ((end = strchr(line, '\n'))) {
+                        int d, x, y;
+                        *end = 0;
+                        if (sscanf(line, "%d %d %d", &d, &x, &y) == 3)
+                            pointer_report(d != 0, x, y, menu_enabled, 0);
+                        line = end + 1;
+                    }
+                    have = strlen(line);
+                    memmove(buf, line, have + 1);
+                    if (have >= sizeof buf - 1)
+                        have = 0;
+                } else {
+                    usleep(20000);      /* no writer: nothing to read until one comes */
+                }
+            }
+            if (shim_now_ms() - checked >= 1000) {
+                checked = shim_now_ms();
+                if (access(INJECT_FIFO, F_OK))
+                    break;              /* taken away */
+            }
+        }
+        close(fd);
     }
     return NULL;
 }

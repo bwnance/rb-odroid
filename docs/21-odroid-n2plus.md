@@ -618,14 +618,13 @@ session; details further down):
    drop one or two. Taps are unchanged (a row selects, the headings sort).
    For checks like this pointsrc reads touches from a FIFO while one exists at
    /run/rbp/touch.inject ("down x y" a line, logical 1280x800; none exists normally).
-27. **No touch on the BEAT FX area -- wished for, not started** (operator,
-   2026-10-28: "it is buggy and i don't like it"). Two layers there: the shim's
-   own zone (fx_zone.c: tap CH SELECT to cycle 1/2/MASTER, tap the effect name
-   for a fourteen-row picker), which RB_POINT_FX_TOUCH=0 already turns off; and
-   rbp's own touch controls in that panel (the STATUS / BEAT FX toggle and the
-   rest), which nothing blocks yet -- that needs pointsrc to swallow touches in
-   the panel's rectangle on the PERFORMANCE screen. Which of the two is the buggy
-   one is to ask; likely both off.
+27. **No touch on the BEAT FX area -- done** (operator, 2026-10-28: "it is buggy and
+   i don't like it"; pointsrc.c). With RB_POINT_FX_TOUCH=0 (this unit's rb.local.conf)
+   the switch now also keeps rbp's own touch controls there from rbp: on the
+   performance screen a press in the panel (x 1090..1269, y 57..362) or on its STATUS /
+   BEAT FX toggle (y 432..481) goes nowhere, its release with it; ZOOM / GRID between
+   them are left. Checked on the unit with injected taps: the toggle and the panel did
+   nothing (logged "kept from rbp"), INFO elsewhere still toggled.
 28. **The deck drawers -- removed** (operator, 2026-10-28: "kill that ... it's
    useless"). The swipe-in drawers at the screen's left and right edges (a
    volume/pitch fader, nudges, SYNC / MASTER / CUE / PLAY) are gone: side_zone.c,
