@@ -820,8 +820,11 @@ session; details further down):
    still through a jump) and not the playhead (the audio did not skip). Suspect:
    blitfast.c's fused RGB16-keyed blit, whose one-span skip flag (fused_gfxs) is
    shared by every drawing thread. /run/rbp/blitfast.off at start turns it off; no
-   jump seen so far with it off.
-39. **TRIM centred on 0 dB -- built, to hear** (operator, 2026-10-28: "dead centre
+   jump seen so far with it off. -- It jumped with it off too (17:07): not
+   blitfast, which is back on. Next: the engine's position checked against the
+   clock 100 times a second (a PROBE in flx10_pos_now) to tell an engine glitch
+   from a drawing one.
+39. **TRIM centred on 0 dB -- done, confirmed by ear** (operator, 2026-10-28: "dead centre
    on the trim knob should be 0 dB ... all the way right +9, all the way left
    -infinity"). rbp's trim is DigitalTrimCurve @0x423468 (256 gains, Trim::setValue
    @0x9cb38): silence, -8.71 dB at the centre, 0 dB at the top -- the RX3's headroom,
