@@ -498,8 +498,8 @@ static unsigned busy;
 void browserows_process(uint8_t *context, uint8_t *message, const struct browse_column *column)
 {
     __atomic_store_n(&list_context, context, __ATOMIC_SEQ_CST);
-    __atomic_store_n(&track_list, 0u, __ATOMIC_SEQ_CST);
-    __atomic_store_n(&layout_on, 0u, __ATOMIC_SEQ_CST);
+    /* layout_on changes only when this page decides it: switched off and on around
+     * every page, a frame drawn between showed the column blinking (2026-10-28) */
     unsigned index = word(context + 4), bytes = word(message + 0x1c), count = half(message + 0x80);
     if (index > 4 || bytes < 20 || bytes > MAX_MESSAGE - 0x70 || count < 2 || count > 15) {
         invalidate_metadata();
@@ -519,6 +519,8 @@ void browserows_process(uint8_t *context, uint8_t *message, const struct browse_
     /* a folder/category list stays rbp's own two-pane navigator */
     for (unsigned i = 0; i < count - 1; i++)
         if (!track(half(context + rows + i * 532 + 4))) {
+            __atomic_store_n(&track_list, 0u, __ATOMIC_SEQ_CST);
+            __atomic_store_n(&layout_on, 0u, __ATOMIC_SEQ_CST);
             invalidate_metadata();
             return;
         }
@@ -548,8 +550,10 @@ void browserows_process(uint8_t *context, uint8_t *message, const struct browse_
         klog("knobshim2: browse column: rbp's second column is field %u, ours %u%s\n", native,
              column->field, native == column->field ? " -- the same, not shown" : "");
     }
-    if (native == column->field)
+    if (native == column->field) {
+        __atomic_store_n(&layout_on, 0u, __ATOMIC_SEQ_CST);
         return;
+    }
     unsigned depth = word((uint8_t *)db + 4);
     if (!__sync_bool_compare_and_swap(&busy, 0u, 1u)) {
         invalidate_metadata();
@@ -897,6 +901,21 @@ static void draw_text_hooked(void *render, void *text)
         return;
     if (moving(text))
         scroll_observe(text);
+    if (moving(text) && half((uint8_t *)text + 0x18) >= NATIVE_EDGE &&
+        half((uint8_t *)text + 0x18) < NATIVE_EDGE + 60) {
+        /* a second-column text without our value (a row rbp redrew from its own
+         * strings): still moved, so the column keeps its place */
+        uint32_t clone[21];
+        uint8_t *c = (void *)clone;
+        unsigned right = half((uint8_t *)text + 0x1c);
+        memcpy(clone, text, sizeof(clone));
+        if (right == 1020)
+            right = 1258;
+        put_half(c + 0x18, half(c + 0x18) + SHIFT);
+        put_half(c + 0x1c, right + SHIFT > 1272 ? 1272 : right + SHIFT);
+        original_draw_text(render, c);
+        return;
+    }
     if (moving(text) && half((uint8_t *)text + 0x18) == TITLE_LEFT &&
         half((uint8_t *)text + 0x1c) == TITLE_NATIVE_RIGHT) {
         uint32_t clone[21];

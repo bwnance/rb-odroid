@@ -329,8 +329,15 @@ session; details further down):
      title scrolls inside its narrower cell, the moved column does not scroll.
      rbp_hook.c now moves a pc-relative literal load into the trampoline (one of
      the scroll hooks starts with one).
-   - **Next** (operator, 2026-10-28): choosing the column on the unit (a gear
-     SETTINGS row is the likely way; the CDJ's own heading drop-down can wait);
+   - Fixed 2026-10-28: the column blinked in and out while scrolling -- the
+     layout was switched off at the start of every page and on at its end, so a
+     frame drawn between showed rbp's own. It now changes only when a page
+     decides it, and a second-column text drawn without our value is still moved.
+   - **Next** (operator, 2026-10-28): choosing the column on the unit in two
+     places -- a gear SETTINGS row and rbp's own browse MENU, beside SORT (not a
+     button combo) -- with the default taken from the stick's MY SETTINGS
+     (pyrekordbox and rekordcrate document no such field in MYSETTING*.DAT;
+     the toolkit found none either; to look for on the stick itself);
      BPM and KEY as separate columns rather than rbp's merged "170.0 bpm - 4B";
      the preview waveform switchable off for room; the CDJ's PREVIEW (audition
      from the list) and text size. The toolkit's tap-a-heading sort is not
@@ -481,6 +488,10 @@ session; details further down):
    rate, until it is let go, as a way to seek through a track. Today one
    press is one jump. map_flx10.c would repeat the jump while the button is
    held (a timer from its press to its release), like a key repeat.
+26. **Touch scrolling is jerky -- to fix after the BROWSE column** (operator,
+   2026-10-28, with the touchscreen newly connected: a "CXDIS" panel, 1920x1080
+   raw, picked up by pointsrc without a restart). Dragging a list moves it in
+   steps rather than smoothly.
 
 How rbp sorts a browse list (read 2026-10-27, for whoever needs it next; a
 default playlist sort was built on it and dropped -- the operator loads the sort
