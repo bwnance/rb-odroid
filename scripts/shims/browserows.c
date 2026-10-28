@@ -1185,11 +1185,22 @@ static void light_key_cell(void *render, const void *text)
      * line between them, centred on the row's edge (operator, 2026-10-28). */
     /* Under the green, the row's ordinary shade across the whole cell: the 1 px
      * gaps show that, not the selection's blue (operator, 2026-10-28). The rows
-     * alternate, so the shade is the one two rows away -- never the selected row,
-     * whose own rectangle is drawn blue. */
-    unsigned twin = row >= 2 ? row - 2 : row + 2;
-    if (twin < LIST_ROWS && row_rect_ok[twin])
-        put_word(c + 0x28, word((const uint8_t *)row_rect[twin] + 0x28));
+     * alternate, so it is the colour most of the rows of the same parity have: the
+     * selected row's own rectangle is drawn blue, and one row cannot outvote the
+     * others (the row two away was tried, and is the selected one now and then). */
+    unsigned best = word(c + 0x28), best_n = 0;
+    for (unsigned i = row & 1u; i < LIST_ROWS; i += 2) {
+        if (!row_rect_ok[i])
+            continue;
+        unsigned v = word((const uint8_t *)row_rect[i] + 0x28), n = 0;
+        for (unsigned j = row & 1u; j < LIST_ROWS; j += 2)
+            n += row_rect_ok[j] && word((const uint8_t *)row_rect[j] + 0x28) == v;
+        if (n > best_n) {
+            best_n = n;
+            best = v;
+        }
+    }
+    put_word(c + 0x28, best);
     put_half(c + 0x1e, half(c + 0x1e) - 3);
     original_draw_rect(render, c);
     put_half(c + 0x1e, half(c + 0x1e) + 3);
