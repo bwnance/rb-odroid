@@ -242,8 +242,7 @@ session; details further down):
    LIMITER (9F 49) and MIC OUT TO MASTER (9F 4A). BF 44 is the unit's demo /
    screen saver (00..40), not used. The MASTER / BOOTH / headphone knobs are
    applied by the unit and are not in its answer to the controls query, so the
-   HDMI mirror starts at the MASTER knob's last seen position
-   (/root/pdj/flx10.mastervol).
+   HDMI mirror still starts at 0 until the MASTER knob moves.
 7. **Key sync -- built, to try on the unit** (2026-10-26). KEY SYNC (short
    press; held is still MASTER TEMPO) latches like a CDJ: the deck that is not
    the tempo MASTER is shifted by the fewest semitones (-5..+6) onto the
@@ -582,9 +581,21 @@ session; details further down):
    unit's audio) re-laid the configured map, and a device change and the live
    map looked the memory up by card id instead of USB id. All three now use
    lay_base_pairs(g_dev_key). The cold path is not yet seen on the unit.
+   **Changed 2026-10-28 -- check this first when the headphone mix is looked
+   at again: the master is no longer attenuated in software; the FLX10 does
+   it** (item 21). MASTER ATT. now sets the unit's own attenuator (BF 42), the
+   master samples are not scaled, and the cue bus no longer takes MASTER ATT.
+   (g_hp_att 0). The -12.9 dB cue level above was balanced with MASTER ATT.
+   scaling both master and cue in the samples; where the unit's attenuator sits
+   relative to its headphone blend is NOT measured, so with MASTER ATT. below
+   0 dB the cue/master balance in the headphones may have moved.
 
-21. **Hardware attenuators instead of software gain -- low priority, not
-   started** (operator, 2026-10-27). Today every level stage after rbp is in
+21. **Hardware attenuators instead of software gain -- done for MASTER ATT.
+   and BOOTH MONITOR ATT. 2026-10-28** (item 6: BF 42 / BF 43, set from rbp's
+   UTILITY rows; the master samples are no longer scaled, and the cue bus no
+   longer follows MASTER ATT. -- see the note at the end of item 20; NOT
+   checked by ear yet). RB_AUDIO_MASTER_BOOST_DB is still in the samples.
+   The original note (operator, 2026-10-27): Today every level stage after rbp is in
    the samples: MASTER ATT. (masteratt.c), RB_AUDIO_MASTER_BOOST_DB, and the
    cue bus following both (item 20). Worth finding out whether the FLX10 has
    attenuators of its own to use instead -- a master one among its settings

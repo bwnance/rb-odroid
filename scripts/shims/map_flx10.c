@@ -853,13 +853,8 @@ static void flx10_pitch(int deck, int cc, int val)
  * behind it: the unit applies it to its own booth output, and it is not read. */
 static int mastervol_have_hi, mastervol_pos;
 
-/* The knob is not reported until it moves (the controls query leaves out the
- * knobs the unit applies itself, measured 2026-10-28), so its last position is
- * kept in rbp's own directory and the mirror starts there (operator,
- * 2026-10-28). */
-#define MASTERVOL_FILE "/root/pdj/flx10.mastervol"
-static int mastervol_saved = -1;
-
+/* The knob is not reported until it moves: the controls query leaves out the
+ * knobs the unit applies itself (measured 2026-10-28). */
 static void mastervol_apply(int pos)
 {
      double g, mid = mastervol_mid;
@@ -870,42 +865,6 @@ static void mastervol_apply(int pos)
      if (g > 1.0)
           g = 1.0;
      g_mirror_gain = (float)g;
-}
-
-/* The saved position, -1 for none. */
-static int mastervol_load(void)
-{
-     char buf[16];
-     int fd = open(MASTERVOL_FILE, O_RDONLY | O_CLOEXEC), n, pos;
-
-     if (fd < 0)
-          return -1;
-     n = (int)read(fd, buf, sizeof buf - 1);
-     close(fd);
-     if (n <= 0)
-          return -1;
-     buf[n] = '\0';
-     pos = atoi(buf);
-     return pos >= 0 && pos <= 16383 ? pos : -1;
-}
-
-/* From the tick: the position written when it has settled somewhere new. */
-static void flx10_mastervol_tick(unsigned long long t)
-{
-     static unsigned long long next;
-     char buf[16];
-     int fd, n;
-
-     if (!mastervol_have_hi || mastervol_pos == mastervol_saved || t < next)
-          return;
-     next = t + 2000;
-     fd = open(MASTERVOL_FILE, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
-     if (fd < 0)
-          return;
-     n = snprintf(buf, sizeof buf, "%d\n", mastervol_pos);
-     if (write(fd, buf, (size_t)n) == n)
-          mastervol_saved = mastervol_pos;
-     close(fd);
 }
 
 static void flx10_mastervol(int cc, int val)
@@ -3276,11 +3235,8 @@ static void flx10_startup(void)
      /* The HDMI mirror's level (flx10_mastervol) starts as the MASTER knob all
       * the way down, not shmstate.c's full: the unit does not report the knob
       * until it moves, and a mirror at full while the knob sits at zero was the
-      * loud start (operator, 2026-10-26) -- or where the knob was last seen. */
+      * loud start (operator, 2026-10-26). */
      g_mirror_gain = 0.0f;
-     mastervol_saved = mastervol_load();
-     if (mastervol_saved >= 0)
-          mastervol_apply(mastervol_saved);
      klog("knobshim2: DDJ-FLX10: routed Ch1->Deck1, Ch2->Deck2; master level unity\n");
 }
 
@@ -3378,7 +3334,6 @@ static void flx10_tick(void)
      flx10_push_tick(t);
      flx10_jump_tick(t);
      flx10_unit_tick(t);
-     flx10_mastervol_tick(t);
      flx10_scfx_tick(t);
      flx10_panel_tick(t);
      flx10_link_tick(t);
