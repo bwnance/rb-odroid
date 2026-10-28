@@ -167,8 +167,8 @@ session; details further down):
    on, FRDDR_A SINK 1 SEL = OUT 1, TDMOUT_B SRC SEL = IN 0, TOHDMITX I2S SRC
    = I2S B, TOHDMITX on -- and rb.conf makes both the Odroid default.
    Confirmed by ear on the unit; `RB_AUDIO_MIRROR_DEV=` turns it off.
-2. **Waveforms and album art on the jog screens -- built, to look at on the
-   unit** (2026-10-26). rekordbox sends them as HID transfers that are the
+2. **Waveforms and album art on the jog screens -- done, confirmed on the
+   unit by the operator 2026-10-28** (built 2026-10-26). rekordbox sends them as HID transfers that are the
    export's own files behind a length: the 80x80 and 240x240 artwork JPEGs,
    the .2EX's PWV6 (overview) and PWV7 (detail), and the .DAT's beat grid --
    all checked byte for byte against capture_2 (both decks), layouts in
