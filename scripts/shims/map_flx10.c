@@ -2338,6 +2338,61 @@ __attribute__((weak)) int flx10_fx_on(void)
      return *(volatile unsigned int *)(uintptr_t)(bem + BEM_OFF_TYPE) != BFX_TYPE_OFF;
 }
 
+/* ---- Beat FX quantize -------------------------------------------------------
+ * The RX3 sets it on its touch panel (K_EFFECTQUANT, rbp_abi.h), and the touch
+ * panel stays the switch. MasterInnards::onEv_FxQuantize stores the panel's
+ * state, then sets the engine's flag to that state AND isBeatEffectQuantizeValid()
+ * -- false with no track to quantize to -- and only the FX type, channel, TAP and
+ * beat buttons apply it again. rbp applies it at start, before a deck has a
+ * track, so the panel said ON while the engine stayed off for good (read on the
+ * unit 2026-10-27: panel 1, engine 0): TRANS then ran from whenever its ON came
+ * in, and played off then on, half a beat out (operator). So the panel's own
+ * state goes back through the same key BFXQ_AFTER_LOAD_MS after each load, and
+ * the first time after a start an OFF is sent as ON: on by default, the
+ * operator's choice. Turned off on the panel, it stays off until the next start. */
+#define BFXQ_AFTER_LOAD_MS 1500
+static unsigned long long bfxq_due;
+static int bfxq_defaulted;
+
+/* The panel's state: 1, 0, or -1 when rbp's UI is not up. WEAK for the host test. */
+__attribute__((weak)) int flx10_bfxq_panel(void)
+{
+     unsigned int root, mixer, innards;
+
+     root = *(volatile unsigned int *)(uintptr_t)UI_ROOT_PTR;
+     if (!root)
+          return -1;
+     mixer = *(volatile unsigned int *)(uintptr_t)(root + UI_ROOT_MIXER);
+     if (!mixer)
+          return -1;
+     innards = *(volatile unsigned int *)(uintptr_t)(mixer + MIXER_MASTER_INNARDS);
+     if (!innards)
+          return -1;
+     return *(volatile unsigned char *)(uintptr_t)(innards + INNARDS_BFX_QUANTIZE) != 0;
+}
+
+static void flx10_bfxq_loaded(unsigned long long now)
+{
+     bfxq_due = now + BFXQ_AFTER_LOAD_MS;
+}
+
+static void flx10_bfxq_tick(unsigned long long t)
+{
+     int on;
+
+     if (!bfxq_due || t < bfxq_due)
+          return;
+     bfxq_due = 0;
+     on = flx10_bfxq_panel();
+     if (on < 0)
+          return;
+     if (!on && !bfxq_defaulted)
+          on = 1;
+     bfxq_defaulted = 1;
+     send_rx_key(K_EFFECTQUANT, OP_PRESS, CH_GLOBAL, on);
+     klog("knobshim2: flx10 Beat FX quantize %s again after a load\n", on ? "on" : "off");
+}
+
 static struct fxs_view fxs_sent;
 static int fxs_valid;                 /* fxs_sent is what the unit shows */
 static int fxs_ready;                 /* the connect sequence has gone out */
@@ -3163,6 +3218,7 @@ static void flx10_tick(void)
      flx10_panel_tick(t);
      flx10_link_tick(t);
      flx10_fxscreen_tick(t);
+     flx10_bfxq_tick(t);
      flx10_splash_tick();
      flx10_keysync_tick();
      flx10_master_tick(t);
@@ -3771,6 +3827,8 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
      unsigned long long now = shim_now_ms();
      int force, bpm10, speed10, min, sec, deg, d = deck;
 
+     if (di->loaded && (!deck_loaded[deck] || di->total_ms != deck_total_ms[deck]))
+          flx10_bfxq_loaded(now);
      deck_loaded[deck] = di->loaded;
      deck_elapsed_ms[deck] = di->elapsed_ms;
      deck_total_ms[deck] = di->total_ms;

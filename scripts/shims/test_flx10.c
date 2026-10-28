@@ -124,6 +124,8 @@ void flx10_bfx_bpm_auto(void) { bpm_auto_n++; }
 int flx10_fx_read(int sel, void *v) { (void)sel; (void)v; return 0; }
 static int fx_on;
 int flx10_fx_on(void) { return fx_on; }
+static int bfxq_panel = -1;                /* rbp's UI not up, unless a test says */
+int flx10_bfxq_panel(void) { return bfxq_panel; }
 void flx10_beat_jump(int d, int type) { if (bj_n < 16) { bj_deck[bj_n] = d; bj_t[bj_n] = type; } bj_n++; }
 static int pj_n, pj_deck[16]; static float pj_b[16];
 int flx10_plain_jump(int d, float b) { if (pj_n < 16) { pj_deck[pj_n] = d; pj_b[pj_n] = b; } pj_n++; return 1; }
@@ -1974,6 +1976,30 @@ int main(void)
           CHECK(sent_n == 10, "the master back to +3%%: WIDE -> +-6, the range SYNC was pressed on (%d)", sent_n);
           memset(&m, 0, sizeof m); memset(&f, 0, sizeof f);
           map_flx10.leds->deck_display(0, &m); map_flx10.leds->deck_display(1, &f);
+     }
+
+     /* Beat FX quantize: the touch panel's own state sent again 1.5 s after a load;
+      * the first time after a start an OFF goes as ON; nothing without a load */
+     {
+          struct deck_info di;
+          memset(&di, 0, sizeof di);
+          bfxq_panel = -1; ms(1600); map_flx10.tick();      /* anything pending, unsent */
+          reset(); bfxq_panel = 0;
+          di.loaded = 1; di.total_ms = 200000; map_flx10.leds->deck_display(0, &di);
+          ms(1000); map_flx10.tick();
+          CHECK(sent_n == 0, "BFX quantize: nothing within 1.5 s of a load (%d)", sent_n);
+          ms(600); map_flx10.tick(); map_flx10.tick();
+          CHECK(sent_n == 1 && is(0, K_EFFECTQUANT, OP_PRESS, CH_GLOBAL) && sent[0].param == 1,
+                "BFX quantize: the panel's OFF goes as ON the first time after a start (%d)", sent_n);
+          di.total_ms = 180000; map_flx10.leds->deck_display(0, &di);   /* another track */
+          ms(1600); map_flx10.tick();
+          CHECK(sent_n == 2 && is(1, K_EFFECTQUANT, OP_PRESS, CH_GLOBAL) && sent[1].param == 0,
+                "BFX quantize: turned off on the panel, a load sends OFF (%d)", sent_n);
+          bfxq_panel = 1; map_flx10.leds->deck_display(0, &di);         /* same track */
+          ms(1600); map_flx10.tick();
+          CHECK(sent_n == 2, "BFX quantize: no load, nothing sent (%d)", sent_n);
+          memset(&di, 0, sizeof di); map_flx10.leds->deck_display(0, &di);
+          bfxq_panel = -1;
      }
 
      printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);

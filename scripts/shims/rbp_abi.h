@@ -430,9 +430,21 @@
 #define K_TAP        0x4492    /* Beat FX Tap */
 #define K_EFFECTQUANT 0x0493    /* BEAT FX quantize (the small QUANTIZE inside the
                                  * Beat FX panel), NOT the deck's on/off -- that
-                                 * one is K_QUANTIZE above. Referenced nowhere:
-                                 * rbp's Beat FX quantize is a touch class
-                                 * (Shortcut_EffectQuantize_On/_Off). */
+                                 * one is K_QUANTIZE above. The touch panel's
+                                 * Shortcut_EffectQuantize_On/_Off send it as
+                                 * OP_PRESS with param 1 / 0 (their constructors,
+                                 * ShortcutMode @0x351f2c); ui::Mixer::asEventCode
+                                 * makes it event 0x2018, MasterInnards::
+                                 * onEv_FxQuantize. map_flx10.c re-sends it. */
+/* The touch panel's Beat FX quantize state, MasterInnards+0x45 -- what
+ * onEv_FxQuantize stores before it sets the engine's flag to that AND
+ * isBeatEffectQuantizeValid(). Reached as the UI root (the word UiSet/
+ * UiGetMixBeatFxQuantizeOn read, 0x2685f2c) -> +0x50 the ui::Mixer ->
+ * +0xa8 (ui::Mixer::getMasterInnards @0x2cf890). Read on the unit 2026-10-27. */
+#define UI_ROOT_PTR          0x02685f2c
+#define UI_ROOT_MIXER        0x50
+#define MIXER_MASTER_INNARDS 0xa8
+#define INNARDS_BFX_QUANTIZE 0x45
 #define K_MIC        0x0814
 
 
