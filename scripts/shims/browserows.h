@@ -14,6 +14,18 @@
 #define BROWSE_FIELD_TIME   11u
 #define BROWSE_FIELD_BPM    13u
 #define BROWSE_FIELD_KEY    15u
+/* ...and the rest of the stick's MY SETTINGS > Column (rbp's own second column under
+ * each sort, read off the unit 2026-10-28; docs/21 item 11) */
+#define BROWSE_FIELD_GENRE    6u
+#define BROWSE_FIELD_LABEL    14u
+#define BROWSE_FIELD_BITRATE  16u
+#define BROWSE_FIELD_COLOR    19u
+#define BROWSE_FIELD_COMMENTS 35u
+#define BROWSE_FIELD_ORIGINAL 40u      /* ORIGINAL ARTIST */
+#define BROWSE_FIELD_REMIXER  41u
+#define BROWSE_FIELD_PLAYS    42u      /* DJ PLAY COUNT */
+#define BROWSE_FIELD_ADDED    46u      /* DATE ADDED */
+#define BROWSE_FIELD_RATING   100u
 
 struct browse_column {
     unsigned int field;             /* BROWSE_FIELD_* */

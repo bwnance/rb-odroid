@@ -44,6 +44,7 @@ static const uint16_t bpm[] = { 'B', 'P', 'M', 0 }, key[] = { 'K', 'E', 'Y', 0 }
                       artist[] = { 'A', 'R', 'T', 'I', 'S', 'T', 0 },
                       duration[] = { 'T', 'I', 'M', 'E', 0 },
                       album[] = { 'A', 'L', 'B', 'U', 'M', 0 };
+#define U16(...) ((const uint16_t[]){ __VA_ARGS__, 0 })
 
 static const struct {
     const char *name, *number;
@@ -56,6 +57,19 @@ static const struct {
     { "key", "15", 12, { BROWSE_FIELD_KEY, key } },
     { "time", "11", 8, { BROWSE_FIELD_TIME, duration } },
     { "length", "11", 8, { BROWSE_FIELD_TIME, duration } },
+    /* the rest of what a stick's MY SETTINGS > Column can name (operator,
+     * 2026-10-28); not in LIST MENU's COLUMN, which keeps the five */
+    { "rating", "100", 5, { BROWSE_FIELD_RATING, U16('R','A','T','I','N','G') } },
+    { "genre", "6", 6, { BROWSE_FIELD_GENRE, U16('G','E','N','R','E') } },
+    { "comments", "35", 7, { BROWSE_FIELD_COMMENTS, U16('C','O','M','M','E','N','T','S') } },
+    { "remixer", "41", 9, { BROWSE_FIELD_REMIXER, U16('R','E','M','I','X','E','R') } },
+    { "label", "14", 10, { BROWSE_FIELD_LABEL, U16('L','A','B','E','L') } },
+    { "originalartist", "40", 11,
+      { BROWSE_FIELD_ORIGINAL, U16('O','R','I','G','I','N','A','L',' ','A','R','T','I','S','T') } },
+    { "bitrate", "16", 13, { BROWSE_FIELD_BITRATE, U16('B','I','T','R','A','T','E') } },
+    { "color", "19", 15, { BROWSE_FIELD_COLOR, U16('C','O','L','O','R') } },
+    { "playcount", "42", 16, { BROWSE_FIELD_PLAYS, U16('D','J',' ','P','L','A','Y',' ','C','O','U','N','T') } },
+    { "dateadded", "46", 17, { BROWSE_FIELD_ADDED, U16('D','A','T','E',' ','A','D','D','E','D') } },
 };
 #define NAMES (sizeof(names) / sizeof(*names))
 

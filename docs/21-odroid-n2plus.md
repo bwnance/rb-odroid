@@ -368,8 +368,23 @@ session; details further down):
      the table did. rbp reads the same flag for its own unsorted second column
      (the operator saw it turn to ALBUM). With rbp sorted, the column shows the
      chosen field beside the sort's; unsorted, both would be the same, so ours
-     hides. A stick whose MY SETTINGS has no Column (no flagged row), or one not
-     shown here (RATING, GENRE ...), turns the column off (operator, 2026-10-28).
+     hides. A stick whose MY SETTINGS has no Column (no flagged row) turns the
+     column off. **Every Column rekordbox offers is shown since 2026-10-28**
+     (operator): besides the five, RATING (stars), GENRE, COMMENTS, REMIXER,
+     LABEL, ORIGINAL ARTIST, BITRATE, COLOR, DJ PLAY COUNT and DATE ADDED, from
+     the stick's MY SETTINGS or the column file (rating, genre, comments,
+     remixer, label, originalartist, bitrate, color, playcount, dateadded);
+     LIST MENU's COLUMN keeps the five. The snapshot reads them from djdbContent
+     as SortTrackSetListBuf does (browserows.c text_sources): names through
+     Get_DsqlTableString's kinds (6 genre, 7 artist, 9 label, 11 colour), the
+     comment and date added as kinds 4 and 5 by track. Checked on the unit
+     against export.pdb: GENRE ("DJ Tool" on Bea's 398/399), COMMENTS (431..439),
+     BITRATE, DJ PLAY COUNT, DATE ADDED; RATING showed five empty stars (no
+     track on this stick is rated). LABEL, COLOR, REMIXER and ORIGINAL ARTIST
+     are not seen with a value -- the stick has 3 labels and none of the others.
+     After the column changes, rows show a dash until their page is fetched
+     again (a scroll). Not covered: under SORT by TRACK rbp sends no second
+     column's rows at all, so that list has no BPM / KEY / chosen column.
      RB_BROWSE_COLUMNS=0 removes every hook; RB_BROWSE_COLUMN is only the
      start before a stick or the panel says anything.
    - Lesson (2026-10-28, rbp down ~4 min): a shim must not call stat() -- rbp's

@@ -251,7 +251,8 @@ int (*browserows_values)(void *, unsigned int, unsigned int, unsigned int, uint1
  * page replaces the snapshot, across USB remounts too. */
 struct local_metadata {
     unsigned id, drive, key, bpm, length, valid, generation, has_text, has_key;
-    uint16_t text[128];         /* the ARTIST or ALBUM name, whichever the column shows */
+    unsigned text_field;        /* the field `text` is: the column may have changed since */
+    uint16_t text[128];         /* the chosen field as text, when it is not BPM / KEY / TIME */
 };
 enum { LOCAL_SLOTS = 64 };
 static struct local_metadata local_page[LOCAL_SLOTS];
@@ -292,6 +293,71 @@ static int local_page_rows(void *context, void *request)
     return original_local_page(context, request);
 }
 
+/* Where the snapshot finds each field shown as text (SortTrackSetListBuf @0x171908
+ * reads the same djdbContent columns; their widths are its loads). Get_DsqlTableString's
+ * kinds are its own: 6 djdbGenre, 7 djdbArtist, 8 djdbAlbum, 9 djdbLabel, 11 djdbColor,
+ * looked up by the id in `column`; 4 and 5 are djdbContent's own strings (columns 13,
+ * the comment, and 21, the date added), looked up by the track. (Kind 2 is the file's
+ * path -- what ALBUM showed at first, 2026-10-28.) */
+enum { TEXT_NAME, TEXT_OWN, TEXT_NUMBER, TEXT_STARS };
+struct text_source { unsigned field, column, kind, how, width; };
+static const struct text_source text_sources[] = {
+    { BROWSE_FIELD_ARTIST,   5,  7,  TEXT_NAME,   4 },
+    { BROWSE_FIELD_ALBUM,    6,  8,  TEXT_NAME,   4 },
+    { BROWSE_FIELD_GENRE,    7,  6,  TEXT_NAME,   4 },
+    { BROWSE_FIELD_LABEL,    18, 9,  TEXT_NAME,   4 },
+    { BROWSE_FIELD_REMIXER,  17, 7,  TEXT_NAME,   4 },
+    { BROWSE_FIELD_ORIGINAL, 19, 7,  TEXT_NAME,   4 },
+    { BROWSE_FIELD_COLOR,    22, 11, TEXT_NAME,   1 },
+    { BROWSE_FIELD_COMMENTS, 0,  4,  TEXT_OWN,    0 },
+    { BROWSE_FIELD_ADDED,    0,  5,  TEXT_OWN,    0 },
+    { BROWSE_FIELD_BITRATE,  11, 0,  TEXT_NUMBER, 4 },
+    { BROWSE_FIELD_PLAYS,    23, 0,  TEXT_NUMBER, 2 },
+    { BROWSE_FIELD_RATING,   15, 0,  TEXT_STARS,  1 },
+};
+
+static const struct text_source *text_source_of(unsigned field)
+{
+    for (unsigned i = 0; i < sizeof(text_sources) / sizeof(*text_sources); i++)
+        if (text_sources[i].field == field)
+            return &text_sources[i];
+    return 0;
+}
+
+static unsigned decimal_text(uint16_t *out, unsigned value);
+
+/* The field as text, from the column value at `value` (unused for TEXT_OWN). 1 = read,
+ * an empty text included (no genre, no comment, a colour of 0). */
+static int local_text(const struct text_source *from, const void *value, unsigned id,
+                      unsigned drive, uint16_t out[128])
+{
+    unsigned v = from->width == 4 ? word(value) : from->width == 2 ? half(value)
+               : from->width == 1 ? *(const uint8_t *)value : id;
+    out[0] = 0;
+    if (from->how == TEXT_NUMBER) {
+        out[decimal_text(out, v)] = 0;
+        return 1;
+    }
+    if (from->how == TEXT_STARS) {
+        unsigned n = 0;
+        for (; n < v && n < 5; n++)
+            out[n] = 0x2605;            /* filled */
+        for (; n < 5; n++)
+            out[n] = 0x2606;            /* empty: rbp's own RATING column's glyph */
+        out[n] = 0;
+        return 1;
+    }
+    if (from->how == TEXT_NAME && !v)
+        return 1;                       /* none */
+    uint16_t *name = 0;
+    int ok = table_string(from->kind, from->how == TEXT_OWN ? id : v, id, &name, 1, drive) >= 0;
+    if (ok)
+        copy_text(out, name, 127);
+    if (name)
+        edb_free(name);
+    return ok;
+}
+
 static void *local_record(void *context, const uint32_t *record, unsigned drive,
                           unsigned kind, unsigned mode, unsigned category)
 {
@@ -302,13 +368,7 @@ static void *local_record(void *context, const uint32_t *record, unsigned drive,
         /* Each lookup is a DeviceSQL read on the stick being browsed: fetch only
          * what the column shows. */
         unsigned wanted = c ? c->field : 0;
-        /* djdbContent's column 5 is the artist id, 6 the album's (SortTrackSetListBuf
-         * selects djdbArtist/djdbAlbum with them). Get_DsqlTableString's kinds are
-         * its own: 7 reads djdbArtist, 8 djdbAlbum (2 is a djdbContent column, the
-         * file's path -- what ALBUM showed at first, 2026-10-28). */
-        unsigned name_column = wanted == BROWSE_FIELD_ARTIST ? 5u
-                             : wanted == BROWSE_FIELD_ALBUM  ? 6u : 0u;
-        unsigned name_kind = wanted == BROWSE_FIELD_ARTIST ? 7u : 8u;
+        const struct text_source *from = text_source_of(wanted);
         struct local_metadata item;
         memset(&item, 0, sizeof(item));
         item.generation = __atomic_load_n(&local_generation, __ATOMIC_SEQ_CST);
@@ -321,21 +381,15 @@ static void *local_record(void *context, const uint32_t *record, unsigned drive,
             void *row = edb_next(set, &error);
             if (row && !error) {
                 const void *bpm = edb_column(row, 8), *length = edb_column(row, 9),
-                           *named = name_column ? edb_column(row, name_column) : bpm;
-                if (bpm && length && named) {
+                           *own = from && from->column ? edb_column(row, from->column) : bpm;
+                if (bpm && length && own) {
                     item.bpm = word(bpm);
                     item.length = half(length);
                     item.valid = 1;
-                    if (name_column) {
-                        uint16_t *name = 0;
-                        if (table_string(name_kind, word(named), item.id, &name, 1, drive) >= 0) {
-                            copy_text(item.text, name, 127);
-                            item.has_text = 1;
-                        } else
-                            item.valid = 0;
-                        if (name)
-                            edb_free(name);
-                    }
+                    if (from && !local_text(from, own, item.id, drive, item.text))
+                        item.valid = 0;
+                    item.has_text = from != 0;
+                    item.text_field = wanted;
                 }
             }
         }
@@ -357,8 +411,8 @@ static void *local_record(void *context, const uint32_t *record, unsigned drive,
 
 static int local_field(unsigned field)
 {
-    return !field || field == BROWSE_FIELD_ARTIST || field == BROWSE_FIELD_ALBUM ||
-           field == BROWSE_FIELD_TIME || field == BROWSE_FIELD_BPM || field == BROWSE_FIELD_KEY;
+    return !field || field == BROWSE_FIELD_TIME || field == BROWSE_FIELD_BPM ||
+           field == BROWSE_FIELD_KEY || text_source_of(field);
 }
 
 static unsigned decimal_text(uint16_t *out, unsigned value)
@@ -379,8 +433,8 @@ static int local_value(const struct local_metadata *item, unsigned field, uint16
     out[0] = 0;
     if (!field)
         return 1;
-    if (field == BROWSE_FIELD_ARTIST || field == BROWSE_FIELD_ALBUM) {
-        if (!item->has_text)
+    if (text_source_of(field)) {
+        if (!item->has_text || item->text_field != field)
             return 0;
         copy_text(out, item->text, 127);
         return 1;
@@ -1310,6 +1364,16 @@ static unsigned heading_image(unsigned field)
     case BROWSE_FIELD_BPM: return 2045;
     case BROWSE_FIELD_KEY: return 2409;
     case BROWSE_FIELD_TIME: return 2598;
+    case BROWSE_FIELD_RATING: return 2574;
+    case BROWSE_FIELD_GENRE: return 2392;
+    case BROWSE_FIELD_COMMENTS: return 2747;
+    case BROWSE_FIELD_REMIXER: return 2591;
+    case BROWSE_FIELD_LABEL: return 2420;
+    case BROWSE_FIELD_ORIGINAL: return 2557;
+    case BROWSE_FIELD_BITRATE: return 2039;
+    case BROWSE_FIELD_COLOR: return 2309;
+    case BROWSE_FIELD_PLAYS: return 2380;
+    case BROWSE_FIELD_ADDED: return 2341;
     default: return 0;
     }
 }

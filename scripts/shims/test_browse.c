@@ -229,7 +229,11 @@ static void test_config(void)
           BROWSE_FIELD_KEY && browsecol_field("length", &caption) == BROWSE_FIELD_TIME,
           "bpm, 15, length");
     CHECK(browsecol_field("album", &caption) == BROWSE_FIELD_ALBUM, "album");
-    CHECK(browsecol_field("genre", &caption) == 0 && browsecol_field("", &caption) == 0 &&
+    CHECK(browsecol_field("genre", &caption) == BROWSE_FIELD_GENRE && caption && caption[0] == 'G' &&
+          browsecol_field("rating", &caption) == BROWSE_FIELD_RATING &&
+          browsecol_field("dateadded", &caption) == BROWSE_FIELD_ADDED,
+          "the stick's other Columns: genre, rating, date added");
+    CHECK(browsecol_field("title", &caption) == 0 && browsecol_field("", &caption) == 0 &&
           browsecol_field(NULL, &caption) == 0, "anything else: off");
 }
 
@@ -253,8 +257,9 @@ static void test_stick_column(void)
     put16(page + 4096 - 4, present);
     CHECK(browsecol_page_column(page, 4096) == 3, "ALBUM (rbp's category 3) is the flagged row");
     CHECK(!strcmp(browsecol_category_word(3), "album") && !strcmp(browsecol_category_word(2), "artist") &&
-          !strcmp(browsecol_category_word(12), "key") && browsecol_category_word(5) == NULL,
-          "categories as words; RATING is not one shown");
+          !strcmp(browsecol_category_word(12), "key") && !strcmp(browsecol_category_word(5), "rating") &&
+          browsecol_category_word(14) == NULL,
+          "categories as words, RATING too; 14 is none");
     put16(page + 4096 - 4, present & ~(1u << 5));
     CHECK(browsecol_page_column(page, 4096) == 0, "a deleted row does not count");
     page[0x28 + 4 * 8 + 4] = 2;
