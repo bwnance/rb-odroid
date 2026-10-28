@@ -339,11 +339,11 @@ static int ut_gen_isgrey(struct ut_entry *e)
 /* ---- the DDJ-FLX10's own audio settings -------------------------------------
  * What rekordbox sets on the unit and rbp has no row for (operator, 2026-10-28):
  * master and booth mono / stereo, the master's peak limiter, the mic to the master.
- * The unit keeps them; each row shows the unit's own value as it reported it, and a
- * choice sets it (map_flx10.c's flx10_unit_get / flx10_unit_put, knobshim.so: WEAK,
- * and greyed while the unit has not reported one). Index 1 is the note at 7F. */
-__attribute__((weak)) int flx10_unit_get(int is_cc, int num);
-__attribute__((weak)) int flx10_unit_put(int is_cc, int num, int val);
+ * Kept on this machine and sent to the unit at every start (map_flx10.c's
+ * flx10_setting_get / flx10_setting_set, knobshim.so: WEAK, greyed without it).
+ * Index 1 is the note at 7F. */
+__attribute__((weak)) int flx10_setting_get(int num);
+__attribute__((weak)) int flx10_setting_set(int num, int val);
 
 static const uint16_t *const v_monostereo[] = { W('M','O','N','O'), W('S','T','E','R','E','O') };
 static const uint16_t l_master_st[] = { SP6, 'M','A','S','T','E','R',' ','M','O','N','O','/',
@@ -369,10 +369,10 @@ static int unit_note_of(const struct ut_entry *e)
     return -1;
 }
 
-/* The row's index for the unit's own value, -1 when it has not reported one. */
+/* The row's index for the kept value, -1 without knobshim's map. */
 static int unit_index(const struct ut_entry *e)
 {
-    int note = unit_note_of(e), v = note >= 0 && flx10_unit_get ? flx10_unit_get(0, note) : -1;
+    int note = unit_note_of(e), v = note >= 0 && flx10_setting_get ? flx10_setting_get(note) : -1;
     return v < 0 ? -1 : v ? 1 : 0;
 }
 
@@ -393,8 +393,8 @@ static int ut_unit_enter(struct ut_entry *e)
 
     if (note < 0 || v < 0 || v > 1 || v == e->cur)
         return 0;
-    if (!flx10_unit_put || !flx10_unit_put(0, note, v ? 0x7F : 0x00)) {
-        pointsrc_log("utility: unit setting 0x%02X -> %d not sent (no DDJ-FLX10)", note, v);
+    if (!flx10_setting_set || !flx10_setting_set(note, v ? 0x7F : 0x00)) {
+        pointsrc_log("utility: DDJ-FLX10 setting 0x%02X -> %d not kept", note, v);
         return 0;
     }
     e->cur = v;

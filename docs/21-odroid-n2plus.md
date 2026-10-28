@@ -237,8 +237,10 @@ session; details further down):
    samples are no longer scaled. So do MIC OUT TO BOOTH (9F 4E), MIC OUT TO
    MASTER REC (9F 3F, the unit's "mix the MIC audio to REC OUT") and POWER
    MANAGEMENT (9F 45, the unit's auto power off; 7F on). What rbp has no row for
-   are four rows of the shim's in MIXER after the attenuators, set on the unit
-   and read back from its own report to 9F 70 00: MASTER / BOOTH MONO/STEREO (9F 47 / 48, 7F stereo), PEAK
+   are four rows of the shim's in MIXER after the attenuators, kept on this
+   machine (/root/settings/flx10.dat in the chroot, beside rbp's XdjSettings.dat;
+   rekordbox's defaults until changed) and sent at every start like rbp's own --
+   the connect sequence never sends any of these from the capture: MASTER / BOOTH MONO/STEREO (9F 47 / 48, 7F stereo), PEAK
    LIMITER (9F 49) and MIC OUT TO MASTER (9F 4A). BF 44 is the unit's demo /
    screen saver (00..40), not used. The MASTER / BOOTH / headphone knobs are
    applied by the unit and are not in its answer to the controls query, so the

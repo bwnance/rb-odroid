@@ -626,6 +626,16 @@ int main(void)
      CHECK(flx10_unit_want(1, 0x42, 3) == -1 && flx10_unit_want(1, 0x42, -1) == -1, "...nothing for an unknown one");
      CHECK(flx10_unit_want(0, 0x45, 0) == 0x00 && flx10_unit_want(0, 0x45, 1) == 0x7F,
            "POWER MANAGEMENT NEVER / 20min -> 9F 45 00 / 7F");
+     /* the four rows kept on this machine: rekordbox's defaults until set */
+     {
+          extern int flx10_setting_get(int num);
+          extern int flx10_setting_set(int num, int val);
+          CHECK(flx10_setting_get(0x47) == 0x7F && flx10_setting_get(0x49) == 0x7F &&
+                flx10_setting_get(0x45) == -1, "kept settings: stereo / on by default, only the four");
+          CHECK(flx10_setting_set(0x47, 0x00) == 1 && flx10_setting_get(0x47) == 0x00 &&
+                flx10_setting_set(0x47, 0x10) == 0, "master mono kept; a value not 00 / 7F refused");
+          flx10_setting_set(0x47, 0x7F);
+     }
      /* the panel's own long press: 113 / 112, on once it is held, off at the release */
      pj_n = 0; ON(1, 113);
      CHECK(pj_n == 1 && pj_b[0] == 4.0f, "long > (113): a jump at once (%d)", pj_n);

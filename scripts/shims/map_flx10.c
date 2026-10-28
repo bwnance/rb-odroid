@@ -3953,7 +3953,8 @@ static void flx10_display_init(unsigned long long now)
  * UTILITY row for are rbp's -- MASTER ATTENUATOR and BOOTH MONITOR ATTENUATOR
  * (masteratt.c), MIC OUT TO BOOTH, MIC OUT TO MASTER REC (REC OUT), POWER
  * MANAGEMENT -- and go out whenever the unit's differs. The rest have rows of the
- * shim's (utility_rows.c), which read and set the unit's own: flx10_unit_get/put. */
+ * shim's (utility_rows.c), kept on this machine and sent the same way:
+ * flx10_setting_get/set. */
 
 #define US_MIC_REC   0x3F
 #define US_POWER     0x45
@@ -4004,6 +4005,97 @@ __attribute__((visibility("default"))) int flx10_unit_put(int is_cc, int num, in
      return 1;
 }
 
+/* The four the shim's rows set (utility_rows.c): master / booth mono-stereo, the
+ * peak limiter, the mic to the master. Kept on this machine beside rbp's own
+ * settings (operator, 2026-10-28: "stored on the linux pc and set and sent at
+ * startup"), one "NN VV" hex line each; until a row is changed, rekordbox's
+ * defaults (stereo, stereo, on, on). flx10_unit_tick sends them as it does rbp's. */
+#define STORED_FILE "/root/settings/flx10.dat"
+static const int stored_note[4] = { 0x47, 0x48, 0x49, 0x4A };
+static int stored_val[4] = { 0x7F, 0x7F, 0x7F, 0x7F };
+static int stored_loaded;
+
+static int stored_index(int num)
+{
+     for (int i = 0; i < 4; i++)
+          if (stored_note[i] == num)
+               return i;
+     return -1;
+}
+
+static void stored_load(void)
+{
+     char buf[128], *p = buf;
+     int fd, n;
+
+     stored_loaded = 1;
+     fd = open(STORED_FILE, O_RDONLY | O_CLOEXEC);
+     if (fd < 0)
+          return;
+     n = (int)read(fd, buf, sizeof buf - 1);
+     close(fd);
+     if (n <= 0)
+          return;
+     buf[n] = '\0';
+     while (*p) {
+          char *end;
+          long num = strtol(p, &end, 16), val;
+          if (end == p)
+               break;
+          val = strtol(end, &p, 16);
+          if (p == end)
+               break;
+          int i = stored_index((int)num);
+          if (i >= 0 && (val == 0 || val == 0x7F))
+               stored_val[i] = (int)val;
+          while (*p == '\n' || *p == ' ')
+               p++;
+     }
+}
+
+static int stored_save(void)
+{
+     char buf[64];
+     int n = 0, fd, ok;
+
+     for (int i = 0; i < 4; i++)
+          n += snprintf(buf + n, sizeof buf - (size_t)n, "%02X %02X\n", stored_note[i],
+                        stored_val[i]);
+     fd = open(STORED_FILE, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+     if (fd < 0)
+          return 0;
+     ok = write(fd, buf, (size_t)n) == n;
+     close(fd);
+     return ok;
+}
+
+/* One of the four as kept here (7F / 00), -1 for another number (fbshim's rows). */
+__attribute__((visibility("default"))) int flx10_setting_get(int num)
+{
+     int i = stored_index(num);
+     if (i < 0)
+          return -1;
+     if (!stored_loaded)
+          stored_load();
+     return stored_val[i];
+}
+
+/* Keep it, and send it to the unit if one is up; 1 when kept. */
+__attribute__((visibility("default"))) int flx10_setting_set(int num, int val)
+{
+     int i = stored_index(num);
+     if (i < 0 || (val != 0 && val != 0x7F))
+          return 0;
+     if (!stored_loaded)
+          stored_load();
+     stored_val[i] = val;
+     if (!stored_save())
+          klog("knobshim2: FLX10: %s could not be written\n", STORED_FILE);
+     if (flx10_unit_get(0, num) != val)
+          flx10_unit_put(0, num, val);
+     return 1;
+}
+
 static void flx10_unit_tick(unsigned long long t)
 {
      static unsigned long long next;
@@ -4021,6 +4113,11 @@ static void flx10_unit_tick(unsigned long long t)
           int want = flx10_unit_want(rows[i].is_cc, rows[i].num, v);
           if (want >= 0 && flx10_unit_get(rows[i].is_cc, rows[i].num) != want)
                flx10_unit_put(rows[i].is_cc, rows[i].num, want);
+     }
+     for (int i = 0; i < 4; i++) {
+          int want = flx10_setting_get(stored_note[i]);
+          if (flx10_unit_get(0, stored_note[i]) != want)
+               flx10_unit_put(0, stored_note[i], want);
      }
 }
 
