@@ -620,6 +620,17 @@ int main(void)
      ON(1, 98); ms(400); map_flx10.tick(); OFF(1, 95); ms(100); map_flx10.tick();
      CHECK(pj_n == 6 && pj_b[5] == 16.0f, "SHIFT + > held repeats 16s; the plain > coming up ends it too (%d)", pj_n);
      OFF(1, 98);
+     /* near an end, a jump goes as far as whole beats allow (120 BPM: 500 ms a beat) */
+     {
+          extern int flx10_jump_clamp(int beats, int pos_ms, int total_ms, int bpm_x100);
+          CHECK(flx10_jump_clamp(-4, 1500, 60000, 12000) == -3, "3 beats from the start: -4 -> -3");
+          CHECK(flx10_jump_clamp(-16, 1500, 60000, 12000) == -3, "...and -16 -> -3");
+          CHECK(flx10_jump_clamp(-4, 300, 60000, 12000) == 0, "under a beat: no jump");
+          CHECK(flx10_jump_clamp(-4, 2000, 60000, 12000) == -4, "exactly 4 beats: -4");
+          CHECK(flx10_jump_clamp(16, 58000, 60000, 12000) == 4, "4 beats from the end: +16 -> +4");
+          CHECK(flx10_jump_clamp(4, 30000, 60000, 12000) == 4, "mid-track: as asked");
+          CHECK(flx10_jump_clamp(-4, 1500, 60000, 0) == -4, "no BPM known: as asked");
+     }
      /* UTILITY's settings as the unit's own (capture_settings) */
      CHECK(flx10_unit_want(1, 0x42, 0) == 0x00 && flx10_unit_want(1, 0x42, 1) == 0x10 &&
            flx10_unit_want(1, 0x43, 2) == 0x20, "MASTER / BOOTH ATT. 0 / -6 / -12 dB -> BF 42/43 00 10 20");

@@ -666,6 +666,10 @@ session; details further down):
    100 ms (150 until 2026-10-28: "a little faster") until it comes up (~12x through a 128 BPM track with 4 beats, four times
    that with SHIFT's 16). Checked on the unit: held 2 s on a 170 BPM track, REMAIN
    4:08 -> 3:52, eleven 4-beat jumps. test_flx10 covers the timing.
+   Near an end a jump goes as far as whole beats allow (operator, 2026-10-28):
+   3 beats from the start, -4 and -16 go 3; under a beat, nothing; the same at
+   the end (flx10_jump_clamp, the track's own BPM and the live position). On the
+   unit: harvest sky at 0.020 s, +4 -> 1.432 s, then SHIFT -16 -> 0.020 s.
 26. **Touch scrolling is jerky -- fixed, by measurement; to feel at the glass**
    (operator, 2026-10-28, the "CXDIS" capacitive panel; touchscroll.c). Measured on
    the unit with touches injected through pointsrc (a drag of 8 rows at 1,000 px/s,

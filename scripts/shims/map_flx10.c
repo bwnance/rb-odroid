@@ -1203,15 +1203,41 @@ static void flx10_jump_tick(unsigned long long t)
           }
 }
 
+/* NEAR AN END, AS FAR AS IT GOES (operator, 2026-10-28): 3 beats from the start, a
+ * 4-beat jump back goes 3 (a 16 the same, and at the end the same way). Whole beats,
+ * so the jump keeps the beat's phase; under one beat left, nothing. The beat is the
+ * track's own (its BPM x100, rbp's bpm_orig), positions in track ms. Pure, for the
+ * test: the beats to jump, 0 for none. */
+static int deck_total_ms[2], deck_orig[2];  /* defined with the deck state below */
+
+int flx10_jump_clamp(int beats, int pos_ms, int total_ms, int bpm_x100)
+{
+     double beat_ms, room;
+     int fit;
+
+     if (!beats || bpm_x100 <= 0 || total_ms <= 0 || pos_ms < 0 || pos_ms > total_ms)
+          return beats;                       /* nothing known: rbp's own jump */
+     beat_ms = 6000000.0 / bpm_x100;
+     room = (beats < 0 ? pos_ms : total_ms - pos_ms) / beat_ms;
+     fit = (int)(room + 0.02);               /* a jump that lands exactly on the start */
+     if (beats < 0)
+          return -beats > fit ? -fit : beats;
+     return beats > fit ? fit : beats;
+}
+
 static void flx10_jump(int deck, int beats)
 {
      static const int type_m[17] = { [4] = BEATJUMP_M4, [16] = BEATJUMP_M16 };
      static const int type_p[17] = { [4] = BEATJUMP_P4, [16] = BEATJUMP_P16 };
-     int n = beats < 0 ? -beats : beats;
+     int n = beats < 0 ? -beats : beats, pos, moving;
 
-     if (aloop_is_looping(deck))
+     if (aloop_is_looping(deck)) {
           flx10_beat_jump(deck, beats < 0 ? type_m[n] : type_p[n]);
-     else
+          return;
+     }
+     if (flx10_pos_now(deck, &pos, &moving))
+          beats = flx10_jump_clamp(beats, pos, deck_total_ms[deck], deck_orig[deck]);
+     if (beats)
           flx10_plain_jump(deck, (float)beats);
 }
 
