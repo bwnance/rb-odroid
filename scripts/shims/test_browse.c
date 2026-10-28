@@ -64,7 +64,7 @@ static void test_relocate(void)
 static uint8_t context[0x20000];
 static uint8_t message[8192];
 static uint8_t db[32], connection[0xc00];
-static unsigned track_keys[8];
+static unsigned track_keys[8], native_kind = 13;     /* rbp sorted by BPM */
 
 static unsigned stub_track_key(void *d, unsigned id) { (void)d; return id < 8 ? track_keys[id] : 0; }
 
@@ -86,7 +86,7 @@ static void build(const unsigned ids[3])
     for (unsigned i = 0; i < 4; i++) {
         uint8_t *e = message + 0x70 + at;
         unsigned n = (unsigned)strlen(texts[i]);
-        put16(e, i ? 51 : 0x10);
+        put16(e, i ? native_kind : 0x10);
         put16(e + 20, n);
         for (unsigned k = 0; k < n; k++)
             put16(e + 22 + k * 2, (unsigned char)texts[i][k]);
@@ -122,7 +122,7 @@ static void test_rows(void)
     CHECK(browserows_split(s, u16(e + 20), &split, &extra) && split == 3 && extra == 3 &&
           s[0] == 'O' && s[split + 1] == '1' && s[split + 2] == '0' && s[split + 3] == 'A',
           "row 1: its title, then 10A");
-    CHECK(u16(e) == 51, "row category kept");
+    CHECK(u16(e) == 13, "row category kept");
     e = row_entry(2);
     s = (const void *)(e + 22);
     CHECK(browserows_split(s, u16(e + 20), &split, &extra) && extra == 1 && s[split + 1] == 0x2014,
@@ -132,13 +132,19 @@ static void test_rows(void)
     CHECK(browserows_split(s, u16(e + 20), &split, &extra) && s[split + 1] == '1' &&
           s[split + 2] == '2' && s[split + 3] == 'B', "row 3: 12B");
     e = row_entry(0);
-    s = (const void *)(e + 22);
-    CHECK(browserows_split(s, u16(e + 20), &split, &extra) && extra == 3 && s[split + 1] == 'K' &&
-          u16(e) == 0x10, "the heading row carries the caption, its category kept");
+    CHECK(u16(e + 20) == 5 && u16(e) == 0x10, "the heading row as rbp made it");
     unsigned bytes;
     memcpy(&bytes, message + 0x1c, 4);
     CHECK(bytes == (unsigned)(row_entry(3) - message - 0x70) + 22u + u16(row_entry(3) + 20) * 2u,
           "the message's size follows its rows");
+
+    native_kind = 52;               /* rbp's own second column is KEY (a green key row) */
+    build(ids);
+    browserows_process(context, message, &column);
+    e = row_entry(1);
+    CHECK(!browserows_split((const void *)(e + 22), u16(e + 20), &split, &extra) &&
+          u16(e + 20) == 3, "KEY already shown by rbp: not shown twice");
+    native_kind = 13;
 
     build(ids);
     put16(context + ROWS + 1 * 532 + 4, 0x99);     /* a folder among them */
@@ -180,7 +186,8 @@ static void test_config(void)
     CHECK(browsecol_field("BPM", &caption) == BROWSE_FIELD_BPM && browsecol_field("15", &caption) ==
           BROWSE_FIELD_KEY && browsecol_field("length", &caption) == BROWSE_FIELD_TIME,
           "bpm, 15, length");
-    CHECK(browsecol_field("album", &caption) == 0 && browsecol_field("", &caption) == 0 &&
+    CHECK(browsecol_field("album", &caption) == BROWSE_FIELD_ALBUM, "album");
+    CHECK(browsecol_field("genre", &caption) == 0 && browsecol_field("", &caption) == 0 &&
           browsecol_field(NULL, &caption) == 0, "anything else: off");
 }
 

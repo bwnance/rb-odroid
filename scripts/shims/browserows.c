@@ -28,6 +28,7 @@
 #include <sys/time.h>
 
 #include "rbp_hook.h"
+#include "shimutil.h"       /* klog() */
 
 #define ROW_HOOK 0x001c8048ul       /* GetRightBrowseOne2One(context, message, request) */
 #define SEP 0xfdd0u                 /* noncharacters: the column's value rides in the row */
@@ -76,6 +77,9 @@ static const struct { unsigned address, a, b; } called[] = {
 
 /* ---- rows --------------------------------------------------------------------- */
 static unsigned track_list;
+/* 1 while the page on screen carries the column: a track list whose own second
+ * column is another field. The drawing below moves things only then. */
+static unsigned layout_on;
 static const uint8_t *list_context;
 
 /* rbp's track-row kinds: a list of these is a track list; anything else is the
@@ -495,6 +499,7 @@ void browserows_process(uint8_t *context, uint8_t *message, const struct browse_
 {
     __atomic_store_n(&list_context, context, __ATOMIC_SEQ_CST);
     __atomic_store_n(&track_list, 0u, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&layout_on, 0u, __ATOMIC_SEQ_CST);
     unsigned index = word(context + 4), bytes = word(message + 0x1c), count = half(message + 0x80);
     if (index > 4 || bytes < 20 || bytes > MAX_MESSAGE - 0x70 || count < 2 || count > 15) {
         invalidate_metadata();
@@ -531,6 +536,20 @@ void browserows_process(uint8_t *context, uint8_t *message, const struct browse_
         }
         source += 22 + len * 2;
     }
+    /* rbp's own second column: the first track row's kind (its key icons, 51 and
+     * 52, are the KEY column). The same field twice is not shown. */
+    unsigned native = half(message + 0x84u + 22u + half(message + 0x98u) * 2u);
+    if (native == 51 || native == 52)
+        native = BROWSE_FIELD_KEY;
+    static unsigned last_native, last_field;
+    if (native != last_native || column->field != last_field) {
+        last_native = native;
+        last_field = column->field;
+        klog("knobshim2: browse column: rbp's second column is field %u, ours %u%s\n", native,
+             column->field, native == column->field ? " -- the same, not shown" : "");
+    }
+    if (native == column->field)
+        return;
     unsigned depth = word((uint8_t *)db + 4);
     if (!__sync_bool_compare_and_swap(&busy, 0u, 1u)) {
         invalidate_metadata();
@@ -552,14 +571,18 @@ void browserows_process(uint8_t *context, uint8_t *message, const struct browse_
                 value[0] = 0x2014;
                 value[1] = 0;
             }
-        } else
-            copy_text(value, column->caption, 127);
-        dest += browserows_append(rebuilt + 0x70 + dest, entry, value);
+            dest += browserows_append(rebuilt + 0x70 + dest, entry, value);
+        } else {
+            /* the heading row as rbp made it: the heading on the glass is an image */
+            memcpy(rebuilt + 0x70 + dest, entry, old_size);
+            dest += old_size;
+        }
         source += old_size;
     }
     /* 15 maximum-length rows fit rbp's own 8 KiB message */
     memcpy(rebuilt + 0x1c, &dest, 4);
     memcpy(message, rebuilt, 0x70 + dest);
+    __atomic_store_n(&layout_on, 1u, __ATOMIC_SEQ_CST);
     __sync_lock_release(&busy);
 }
 
@@ -603,6 +626,26 @@ static int ensure(void)
 }
 
 /* ---- the third column on the glass ---------------------------------------------- */
+/* ---- the layout --------------------------------------------------------------------
+ * rbp's track list (layer 0x0801, a window from y 50; read with a render probe on
+ * the unit 2026-10-28) draws, per row, a rectangle x 108|379..857 and another
+ * 857..1280, the note icon at 442 and the title as text 474..844, the second
+ * column's icon at 864 and its text 898..1258 (..1020 on the selected row, where
+ * the floating LOAD buttons sit); 1-pixel dividers at 326, 379, 434 and 855, header
+ * and body; and the headings as images at y 16: TRACK (2603) at 442, the second
+ * column's (BPM 2045 ...) at 862. With the column on, as on a CDJ-3000:
+ *     TRACK 434..740 | the column 740..1040 | rbp's second column 1040..1280
+ * -- the title cut at 729, a divider and the field's own heading image at 740, and
+ * everything of the second column moved 185 right. */
+#define LIST_LAYER  0x0801u
+#define NATIVE_EDGE 855         /* rbp's divider before its second column */
+#define COL_X       740         /* ours */
+#define SHIFT       185         /* rbp's second column: 855 -> 1040 */
+#define TITLE_LEFT  474
+#define TITLE_NATIVE_RIGHT 844
+#define TITLE_RIGHT 729
+#define TEXT_INSET  7           /* heading and text after a divider, as rbp's */
+
 /* The on-screen LOAD 1 / LOAD 2 under a selected row give their room to the
  * column: their touch does nothing while it is shown. The FLX10's LOAD keys call
  * UiKey_Load1/2 directly and still load. */
@@ -636,12 +679,18 @@ static int browse_visible(void)
 
 static void scroll_prepare(unsigned lane, unsigned row)
 {
-    if (lane > 1 || row > 11 || !column || !track_layout()) {
+    if (lane > 1 || row > 11 || !column || !layout_on || !track_layout()) {
         if (lane < 2) {
             scroll_owned[lane] = 0;
             scroll_phase[lane] = 0;
         }
         original_scroll_prepare(lane, row);
+        return;
+    }
+    if (lane == 1) {
+        /* the sort column, moved right, does not scroll: it is drawn cut */
+        scroll_owned[1] = 0;
+        scroll_phase[1] = 0;
         return;
     }
     uint8_t *state = scroll_state + lane * 0x74;
@@ -656,13 +705,13 @@ static void scroll_prepare(unsigned lane, unsigned row)
     void *root = (void *)(unsigned long)word(root_pointer);
     void *glyph = root ? object_by_id(root, (int)(int16_t)half(scroll_ids + 0x100 + (row + lane * 12) * 2)) : 0;
     unsigned right = glyph ? half((uint8_t *)glyph + 0x1c) : 0;
-    /* the right lane measures its own text against its own width only */
-    if (lane == 1 && glyph)
-        put_half((uint8_t *)glyph + 0x1c, 1110);
+    /* the title scrolls inside its narrowed cell */
+    if (glyph)
+        put_half((uint8_t *)glyph + 0x1c, TITLE_RIGHT);
     memcpy(source, scroll_text[lane], (n + 1) * 2);
     original_scroll_prepare(lane, row);
     memcpy(source, saved, sizeof(saved));
-    if (lane == 1 && glyph)
+    if (glyph)
         put_half((uint8_t *)glyph + 0x1c, right);
     put_word(state + 0x20, (unsigned)(unsigned long)scroll_text[lane]);
     scroll_owned[lane] = 1;
@@ -735,7 +784,7 @@ static void scroll_run(unsigned lane)
  * redo its setup for the selected glyph once the layout is final. */
 static void scroll_observe(void *model)
 {
-    if (!column || !track_layout() || !browse_visible() || menu_visible())
+    if (!column || !layout_on || !track_layout() || !browse_visible() || menu_visible())
         return;
     unsigned row = word(scroll_selection);
     if (row >= 12)
@@ -746,7 +795,7 @@ static void scroll_observe(void *model)
     const uint8_t *context = list_context;
     unsigned index = word(context + 4);
     unsigned id = word(context + 0x17eac + index * 0x1d1c + row * 532);
-    for (unsigned lane = 0; lane < 2; lane++) {
+    for (unsigned lane = 0; lane < 1; lane++) {      /* the title's lane only */
         int glyph_id = (int)(int16_t)half(scroll_ids + 0x100 + (row + lane * 12) * 2);
         if (model != object_by_id(root, glyph_id))
             continue;
@@ -769,21 +818,41 @@ static void scroll_observe(void *model)
     }
 }
 
-/* NS_PALRender_DrawText / DrawImage. A text model: rect at 0x18 (left, top,
- * right, bottom), UTF-16 at 0x34, its length byte at 0x38; an image model's ID
- * at 0x44. rbp's font, colour, alignment and window ancestry are kept. */
 typedef void (*draw_fn)(void *, void *);
-static draw_fn original_draw_text, original_draw_image;
-static unsigned caption_ready;
-static uint32_t caption_model[21];
-static void *caption_object;
+static draw_fn original_draw_text, original_draw_image, original_draw_rect;
 
+/* rbp's own heading for a field, from its image table (2026-10-28) */
+static unsigned heading_image(unsigned field)
+{
+    switch (field) {
+    case BROWSE_FIELD_ALBUM: return 2024;
+    case BROWSE_FIELD_ARTIST: return 2032;
+    case BROWSE_FIELD_BPM: return 2045;
+    case BROWSE_FIELD_KEY: return 2409;
+    case BROWSE_FIELD_TIME: return 2598;
+    default: return 0;
+    }
+}
+
+/* Is this draw part of the track list, laid out with the column? */
+static int moving(const uint8_t *m)
+{
+    return column && __atomic_load_n(&layout_on, __ATOMIC_SEQ_CST) && half(m + 0x10) == LIST_LAYER &&
+           track_layout() && browse_visible();
+}
+
+static void shift_x(uint8_t *m, int dx)
+{
+    put_half(m + 0x18, half(m + 0x18) + dx);
+    put_half(m + 0x1c, half(m + 0x1c) + dx);
+}
+
+/* A second-column text carrying our value: rbp's text moved right, ours in the
+ * middle cell. A text model: rect at 0x18 (left, top, right, bottom), UTF-16 at
+ * 0x34, its length byte at 0x38; rbp's font, colour and alignment are kept. */
 static int column_draw(void *render, void *model)
 {
-    const struct browse_column *selected = column;
-    scroll_observe(model);
     uint8_t *m = model;
-    unsigned left = half(m + 0x18), right = half(m + 0x1c);
     const uint16_t *s = (void *)(unsigned long)word(m + 0x34);
     unsigned n = m[0x38], split, extra;
     if (!s || !n)
@@ -795,98 +864,107 @@ static int column_draw(void *render, void *model)
     }
     if (!browserows_split(s, n, &split, &extra))
         return 0;
-    if (right <= left + 24)
-        return 0;
     uint32_t clone[21];
-    memcpy(clone, model, sizeof(clone));
     uint8_t *c = (void *)clone;
-    /* the selected row ends at LOAD 1: reclaim the same right edge as the rest */
-    if (right == 1020)
-        right = 1258;
-    unsigned edge = right - 140;
     uint16_t prefix[256] = { 0 }, value[128] = { 0 };
     memcpy(prefix, s, split * 2);
     memcpy(value, s + split + 1, extra * 2);
+    unsigned left = half(m + 0x18), right = half(m + 0x1c);
+    if (right == 1020)          /* the selected row: the LOAD buttons are hidden */
+        right = 1258;
+    /* rbp's value, moved */
+    memcpy(clone, model, sizeof(clone));
     uint32_t ptr = (uint32_t)(unsigned long)prefix;
     memcpy(c + 0x34, &ptr, 4);
     c[0x38] = (uint8_t)split;
-    put_half(c + 0x1c, edge - 8);
-    int native_prefix = scroll_owned[1] && word(scroll_state + 0x74 + 0x24) &&
-                        (void *)(unsigned long)word(scroll_state + 0x74 + 0x1c) == model;
-    if (!native_prefix)
-        original_draw_text(render, c);
+    put_half(c + 0x18, left + SHIFT);
+    put_half(c + 0x1c, right + SHIFT > 1272 ? 1272 : right + SHIFT);
+    original_draw_text(render, c);
+    /* ours */
     memcpy(clone, model, sizeof(clone));
     ptr = (uint32_t)(unsigned long)value;
     memcpy(c + 0x34, &ptr, 4);
     c[0x38] = (uint8_t)extra;
-    put_half(c + 0x18, edge + 8);
-    put_half(c + 0x1c, right);
-    c[0x3c] = (uint8_t)(c[0x3c] % 3);
+    put_half(c + 0x18, COL_X + TEXT_INSET);
+    put_half(c + 0x1c, NATIVE_EDGE + SHIFT - 12);
     original_draw_text(render, c);
-    if (selected && !caption_ready) {
-        void *root = (void *)(unsigned long)word(root_pointer);
-        if (root) {
-            caption_object = object_by_id(root, COLUMN_HEADING_ID);
-            if (caption_object) {
-                memcpy(caption_model, model, sizeof(caption_model));
-                caption_ready = 1;
-                refresh_object(root, COLUMN_HEADING_ID);
-            }
-        }
-    }
     return 1;
-}
-
-/* The headings are images in another render context than the rows: draw the
- * column's after the heading image, in its window and rectangle, with a row's
- * font -- the first row drawn schedules one refresh of the heading for that. */
-static void column_caption(void *render, void *model)
-{
-    const struct browse_column *c = column;
-    if (!caption_ready || model != caption_object || !__atomic_load_n(&track_list, __ATOMIC_SEQ_CST) ||
-        !track_layout())
-        return;
-    uint32_t clone[21];
-    memcpy(clone, caption_model, sizeof(clone));
-    uint8_t *m = (void *)clone, *source = model;
-    memcpy(m + 8, source + 8, 12);
-    memcpy(m + 0x18, source + 0x18, 8);
-    uint16_t label[128] = { 0 };
-    unsigned n = copy_text(label, c->caption, 127);
-    uint32_t ptr = (uint32_t)(unsigned long)label, color = 0, fill = 0;
-    memcpy(m + 0x34, &ptr, 4);
-    m[0x38] = (uint8_t)n;
-    m[0x3c] = 1;
-    put_half(m + 0x18, 1126);
-    put_half(m + 0x1c, 1258);
-    unsigned center = (half(source + 0x1a) + half(source + 0x1e)) / 2;
-    put_half(m + 0x1a, center > 20 ? center - 20 : 0);
-    put_half(m + 0x1e, center + 20);
-    /* BROWSE text's neutral style, ALL_COLOR_LIST_TEXT[0] */
-    memcpy(m + 0x28, &color, 4);
-    memcpy(m + 0x40, &fill, 4);
-    original_draw_text(render, m);
 }
 
 static void draw_text_hooked(void *render, void *text)
 {
     if (column && column_draw(render, text))
         return;
+    if (moving(text))
+        scroll_observe(text);
+    if (moving(text) && half((uint8_t *)text + 0x18) == TITLE_LEFT &&
+        half((uint8_t *)text + 0x1c) == TITLE_NATIVE_RIGHT) {
+        uint32_t clone[21];
+        memcpy(clone, text, sizeof(clone));
+        put_half((uint8_t *)clone + 0x1c, TITLE_RIGHT);
+        original_draw_text(render, clone);
+        return;
+    }
     original_draw_text(render, text);
 }
 
 static void draw_image_hooked(void *render, void *image)
 {
-    if (column) {
-        /* objects 8 and 9 are the floating LOAD 1 / LOAD 2 images of BROWSE;
-         * the same image IDs elsewhere are left alone */
+    uint8_t *m = image;
+    if (column && __atomic_load_n(&layout_on, __ATOMIC_SEQ_CST)) {
+        /* objects 8 and 9 are the floating LOAD 1 / LOAD 2 of BROWSE; the same
+         * image IDs elsewhere are left alone */
         void *root = (void *)(unsigned long)word(root_pointer);
         if (root && (image == object_by_id(root, 8) || image == object_by_id(root, 9)))
             return;
     }
+    unsigned x = half(m + 0x18);
+    if (moving(m) && x >= NATIVE_EDGE && x < NATIVE_EDGE + 50) {
+        uint32_t clone[21];
+        uint8_t *c = (void *)clone;
+        memcpy(clone, image, sizeof(clone));
+        shift_x(c, SHIFT);
+        original_draw_image(render, c);
+        unsigned heading = heading_image(column->field);
+        if (half(m + 0x1a) < 50 && heading) {      /* the second column's heading */
+            memcpy(clone, image, sizeof(clone));
+            shift_x(c, COL_X + TEXT_INSET - (int)x);
+            memcpy(c + 0x44, &heading, 4);
+            original_draw_image(render, c);
+        }
+        return;
+    }
     original_draw_image(render, image);
-    if (column)
-        column_caption(render, image);
+}
+
+static void draw_rect_hooked(void *render, void *rect)
+{
+    uint8_t *m = rect;
+    if (moving(m)) {
+        unsigned x1 = half(m + 0x18), x2 = half(m + 0x1c);
+        uint32_t clone[21];
+        uint8_t *c = (void *)clone;
+        memcpy(clone, rect, sizeof(clone));
+        if (x1 == NATIVE_EDGE && x2 == NATIVE_EDGE + 1) {       /* the divider: ours, and moved */
+            shift_x(c, COL_X - NATIVE_EDGE);
+            original_draw_rect(render, c);
+            memcpy(clone, rect, sizeof(clone));
+            shift_x(c, SHIFT);
+            original_draw_rect(render, c);
+            return;
+        }
+        if (x2 == NATIVE_EDGE + 2 && x1 < NATIVE_EDGE) {         /* a row's left part */
+            put_half(c + 0x1c, x2 + SHIFT);
+            original_draw_rect(render, c);
+            return;
+        }
+        if (x1 == NATIVE_EDGE + 2 && x2 > x1) {                  /* a row's right part */
+            put_half(c + 0x18, x1 + SHIFT);
+            original_draw_rect(render, c);
+            return;
+        }
+    }
+    original_draw_rect(render, rect);
 }
 
 int browserows_column(const struct browse_column *c)
@@ -901,10 +979,12 @@ int browserows_column(const struct browse_column *c)
     static const uint8_t run_guard[8] = { 0xf0, 0x4f, 0x2d, 0xe9, 0x74, 0x40, 0xa0, 0xe3 };
     static const uint8_t text_guard[8] = { 0xf0, 0x4f, 0x2d, 0xe9, 0x4d, 0xdf, 0x4d, 0xe2 };
     static const uint8_t image_guard[8] = { 0xf0, 0x4f, 0x2d, 0xe9, 0xcc, 0xd0, 0x4d, 0xe2 };
+    /* ldrh r3,[r1,#16] ; push {r4-r11,lr} */
+    static const uint8_t rect_guard[8] = { 0xb0, 0x31, 0xd1, 0xe1, 0xf0, 0x4f, 0x2d, 0xe9 };
     static const struct { unsigned long at; const uint8_t *guard; } sites[] = {
         { 0x11d9b0, load_guard }, { 0x11d83c, load_guard }, { 0x2995c8, prep_guard },
         { 0x2955d8, start_guard }, { 0x29992c, run_guard }, { 0x1d23e4, text_guard },
-        { 0x1d3284, image_guard },
+        { 0x1d3284, image_guard }, { 0x1d2dec, rect_guard },
     };
     for (unsigned i = 0; i < sizeof(sites) / sizeof(*sites); i++)
         if (memcmp((const void *)sites[i].at, sites[i].guard, 8))
@@ -916,9 +996,10 @@ int browserows_column(const struct browse_column *c)
     original_scroll_run = rbp_hook(0x29992c, run_guard, (void *)scroll_run);
     original_draw_text = (draw_fn)rbp_hook(0x1d23e4, text_guard, (void *)draw_text_hooked);
     original_draw_image = (draw_fn)rbp_hook(0x1d3284, image_guard, (void *)draw_image_hooked);
+    original_draw_rect = (draw_fn)rbp_hook(0x1d2dec, rect_guard, (void *)draw_rect_hooked);
     if (!original_load[0] || !original_load[1] || !original_scroll_prepare ||
         !original_scroll_start || !original_scroll_run || !original_draw_text ||
-        !original_draw_image)
+        !original_draw_image || !original_draw_rect)
         return -1;      /* only on mmap/mprotect failing; whatever went in is inert */
     __atomic_store_n(&column, c, __ATOMIC_SEQ_CST);
     return 0;

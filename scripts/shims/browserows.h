@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 /* rbp's metadata kinds, as its rows and DB records carry them */
+#define BROWSE_FIELD_ALBUM  2u
 #define BROWSE_FIELD_ARTIST 7u
 #define BROWSE_FIELD_TIME   11u
 #define BROWSE_FIELD_BPM    13u

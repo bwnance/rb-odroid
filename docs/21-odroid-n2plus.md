@@ -295,8 +295,8 @@ session; details further down):
    matched DirectFB exactly -- trusted" in pointsrc.log). gui_task 82% -> 29%, rbp
    104% -> 39% of a core; the renderer now mostly waits for vblank.
    RB_BLIT_FAST=0 is off.
-11. **rx3-toolkit's track-finding mods -- Key Match taken out; a third BROWSE
-   column built, off, not yet tried** (2026-10-27/28). Ported from rx3-toolkit
+11. **rx3-toolkit's track-finding mods -- a third BROWSE column working (ARTIST
+   on this unit); Key Match taken out** (2026-10-27/28). Ported from rx3-toolkit
    at cc17a1f (MPL-2.0, each file says so): browsecol.c and browserows.c (the
    toolkit's BROWSE row service), in knobshim. Every hook site and called
    function was checked byte for byte against our rbp 1.20 -- the toolkit's
@@ -310,23 +310,31 @@ session; details further down):
      on a big playlist perhaps the whole list, not the visible page. The
      operator would rather have the columns; the code is in b2d5823 if it is
      ever wanted again (keymatch.c, rbp_images.c, rx3_harmony.h).
-   - **Third column** (RB_BROWSE_COLUMN=artist|bpm|key|time; empty = off, as
-     shipped): at the right of a track list, with its heading; folder lists stay
-     rbp's. Its value rides inside rbp's own row text after noncharacters and is
-     split off in NS_PALRender_DrawText (@0x1d23e4); the floating LOAD 1/2 under
-     the selected row give it their room (their touch does nothing, the FLX10's
-     LOAD keys still load), and the selected row's scrolling is held short of it
-     (three scroll-timer hooks). One of those starts with a pc-relative literal
-     load, so rbp_hook.c now moves such a load into the trampoline with its
-     literal. **It shares Key Match's suspect**: the server hook
-     (DBSMain_ListBufRec2CommCmd @0x207dd0) reads each prepared record's
-     fields from the stick, and the client asks the database for rows the
-     snapshot missed. So the first try must be on a 1,200-track playlist,
-     scrolling hard, before anything is built on it.
-   - **What the operator wants** (2026-10-28): CDJ-style -- choose the extra
-     column (ARTIST and the rest) on the unit, not only in rb.conf; earlier,
-     with the preview waveform switchable off to make room. The toolkit's
-     tap-a-heading sort is not ported.
+   - **Third column -- working on the unit** (RB_BROWSE_COLUMN=artist|album|
+     bpm|key|time; empty = off; ARTIST in this unit's rb.local.conf since
+     2026-10-28). No stall on the operator's 1,200-track playlist. Laid out as
+     on a CDJ-3000 (the operator's photo): TRACK | the column | rbp's sort
+     column, far right. Measured with a render probe on the unit: rbp's track
+     list is layer 0x0801, each row two rectangles (x ..857, 857..1280), the
+     title as text 474..844, the second column's icon at 864 and text 898..,
+     1-pixel dividers (855), and the headings are images (ALBUM 2024, ARTIST
+     2032, BPM 2045, KEY 2409, TIME 2598, TRACK 2603). With the column on, the
+     title is cut at 729, a divider and rbp's own heading image for the field go
+     at 740, and everything of the second column moves 185 right (rect, icon,
+     text, heading, divider hooks on PAL DrawRectangle/DrawImage/DrawText). Its
+     value rides inside rbp's own second-column row text after noncharacters.
+     When rbp's second column is already that field (sorted by artist, say), the
+     column is not shown. The floating LOAD 1/2 under the selected row are hidden
+     (their touch does nothing; the FLX10's LOAD keys still load); the selected
+     title scrolls inside its narrower cell, the moved column does not scroll.
+     rbp_hook.c now moves a pc-relative literal load into the trampoline (one of
+     the scroll hooks starts with one).
+   - **Next** (operator, 2026-10-28): choosing the column on the unit (a gear
+     SETTINGS row is the likely way; the CDJ's own heading drop-down can wait);
+     BPM and KEY as separate columns rather than rbp's merged "170.0 bpm - 4B";
+     the preview waveform switchable off for room; the CDJ's PREVIEW (audition
+     from the list) and text size. The toolkit's tap-a-heading sort is not
+     ported.
    - test_browse: the row rewrite on a synthetic rbp context (folder lists
      left alone), the column's transport, the literal relocation.
 12. **Four-deck mode -- wished for, not started** (operator, 2026-10-26). The

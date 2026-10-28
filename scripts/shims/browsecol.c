@@ -13,7 +13,7 @@
  * the drawing and the scrolling are browserows.c. Its tap-a-heading sort is not
  * ported. This file stays under the MPL.
  *
- * RB_BROWSE_COLUMN=artist|bpm|key|time (or the field number, 7 13 15 11); empty
+ * RB_BROWSE_COLUMN=artist|album|bpm|key|time (or the field number, 7 2 13 15 11); empty
  * or 0 = off, BROWSE as rbp ships it.
  */
 #include <stdint.h>
@@ -27,7 +27,8 @@
 
 static const uint16_t bpm[] = { 'B', 'P', 'M', 0 }, key[] = { 'K', 'E', 'Y', 0 },
                       artist[] = { 'A', 'R', 'T', 'I', 'S', 'T', 0 },
-                      duration[] = { 'T', 'I', 'M', 'E', 0 };
+                      duration[] = { 'T', 'I', 'M', 'E', 0 },
+                      album[] = { 'A', 'L', 'B', 'U', 'M', 0 };
 static struct browse_column selected;
 
 /* RB_BROWSE_COLUMN's value as a field and its heading: 0 for off or unknown. Pure,
@@ -35,8 +36,9 @@ static struct browse_column selected;
 unsigned int browsecol_field(const char *value, const uint16_t **caption)
 {
     static const struct { const char *name, *number; unsigned field; const uint16_t *caption; } names[] = {
-        { "artist", "7", BROWSE_FIELD_ARTIST, artist }, { "bpm", "13", BROWSE_FIELD_BPM, bpm },
-        { "key", "15", BROWSE_FIELD_KEY, key }, { "time", "11", BROWSE_FIELD_TIME, duration },
+        { "artist", "7", BROWSE_FIELD_ARTIST, artist }, { "album", "2", BROWSE_FIELD_ALBUM, album },
+        { "bpm", "13", BROWSE_FIELD_BPM, bpm }, { "key", "15", BROWSE_FIELD_KEY, key },
+        { "time", "11", BROWSE_FIELD_TIME, duration },
         { "length", "11", BROWSE_FIELD_TIME, duration },
     };
     if (!value)
@@ -56,7 +58,7 @@ __attribute__((constructor)) static void browsecol_init(void)
         return;
     selected.field = browsecol_field(value, &selected.caption);
     if (!selected.field) {
-        klog("knobshim2: browse column: RB_BROWSE_COLUMN=%s is not artist, bpm, key or time -- off\n",
+        klog("knobshim2: browse column: RB_BROWSE_COLUMN=%s is not artist, album, bpm, key or time -- off\n",
              value);
         return;
     }
