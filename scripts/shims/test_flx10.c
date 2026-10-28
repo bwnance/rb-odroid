@@ -2075,8 +2075,8 @@ int main(void)
           map_flx10.leds->deck_display(0, &m); map_flx10.leds->deck_display(1, &f);
      }
 
-     /* Beat FX quantize: the touch panel's own state sent again 1.5 s after a load;
-      * the first time after a start an OFF goes as ON; nothing without a load */
+     /* Beat FX quantize: the touch panel's own state (the stick's, from rbp) sent again
+      * 1.5 s after a load, as it is; nothing without a load */
      {
           struct deck_info di;
           memset(&di, 0, sizeof di);
@@ -2086,8 +2086,8 @@ int main(void)
           ms(1000); map_flx10.tick();
           CHECK(sent_n == 0, "BFX quantize: nothing within 1.5 s of a load (%d)", sent_n);
           ms(600); map_flx10.tick(); map_flx10.tick();
-          CHECK(sent_n == 1 && is(0, K_EFFECTQUANT, OP_PRESS, CH_GLOBAL) && sent[0].param == 1,
-                "BFX quantize: the panel's OFF goes as ON the first time after a start (%d)", sent_n);
+          CHECK(sent_n == 1 && is(0, K_EFFECTQUANT, OP_PRESS, CH_GLOBAL) && sent[0].param == 0,
+                "BFX quantize: the panel's OFF goes as OFF, the first time too (%d)", sent_n);
           di.total_ms = 180000; map_flx10.leds->deck_display(0, &di);   /* another track */
           ms(1600); map_flx10.tick();
           CHECK(sent_n == 2 && is(1, K_EFFECTQUANT, OP_PRESS, CH_GLOBAL) && sent[1].param == 0,

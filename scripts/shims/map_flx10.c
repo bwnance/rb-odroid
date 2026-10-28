@@ -2440,12 +2440,15 @@ __attribute__((weak)) int flx10_fx_on(void)
  * track, so the panel said ON while the engine stayed off for good (read on the
  * unit 2026-10-27: panel 1, engine 0): TRANS then ran from whenever its ON came
  * in, and played off then on, half a beat out (operator). So the panel's own
- * state goes back through the same key BFXQ_AFTER_LOAD_MS after each load, and
- * the first time after a start an OFF is sent as ON: on by default, the
- * operator's choice. Turned off on the panel, it stays off until the next start. */
+ * state goes back through the same key BFXQ_AFTER_LOAD_MS after each load. What
+ * that state is comes from the stick: rbp reads its MY SETTINGS (DJMMYSETTING.DAT,
+ * the Beat FX quantize byte) when it mounts and sets the panel with it
+ * (TotalMySet_DjmMySetting_Unpac @0x1de448 -> UiSetMixBeatFxQuantizeOn). It used to
+ * be forced ON the first time after a start; it follows the stick now, and
+ * UTILITY's BEAT FX QUANTIZE row (utility_rows.c, flx10_bfxq_set) changes it
+ * (operator, 2026-10-28). */
 #define BFXQ_AFTER_LOAD_MS 1500
 static unsigned long long bfxq_due;
-static int bfxq_defaulted;
 
 /* The panel's state: 1, 0, or -1 when rbp's UI is not up. WEAK for the host test. */
 __attribute__((weak)) int flx10_bfxq_panel(void)
@@ -2464,6 +2467,15 @@ __attribute__((weak)) int flx10_bfxq_panel(void)
      return *(volatile unsigned char *)(uintptr_t)(innards + INNARDS_BFX_QUANTIZE) != 0;
 }
 
+/* UTILITY's BEAT FX QUANTIZE (fbshim.so's utility_rows.c): the panel's own key, so rbp
+ * stores it and the engine takes it when a track allows. 1 = sent. */
+__attribute__((visibility("default"))) int flx10_bfxq_set(int on)
+{
+     send_rx_key(K_EFFECTQUANT, OP_PRESS, CH_GLOBAL, on ? 1 : 0);
+     klog("knobshim2: flx10 Beat FX quantize %s (UTILITY)\n", on ? "on" : "off");
+     return 1;
+}
+
 static void flx10_bfxq_loaded(unsigned long long now)
 {
      bfxq_due = now + BFXQ_AFTER_LOAD_MS;
@@ -2479,9 +2491,6 @@ static void flx10_bfxq_tick(unsigned long long t)
      on = flx10_bfxq_panel();
      if (on < 0)
           return;
-     if (!on && !bfxq_defaulted)
-          on = 1;
-     bfxq_defaulted = 1;
      send_rx_key(K_EFFECTQUANT, OP_PRESS, CH_GLOBAL, on);
      klog("knobshim2: flx10 Beat FX quantize %s again after a load\n", on ? "on" : "off");
 }

@@ -782,7 +782,7 @@ session; details further down):
    the glass was damage the witness's points miss (rbp redraws small parts of its
    title bar). The vsync hook now paints the band whole after every rbp frame
    (menu_frame_tick_vsync, ~0.3 ms), whatever the witness says.
-35. **The headphone mix combed with HP MIX in the middle -- fixed, to hear**
+35. **The headphone mix combed with HP MIX in the middle -- fixed, confirmed by ear**
    (operator, 2026-10-28; audioshim.c). rbp writes each period master, headphones,
    booth (measured: M P B ..., 64 frames a block), and the headphone and booth blocks
    are staged and folded into the master's write -- so the master went out with the
@@ -794,6 +794,14 @@ session; details further down):
    cross-correlated at -1.000 at lag 0 -- rbp's headphone stream is the master's
    polarity inverted. The cue is now folded in inverted back (cue_polarity;
    AUDIO_CUE_INVERT=0 for rbp's own).
+36. **Beat FX quantize follows the stick; UTILITY rows -- built** (operator,
+   2026-10-28). rbp sets the panel's quantize from the stick's DJMMYSETTING.DAT when
+   it mounts (TotalMySet_DjmMySetting_Unpac @0x1de448: the buffer's byte 0x6c, the
+   file's 0x78, 0x81 = on -> UiSetMixBeatFxQuantizeOn). map_flx10.c's after-load
+   resend no longer forces ON the first time after a start; it sends the panel's
+   state as it is. UTILITY's MIXER ends with BEAT FX QUANTIZE (rbp's getter shown,
+   the panel's key sent: flx10_bfxq_set). JOG LCD BRIGHTNESS is left out of
+   UTILITY: the FLX10's jog screens take no brightness from it.
 34. **RX3 touch preview -- not working, to look at** (operator, 2026-10-28). The
    RX3's own touch preview (touching a list row's waveform to audition the track) is
    the ask; the CDJ's PREVIEW audition is not (struck from item 11).

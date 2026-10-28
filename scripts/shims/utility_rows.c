@@ -38,6 +38,7 @@ static const uint32_t ut_lit_rows = 0x0013d9e4;
 #define UT_ROW_JOGIMAGE     13            /* IMAGE ON JOG DISPLAY: the DECK section's last */
 #define UT_ROW_BOOTHATT     19            /* BOOTH MONITOR ATTENUATOR */
 #define UT_ROW_SCREENSAVER  29            /* SCREEN SAVER, in GENERAL */
+#define UT_ROW_JOGLCD       28            /* JOG LCD BRIGHTNESS: the FLX10 has none */
 #define UT_ROW_VERSION      32            /* VERSION No.: "Ver Can't get version." here */
 #define UT_STRSET_OFF_ON    0x00513db8u   /* SLIP FLASHING's values: OFF, ON */
 #define UTIL_SETLINE_MIXERMODE 0x0013b118u /* checked, not called */
@@ -426,6 +427,40 @@ static int ut_unit_isgrey(struct ut_entry *e)
     return unit_index(e) < 0;
 }
 
+/* ---- BEAT FX QUANTIZE, in MIXER (operator, 2026-10-28) ------------------------------
+ * The touch panel's own switch as a row: it shows rbp's setting (UiGetMixBeatFxQuantizeOn,
+ * which a stick's MY SETTINGS sets when it mounts) and a choice goes through the panel's
+ * key (knobshim's flx10_bfxq_set), so rbp stores it as a tap would. */
+#define UI_GET_BFX_QUANTIZE 0x000fe4e0u
+#define UI_SET_BFX_QUANTIZE 0x000fe6b8u
+__attribute__((weak)) int flx10_bfxq_set(int on);
+static const uint16_t l_bfxq[] = { SP6, 'B','E','A','T',' ','F','X',' ','Q','U','A','N','T','I',
+                                   'Z','E', 0 };
+
+static int ut_bfxq_setline(struct ut_entry *e, unsigned char **lines)
+{
+    int idx = e->edit;
+
+    line_put(lines[0], e->label);
+    if (idx == -1)
+        e->cur = idx = ((int (*)(void))(uintptr_t)UI_GET_BFX_QUANTIZE)() ? 1 : 0;
+    line_put(lines[1], idx >= 0 && idx < 2 ? e->values[idx] : 0);
+    return 0;
+}
+
+static int ut_bfxq_enter(struct ut_entry *e)
+{
+    int v = e->edit;
+
+    if (v < 0 || v > 1 || v == e->cur)
+        return 0;
+    if (!flx10_bfxq_set || !flx10_bfxq_set(v))
+        ((void (*)(int))(uintptr_t)UI_SET_BFX_QUANTIZE)(v);
+    pointsrc_log("utility: BEAT FX QUANTIZE -> %s", v ? "ON" : "OFF");
+    e->cur = v;
+    return 1;
+}
+
 /* VERSION No.'s value: "Ver " and VERSION_TEXT (operator, 2026-10-28), ASCII. */
 static uint16_t version_text[40];
 
@@ -535,7 +570,7 @@ int utility_rows_install(void)
 {
     const struct ut_entry *src = (const struct ut_entry *)(uintptr_t)UT_RBP_ROWS;
     const struct ut_entry *slip;
-    struct ut_entry ours[1 + 2 * 5];
+    struct ut_entry ours[2 + 2 * 5];
     int i, n, k;
 
     if (!is_rbp_process() || !rbp_text_mapped())
@@ -589,11 +624,18 @@ int utility_rows_install(void)
         unit_rows[i].fn[UT_FN_ENTER] = (uint32_t)(uintptr_t)ut_unit_enter;
         unit_rows[i].fn[UT_FN_ISGREY] = (uint32_t)(uintptr_t)ut_unit_isgrey;
     }
-    k = 1;
+    /* BEAT FX QUANTIZE before HDMI AUDIO, at MIXER's end */
+    ours[1] = ours[0];
+    ours[0].label = l_bfxq;
+    ours[0].values = v_offon;
+    ours[0].fn[UT_FN_SETLINE] = (uint32_t)(uintptr_t)ut_bfxq_setline;
+    ours[0].fn[UT_FN_ENTER] = (uint32_t)(uintptr_t)ut_bfxq_enter;
+    ours[0].fn[UT_FN_ISGREY] = UTIL_ISGREY;
+    k = 2;
     if (atoi(env_str("SETTINGS_DJM", "0")))
-        k += ut_section(ours + k, src, l_djm, ut_defs, 3, &ours[0]);
+        k += ut_section(ours + k, src, l_djm, ut_defs, 3, &ours[1]);
     if (atoi(env_str("SETTINGS_VNC", "0")))
-        k += ut_section(ours + k, src, l_vnc, ut_defs + 3, 3, &ours[0]);
+        k += ut_section(ours + k, src, l_vnc, ut_defs + 3, 3, &ours[1]);
 
     n = ut_build(&ut_deck, src, UT_RBP_N, UT_ROW_JOGIMAGE, &traffic, 1);
     if (n < 0)
@@ -613,9 +655,11 @@ int utility_rows_install(void)
     for (i = 0; i < n; i++)
         if (ut_table.rows[i].label == src[UT_ROW_VERSION].label)
             ut_table.rows[i].fn[UT_FN_SETLINE] = (uint32_t)(uintptr_t)ut_version_setline;
-    /* SCREEN SAVER left out */
+    /* SCREEN SAVER and JOG LCD BRIGHTNESS left out (operator, 2026-10-28: the FLX10's
+     * jog screens take no brightness from it) */
     for (i = k = 0; i < n; i++)
-        if (ut_table.rows[i].label != src[UT_ROW_SCREENSAVER].label)
+        if (ut_table.rows[i].label != src[UT_ROW_SCREENSAVER].label &&
+            ut_table.rows[i].label != src[UT_ROW_JOGLCD].label)
             ut_table.rows[k++] = ut_table.rows[i];
     n = k;
     ut_table.count = (uint32_t)n;
