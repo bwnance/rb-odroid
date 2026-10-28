@@ -80,6 +80,9 @@ static unsigned track_list;
 /* 1 while the page on screen carries the column: a track list whose own second
  * column is another field. The drawing below moves things only then. */
 static unsigned layout_on;
+/* 1 while the rows' numbers (rbp's # column) are dashes: set and cleared by the
+ * numbers rbp draws */
+static unsigned number_blank;
 static const uint8_t *list_context;
 
 /* rbp's track-row kinds: a list of these is a track list; anything else is the
@@ -707,6 +710,8 @@ static int rows_hooked(void *context, void *message, void *request)
     if (browserows_tick)
         browserows_tick();
     int result = original_rows(context, message, request);
+    /* the # column goes with or without ours: the list is known either way */
+    __atomic_store_n(&list_context, (const uint8_t *)context, __ATOMIC_SEQ_CST);
     const struct browse_column *c = __atomic_load_n(&column, __ATOMIC_SEQ_CST);
     if (c)
         browserows_process(context, message, c);
@@ -763,6 +768,13 @@ static int ensure(void)
 #define TITLE_NATIVE_RIGHT 844
 #define TITLE_RIGHT 729
 #define TEXT_INSET  7           /* heading and text after a divider, as rbp's */
+/* rbp's # column, 379..434 (its heading and each row's number), shows only dashes
+ * in a list sorted by anything but CUSTOM: then it goes, and TRACK -- note icon,
+ * title, heading -- moves into its 55 px (operator, 2026-10-28). */
+#define NUMBER_LEFT  379
+#define NUMBER_RIGHT 434        /* its divider */
+#define NUMBER_W     (NUMBER_RIGHT - NUMBER_LEFT)
+#define TRACK_ICON   442        /* the note icon and the TRACK heading */
 
 /* The on-screen LOAD 1 / LOAD 2 under a selected row give their room to the
  * column: their touch does nothing while it is shown. The FLX10's LOAD keys call
@@ -823,14 +835,19 @@ static void scroll_prepare(unsigned lane, unsigned row)
     void *root = (void *)(unsigned long)word(root_pointer);
     void *glyph = root ? object_by_id(root, (int)(int16_t)half(scroll_ids + 0x100 + (row + lane * 12) * 2)) : 0;
     unsigned right = glyph ? half((uint8_t *)glyph + 0x1c) : 0;
+    unsigned left = glyph ? half((uint8_t *)glyph + 0x18) : 0;
     /* the title scrolls inside its narrowed cell */
     if (glyph)
         put_half((uint8_t *)glyph + 0x1c, TITLE_RIGHT);
+    if (glyph && number_blank && left == TITLE_LEFT)
+        put_half((uint8_t *)glyph + 0x18, TITLE_LEFT - NUMBER_W);
     memcpy(source, scroll_text[lane], (n + 1) * 2);
     original_scroll_prepare(lane, row);
     memcpy(source, saved, sizeof(saved));
-    if (glyph)
+    if (glyph) {
         put_half((uint8_t *)glyph + 0x1c, right);
+        put_half((uint8_t *)glyph + 0x18, left);
+    }
     put_word(state + 0x20, (unsigned)(unsigned long)scroll_text[lane]);
     scroll_owned[lane] = 1;
     scroll_phase[lane] = 0;
@@ -952,6 +969,24 @@ static unsigned heading_image(unsigned field)
     }
 }
 
+/* Is this draw part of a track list on screen, column or not? */
+static int listed(const uint8_t *m)
+{
+    return half(m + 0x10) == LIST_LAYER && track_layout() && browse_visible();
+}
+
+static int dashes(const uint8_t *text)
+{
+    const uint16_t *s = (void *)(unsigned long)word(text + 0x34);
+    unsigned n = text[0x38], i;
+    if (!s)
+        return 0;
+    for (i = 0; i < (n == 255 ? 8u : n) && s[i]; i++)
+        if (s[i] != '-' && s[i] != 0x2013 && s[i] != 0x2014 && s[i] != 0x2015 && s[i] != 0x2212)
+            return 0;
+    return i > 0;
+}
+
 /* Is this draw part of the track list, laid out with the column? */
 static int moving(const uint8_t *m)
 {
@@ -1047,6 +1082,13 @@ static void draw_text_hooked(void *render, void *text)
             return;
         }
     }
+    if (listed(text) && half((uint8_t *)text + 0x18) >= NUMBER_LEFT &&
+        half((uint8_t *)text + 0x18) < NUMBER_RIGHT) {
+        int blank = dashes(text);
+        __atomic_store_n(&number_blank, (unsigned)blank, __ATOMIC_RELAXED);
+        if (blank)
+            return;
+    }
     if (moving(text))
         scroll_observe(text);
     if (moving(text) && half((uint8_t *)text + 0x18) >= NATIVE_EDGE &&
@@ -1077,11 +1119,14 @@ static void draw_text_hooked(void *render, void *text)
         }
         return;
     }
-    if (moving(text) && half((uint8_t *)text + 0x18) == TITLE_LEFT &&
+    if (listed(text) && half((uint8_t *)text + 0x18) == TITLE_LEFT &&
         half((uint8_t *)text + 0x1c) == TITLE_NATIVE_RIGHT) {
         uint32_t clone[21];
         memcpy(clone, text, sizeof(clone));
-        put_half((uint8_t *)clone + 0x1c, TITLE_RIGHT);
+        if (moving(text))
+            put_half((uint8_t *)clone + 0x1c, TITLE_RIGHT);
+        if (number_blank)
+            put_half((uint8_t *)clone + 0x18, TITLE_LEFT - NUMBER_W);
         original_draw_text(render, clone);
         return;
     }
@@ -1099,6 +1144,15 @@ static void draw_image_hooked(void *render, void *image)
             return;
     }
     unsigned x = half(m + 0x18);
+    if (number_blank && x >= NUMBER_LEFT && x < TITLE_LEFT && listed(m)) {
+        if (x < NUMBER_RIGHT)
+            return;                                 /* the # heading */
+        uint32_t clone[21];
+        memcpy(clone, image, sizeof(clone));
+        shift_x((uint8_t *)clone, -NUMBER_W);       /* the note icon, the TRACK heading */
+        original_draw_image(render, clone);
+        return;
+    }
     if (moving(m) && x >= NATIVE_EDGE && x < NATIVE_EDGE + 50) {
         uint32_t clone[21];
         uint8_t *c = (void *)clone;
@@ -1120,6 +1174,9 @@ static void draw_image_hooked(void *render, void *image)
 static void draw_rect_hooked(void *render, void *rect)
 {
     uint8_t *m = rect;
+    if (number_blank && half(m + 0x18) == NUMBER_RIGHT && half(m + 0x1c) == NUMBER_RIGHT + 1 &&
+        listed(m))
+        return;                                     /* the # column's divider */
     if (moving(m)) {
         unsigned x1 = half(m + 0x18), x2 = half(m + 0x1c);
         uint32_t clone[21];

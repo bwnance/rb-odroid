@@ -386,6 +386,12 @@ session; details further down):
      what the first try showed), and a local stick's rows never query the database from the row builder:
      a row the snapshot missed shows a dash and is asked again on the next page.
      A remote player's list (PRO DJ LINK) still uses the toolkit's queries.
+   - **The # column goes when it is only dashes** (operator, 2026-10-28): sorted
+     by anything but CUSTOM, rbp's # column (379..434) shows "---" in every row.
+     Then its texts, its heading and its divider (434) are not drawn and TRACK
+     (note icon at 442, title from 474, heading) moves 55 px left; the selected
+     title's scroll is measured from there too. Decided by what rbp draws there:
+     dashes hide it, numbers bring it back, with our column on or off.
    - **Next** (operator, 2026-10-28):
      BPM and KEY as separate columns rather than rbp's merged "170.0 bpm - 4B";
      the preview waveform switchable off for room; the CDJ's PREVIEW (audition
