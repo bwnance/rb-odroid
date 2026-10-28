@@ -846,6 +846,13 @@ static int ensure(void)
  * divider, the field's own heading image and the text, TEXT_INSET in; rbp's second
  * column -- icon, text, heading -- is moved whole into its cell. */
 #define LIST_LAYER  0x0801u
+/* A rectangle's colour word is 5-6-5: red's five bits in the low byte, green's six in
+ * the next, blue's five in the third, each byte's top bits ignored (probed bit by bit
+ * on the unit, 2026-10-28). */
+#define RGB565(r, g, b) (0xff000000u | ((unsigned)(b) >> 3) << 16 | ((unsigned)(g) >> 2) << 8 | \
+                         (unsigned)(r) >> 3)
+#define MARK_GREY   RGB565(189, 190, 189)   /* the headings' text */
+#define MARK_BLUE   RGB565(0, 125, 231)     /* rbp's selected row: its rect's 0xff1c1f00 */
 #define NATIVE_EDGE 855         /* rbp's divider before its second column */
 #define KEY_X       1205
 #define BPM_X       1110
@@ -1105,6 +1112,182 @@ static void scroll_observe(void *model)
 
 typedef void (*draw_fn)(void *, void *);
 static draw_fn original_draw_text, original_draw_image, original_draw_rect;
+static draw_fn real_draw_text, real_draw_image, real_draw_rect;
+
+/* ---- PREVIEW off: the waveform column taken out (operator, 2026-10-28) ---------------
+ * The CDJ-3000's PREVIEW button hides the list's waveforms. rbp draws each row's
+ * waveform (ui_ListBrowse_DrawPreviewWave @0x2980b8) and artwork (DrawJpegData
+ * @0x298c24) into DirectFB windows of their own, placed from one table at 0x02684610,
+ * 0x1c bytes a row: the waveform's window handle at +0xf8 and x at +0x100 (110), the
+ * artwork's at +0x66c and +0x670 (327), each half filled in once (flags +0xf4, +0x668).
+ * With PREVIEW off the waveform windows go (ui_com_draw_DestroyWindow takes the
+ * handle's address, as rbp's own row with no waveform does), the artwork's are made
+ * again PREVIEW_W to the left, and everything the list draws between the artwork and
+ * the title's start -- #, the note icon, TRACK's heading -- moves left with it, the
+ * title keeping its right edge: original_draw_* below are that shift, ahead of rbp. */
+#define PREVIEW_LEFT 108
+#define ART_LEFT     327
+#define PREVIEW_W    (ART_LEFT - 110)
+#define PREVIEW_HEADING 2568        /* "PREVIEW", rbp's image */
+#define SHIFT_END    530            /* left of this (the title's start, TRACK's triangle) */
+static unsigned preview_off;
+
+/* A list model as it is drawn with PREVIEW off: moved into `clone`, or NULL to drop
+ * it, or the model itself when it stays. */
+static void *preview_shift(void *model, uint32_t clone[21], int image)
+{
+    const uint8_t *m = model;
+    if (!__atomic_load_n(&preview_off, __ATOMIC_RELAXED) || half(m + 0x10) != LIST_LAYER)
+        return model;
+    int x0 = (int)half(m + 0x18), x1 = (int)half(m + 0x1c);
+    if (image && x0 >= PREVIEW_LEFT && x0 < ART_LEFT)
+        return word(m + 0x44) == PREVIEW_HEADING ? NULL : model;
+    if (!image && half(m + 0x1a) < 50 && x0 >= PREVIEW_LEFT && x0 < ART_LEFT - 12)
+        return NULL;                /* the waveform heading's own ground */
+    if (x0 < ART_LEFT - 12 || x0 >= SHIFT_END)
+        return model;
+    memcpy(clone, model, 21 * 4);
+    put_half((uint8_t *)clone + 0x18, (unsigned)(x0 - PREVIEW_W));
+    if (x1 <= SHIFT_END + 12)
+        put_half((uint8_t *)clone + 0x1c, (unsigned)(x1 - PREVIEW_W));
+    return clone;
+}
+
+static void shifted_text(void *render, void *model)
+{
+    uint32_t clone[21];
+    void *m = preview_shift(model, clone, 0);
+    if (m)
+        real_draw_text(render, m);
+}
+static void shifted_image(void *render, void *model)
+{
+    uint32_t clone[21];
+    void *m = preview_shift(model, clone, 1);
+    if (m)
+        real_draw_image(render, m);
+}
+static void shifted_rect(void *render, void *model)
+{
+    uint32_t clone[21];
+    void *m = preview_shift(model, clone, 0);
+    if (m)
+        real_draw_rect(render, m);
+}
+
+#define ROW_TABLE   0x02684610u
+#define ROWS_DRAWN  13u
+static void (*destroy_window)(void *) = (void *)0x0018e730u;   /* ui_com_draw_DestroyWindow */
+static void (*original_preview_wave)(unsigned, unsigned);
+static void (*original_jpeg)(unsigned, unsigned);
+
+static void preview_wave_hooked(unsigned list, unsigned row)
+{
+    if (!__atomic_load_n(&preview_off, __ATOMIC_RELAXED) || row >= ROWS_DRAWN) {
+        original_preview_wave(list, row);
+        return;
+    }
+    uint8_t *handle = (uint8_t *)(unsigned long)(ROW_TABLE + 0xf8u + row * 0x1cu);
+    if (word(handle))
+        destroy_window(handle);
+}
+
+/* The artwork windows where PREVIEW wants them: a row's made again when its x moves. */
+static void jpeg_hooked(unsigned list, unsigned row)
+{
+    uint8_t *table = (uint8_t *)(unsigned long)ROW_TABLE;
+    if (!word(table + 0x668))
+        original_jpeg(list, row);   /* fills the table in */
+    unsigned want = __atomic_load_n(&preview_off, __ATOMIC_RELAXED) ? ART_LEFT - PREVIEW_W : ART_LEFT;
+    if (word(table + 0x668) && row < ROWS_DRAWN && word(table + 0x670 + row * 0x1c) != want) {
+        if (word(table + 0x66c + row * 0x1c))
+            destroy_window(table + 0x66c + row * 0x1c);
+        put_word(table + 0x670 + row * 0x1c, want);
+    }
+    original_jpeg(list, row);
+}
+
+static void (*invalidate)(unsigned) = (void *)0x001349b8u;     /* Pub_GuiCom_SndDispInvalidate */
+
+/* ---- the PREVIEW button, on BROWSE's title bar (layer 0x1501) ----------------------
+ * Drawn while a track list is up, between the list's name (rbp's text from x 116, cut
+ * short for it) and the clock (from 969): rbp's selection blue with white text while
+ * the waveforms show, as the CDJ-3000's is, dark grey while they are off. The text is
+ * a copy of the title's own model (rbp's font); the box, of the title bar's ground. A
+ * tap on it is browsesort.c's. */
+#define TITLE_LAYER 0x1501u
+#define BUTTON_X0   840
+#define BUTTON_X1   956
+#define BUTTON_Y0   7
+#define BUTTON_Y1   43
+#define BUTTON_OFF  RGB565(72, 72, 72)
+static uint32_t title_rect[21];
+static unsigned title_rect_ok;
+
+static int button_shown(void)
+{
+    return original_jpeg && browse_visible() && track_layout() &&
+           __atomic_load_n(&track_list, __ATOMIC_SEQ_CST);
+}
+
+int browserows_preview_button(int x, int y)
+{
+    return x >= BUTTON_X0 && x < BUTTON_X1 && y >= 0 && y < 50 && button_shown();
+}
+
+int browserows_preview_shown(void)
+{
+    return !__atomic_load_n(&preview_off, __ATOMIC_RELAXED);
+}
+
+/* The title bar's text drawn: the list's name, cut short, and the button after it. */
+static int title_draw(void *render, void *text)
+{
+    const uint8_t *m = text;
+    if (half(m + 0x10) != TITLE_LAYER || half(m + 0x18) != 116 || !button_shown())
+        return 0;
+    uint32_t clone[21];
+    uint8_t *c = (void *)clone;
+    memcpy(clone, text, sizeof(clone));
+    if (half(c + 0x1c) > BUTTON_X0 - 10)
+        put_half(c + 0x1c, BUTTON_X0 - 10);
+    real_draw_text(render, clone);
+    if (title_rect_ok) {
+        uint32_t box[21];
+        uint8_t *b = (void *)box;
+        unsigned colour = browserows_preview_shown() ? MARK_BLUE : BUTTON_OFF;
+        memcpy(box, title_rect, sizeof(box));
+        memcpy(b + 0x28, &colour, 4);
+        b[0x31] = 1;
+        b[0x24] = 1;
+        put_half(b + 0x18, BUTTON_X0);
+        put_half(b + 0x1c, BUTTON_X1);
+        put_half(b + 0x1a, BUTTON_Y0);
+        put_half(b + 0x1e, BUTTON_Y1);
+        real_draw_rect(render, box);
+    }
+    static const uint16_t label[] = { 'P', 'R', 'E', 'V', 'I', 'E', 'W', 0 };
+    memcpy(clone, text, sizeof(clone));
+    uint32_t at = (uint32_t)(unsigned long)label;
+    memcpy(c + 0x34, &at, 4);
+    c[0x38] = 7;
+    c[0x3c] = (uint8_t)(3u + 1u);       /* centred both ways */
+    put_half(c + 0x18, BUTTON_X0);
+    put_half(c + 0x1c, BUTTON_X1);
+    put_half(c + 0x1a, BUTTON_Y0);
+    put_half(c + 0x1e, BUTTON_Y1);
+    real_draw_text(render, clone);
+    return 1;
+}
+
+void browserows_preview(int on)
+{
+    unsigned off = on ? 0u : 1u;
+    if (__atomic_exchange_n(&preview_off, off, __ATOMIC_SEQ_CST) != off && original_jpeg) {
+        invalidate_metadata();
+        invalidate(0x1000u);        /* BROWSE draws its rows again (Ui_EventTask: BrowseUpdateList) */
+    }
+}
 
 /* rbp's own heading for a field, from its image table (2026-10-28) */
 static unsigned heading_image(unsigned field)
@@ -1392,10 +1575,13 @@ static int column_draw(void *render, void *model)
     return 1;
 }
 
+static int title_draw(void *render, void *text);
 static void draw_text_row(void *render, void *text)
 {
     if (browserows_tick)
         browserows_tick();
+    if (title_draw(render, text))
+        return;
     if (column && column_draw(render, text))
         return;
     if (!column) {
@@ -1472,13 +1658,6 @@ static const struct { unsigned image, sort, text; } headings[] = {
 #define MARK_GAP    8
 #define MARK_W      13          /* a triangle 13 wide, 9 tall: about the headings' */
 #define MARK_H      9           /* capitals (12 px), as the CDJ-3000's */
-/* A rectangle's colour word is 5-6-5: red's five bits in the low byte, green's six in
- * the next, blue's five in the third, each byte's top bits ignored (probed bit by bit
- * on the unit, 2026-10-28). */
-#define RGB565(r, g, b) (0xff000000u | ((unsigned)(b) >> 3) << 16 | ((unsigned)(g) >> 2) << 8 | \
-                         (unsigned)(r) >> 3)
-#define MARK_GREY   RGB565(189, 190, 189)   /* the headings' text */
-#define MARK_BLUE   RGB565(0, 125, 231)     /* rbp's selected row: its rect's 0xff1c1f00 */
 
 /* The sort a row kind is (rbp's own second column, read from its rows). */
 static unsigned kind_sort(unsigned kind)
@@ -1643,6 +1822,9 @@ static void heading_drawn(void *render, void *image)
  * and on the heading already sorted by, the other way (0x4000, plus 0x8000 for down). */
 int browserows_heading_sort(int x, int y)
 {
+    if (__atomic_load_n(&preview_off, __ATOMIC_RELAXED) && x >= ART_LEFT - PREVIEW_W &&
+        x < SHIFT_END - PREVIEW_W)
+        x += PREVIEW_W;             /* where rbp draws what is shown there */
     if (y < LIST_TOP || y >= LIST_TOP + 50 || x < NUMBER_LEFT || !track_layout() ||
         !browse_visible() || menu_visible() || !__atomic_load_n(&track_list, __ATOMIC_SEQ_CST))
         return -1;
@@ -1740,6 +1922,10 @@ static void draw_image_row(void *render, void *image)
 
 static void draw_rect_hooked(void *render, void *rect)
 {
+    if (half((uint8_t *)rect + 0x10) == TITLE_LAYER && !title_rect_ok) {
+        memcpy(title_rect, rect, sizeof(title_rect));      /* the PREVIEW button's model */
+        title_rect_ok = 1;
+    }
     uint8_t *m = rect;
     if (number_blank && half(m + 0x18) == NUMBER_RIGHT && half(m + 0x1c) == NUMBER_RIGHT + 1 &&
         listed(m))
@@ -1841,16 +2027,28 @@ int browserows_install(void)
     original_scroll_prepare = rbp_hook(0x2995c8, prep_guard, (void *)scroll_prepare);
     original_scroll_start = rbp_hook(0x2955d8, start_guard, (void *)scroll_start);
     original_scroll_run = rbp_hook(0x29992c, run_guard, (void *)scroll_run);
-    original_draw_text = (draw_fn)rbp_hook(0x1d23e4, text_guard, (void *)draw_text_hooked);
-    original_draw_image = (draw_fn)rbp_hook(0x1d3284, image_guard, (void *)draw_image_hooked);
-    original_draw_rect = (draw_fn)rbp_hook(0x1d2dec, rect_guard, (void *)draw_rect_hooked);
+    real_draw_text = (draw_fn)rbp_hook(0x1d23e4, text_guard, (void *)draw_text_hooked);
+    real_draw_image = (draw_fn)rbp_hook(0x1d3284, image_guard, (void *)draw_image_hooked);
+    real_draw_rect = (draw_fn)rbp_hook(0x1d2dec, rect_guard, (void *)draw_rect_hooked);
+    original_draw_text = shifted_text;
+    original_draw_image = shifted_image;
+    original_draw_rect = shifted_rect;
+    /* push {r4-r11,lr} ; add r7,r0,#1 / add r10,r0,#1: the waveform and artwork rows */
+    static const uint8_t wave_guard[8] = { 0xf0, 0x4f, 0x2d, 0xe9, 0x01, 0x70, 0x80, 0xe2 };
+    static const uint8_t jpeg_guard[8] = { 0xf0, 0x4f, 0x2d, 0xe9, 0x01, 0xa0, 0x80, 0xe2 };
+    if (!memcmp((const void *)0x2980b8ul, wave_guard, 8) &&
+        !memcmp((const void *)0x298c24ul, jpeg_guard, 8) &&
+        word((const void *)0x2985fcul) == ROW_TABLE && word((const void *)0x2991ecul) == ROW_TABLE) {
+        original_preview_wave = rbp_hook(0x2980b8, wave_guard, (void *)preview_wave_hooked);
+        original_jpeg = rbp_hook(0x298c24, jpeg_guard, (void *)jpeg_hooked);
+    }
     /* movw r3,#0x15cc ; cmp r0,r3: NS_GetImageInfoByID, for the blue headings only */
     static const uint8_t info_guard[8] = { 0xcc, 0x35, 0x01, 0xe3, 0x03, 0x00, 0x50, 0xe1 };
     if (!memcmp((const void *)0x1d192cul, info_guard, 8))
         original_image_info = rbp_hook(0x1d192c, info_guard, (void *)image_info_hooked);
     if (!original_load[0] || !original_load[1] || !original_scroll_prepare ||
-        !original_scroll_start || !original_scroll_run || !original_draw_text ||
-        !original_draw_image || !original_draw_rect)
+        !original_scroll_start || !original_scroll_run || !real_draw_text ||
+        !real_draw_image || !real_draw_rect)
         return -1;      /* only on mmap/mprotect failing; whatever went in is inert */
     installed = 1;
     return 0;

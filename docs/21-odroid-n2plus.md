@@ -669,6 +669,22 @@ session; details further down):
    - Checked on the unit with a test hook (/run/rbp/browse.tap, "x y": a tap there):
      BPM up 153 -> 155 and down 230 first; ARTIST up and down; LIST MENU > SORT >
      KEY lights KEY the same way a tap does.
+32. **PREVIEW, the CDJ-3000's button -- done** (operator, 2026-10-28; browserows.c,
+   browsesort.c). A PREVIEW button on BROWSE's title bar (x 840..956, between the
+   list's name and the clock) while a track list is up: rbp's blue with white text
+   while the waveforms show, dark grey while they are off; a tap turns them off or on
+   and writes /run/rbp/browse.preview (on|off), read with the column's file.
+   rbp draws each row's waveform (ui_ListBrowse_DrawPreviewWave @0x2980b8) and artwork
+   (ui_ListBrowse_DrawJpegData @0x298c24) into DirectFB windows of their own, placed
+   from one table at 0x02684610, 0x1c bytes a row (waveform handle +0xf8, x +0x100 =
+   110; artwork handle +0x66c, x +0x670 = 327). With PREVIEW off the waveform windows
+   are destroyed as rbp's own row without one is (ui_com_draw_DestroyWindow on the
+   handle's address), the artwork's are made again 217 px left, and whatever the list
+   draws from the artwork to the title's start (#, the note icon, TRACK's heading and
+   triangle) moves left with it, the title keeping its right edge -- a layer under all
+   of browserows.c's drawing. The switch redraws at once through
+   Pub_GuiCom_SndDispInvalidate(0x1000) (BrowseUpdateList). Checked on the unit, both
+   ways, and the button is absent on folder lists.
 
 How rbp sorts a browse list (read 2026-10-27, for whoever needs it next; a
 default playlist sort was built on it and dropped -- the operator loads the sort

@@ -197,27 +197,50 @@ static void keys_hooked(unsigned node, unsigned code, int grouped)
 }
 
 /* ---- the finger (pointsrc.c, in fbshim) -------------------------------------------
- * A press on a heading is kept, with its release, from rbp; the release on the same
- * heading sorts. 1 = taken. */
+ * A press on a heading, or on the PREVIEW button, is kept, with its release, from rbp;
+ * the release on the same one acts. 1 = taken. */
+#define PREVIEW_FILE "/run/rbp/browse.preview"
+#define ON_BUTTON    (-2)
+
+static void preview_toggle(void)
+{
+    int on = !browserows_preview_shown();
+    browserows_preview(on);
+    int fd = open(PREVIEW_FILE ".tmp", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd >= 0) {
+        ssize_t n = write(fd, on ? "on\n" : "off\n", on ? 3 : 4);
+        close(fd);
+        if (n > 0)
+            rename(PREVIEW_FILE ".tmp", PREVIEW_FILE);
+    }
+    klog("knobshim2: browse: PREVIEW %s\n", on ? "on" : "off");
+}
+
 __attribute__((visibility("default"))) int browse_heading_touch(int down, int x, int y)
 {
     static int held, sort, missed;
     if (!held) {
         if (!down)
             return 0;
-        int at = browserows_heading_sort(x, y);
-        if (at < 0)
+        int at = browserows_preview_button(x, y) ? ON_BUTTON : browserows_heading_sort(x, y);
+        if (at == -1)
             return 0;
         held = 1;
         sort = at;
         missed = 0;
         return 1;
     }
-    if (browserows_heading_sort(x, y) != sort)
+    int now = sort == ON_BUTTON ? (browserows_preview_button(x, y) ? ON_BUTTON : -1)
+                                : browserows_heading_sort(x, y);
+    if (now != sort)
         missed = 1;
     if (!down) {
         held = 0;
-        if (!missed && !__atomic_load_n(&wanted, __ATOMIC_SEQ_CST)) {
+        if (missed)
+            return 1;
+        if (sort == ON_BUTTON)
+            preview_toggle();
+        else if (!__atomic_load_n(&wanted, __ATOMIC_SEQ_CST)) {
             __atomic_store_n(&wanted, (unsigned)sort + 1u, __ATOMIC_SEQ_CST);
             post();
         }

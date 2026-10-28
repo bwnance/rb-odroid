@@ -26,6 +26,11 @@ int browserows_install(void);
 /* UTILITY's TRAFFIC LIGHT: a row whose key matches the MASTER's lights its KEY
  * cell green (on), or not. */
 void browserows_traffic_light(int on);
+/* The CDJ's PREVIEW: the list's waveform column shown (on) or taken out. */
+void browserows_preview(int on);
+/* Is (x, y) on the PREVIEW button (shown with a track list)? Are the waveforms shown? */
+int browserows_preview_button(int x, int y);
+int browserows_preview_shown(void);
 /* A stick went in, out or was re-exported: forget every value read from one. */
 void browserows_forget(void);
 /* The column shown from the next page on; NULL = none. Any thread. */

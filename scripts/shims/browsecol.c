@@ -306,6 +306,9 @@ static char choice_path[128];
 /* UTILITY's TRAFFIC LIGHT row (utility_rows.c, in fbshim) writes on or off here; no
  * file, or anything but "off", is on */
 static char traffic_path[128];
+/* the PREVIEW button (browsesort.c, on BROWSE's title bar) writes on or off here; no
+ * file, or anything but "off", shows the waveforms */
+static char preview_path[128];
 static const char *start_word = "";
 static unsigned tick_gate;
 static int sort_in;          /* tap-to-sort installed (browsesort.c) */
@@ -442,6 +445,14 @@ static void tick(void)
         traffic[n > 0 ? n : 0] = 0;
     }
     browserows_traffic_light(strncmp(traffic, "off", 3) != 0);
+    char preview[8] = { 0 };
+    fd = open(preview_path, O_RDONLY);
+    if (fd >= 0) {
+        ssize_t n = read(fd, preview, sizeof preview - 1);
+        close(fd);
+        preview[n > 0 ? n : 0] = 0;
+    }
+    browserows_preview(strncmp(preview, "off", 3) != 0);
     if (sort_in)
         browsesort_poll();
     __sync_lock_release(&tick_gate);
@@ -456,6 +467,8 @@ __attribute__((constructor)) static void browsecol_init(void)
     start_word = env_str("BROWSE_COLUMN", "");
     snprintf(traffic_path, sizeof traffic_path, "%s",
              env_str("BROWSE_TRAFFIC_FILE", "/run/rbp/browse.trafficlight"));
+    snprintf(preview_path, sizeof preview_path, "%s",
+             env_str("BROWSE_PREVIEW_FILE", "/run/rbp/browse.preview"));
     if (start_word[0] && strcmp(start_word, "0") && strcmp(start_word, "off") && find(start_word) < 0)
         klog("knobshim2: browse column: RB_BROWSE_COLUMN=%s is not artist, album, bpm, key or "
              "time -- off until chosen\n", start_word);
