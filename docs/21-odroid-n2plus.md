@@ -492,6 +492,14 @@ session; details further down):
    2026-10-28, with the touchscreen newly connected: a "CXDIS" panel, 1920x1080
    raw, picked up by pointsrc without a restart). Dragging a list moves it in
    steps rather than smoothly.
+27. **No touch on the BEAT FX area -- wished for, not started** (operator,
+   2026-10-28: "it is buggy and i don't like it"). Two layers there: the shim's
+   own zone (fx_zone.c: tap CH SELECT to cycle 1/2/MASTER, tap the effect name
+   for a fourteen-row picker), which RB_POINT_FX_TOUCH=0 already turns off; and
+   rbp's own touch controls in that panel (the STATUS / BEAT FX toggle and the
+   rest), which nothing blocks yet -- that needs pointsrc to swallow touches in
+   the panel's rectangle on the PERFORMANCE screen. Which of the two is the buggy
+   one is to ask; likely both off.
 
 How rbp sorts a browse list (read 2026-10-27, for whoever needs it next; a
 default playlist sort was built on it and dropped -- the operator loads the sort
