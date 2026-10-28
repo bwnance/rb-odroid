@@ -1706,6 +1706,9 @@ int main(void)
           CHECK(jd_cc_v[0x41] == 0x05, "BF 41: the unit's 05 (%d)", jd_cc_v[0x41]);
           CHECK(jd_note_v[0x3D] == 0x00 && jd_note_v[0x40] == 0x7F && jd_cc_v[0x46] == 0x30,
                 "unreported ones: the captured values");
+          CHECK(jd_note_v[0x47] < 0 && jd_note_v[0x49] < 0 && jd_cc_v[0x42] < 0 && jd_note_v[0x45] < 0,
+                "the unit's audio settings, unreported: not sent (%d %d %d %d)", jd_note_v[0x47],
+                jd_note_v[0x49], jd_cc_v[0x42], jd_note_v[0x45]);
           CHECK(note70_n == 1, "9F 70 not sent twice");
           CHECK(dk_note_v[0][101] == 0 && dk_note_v[1][101] == 0, "KEY SYNC LED sent dark on connect");
      }

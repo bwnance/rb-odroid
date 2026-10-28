@@ -3800,9 +3800,9 @@ static const unsigned char flx10_init_sx_0c[] = {
      0xF0, 0x00, 0x40, 0x05, 0x00, 0x00, 0x04, 0x01, 0x00, 0x00, 0x0C, 0x00, 0x00,
      0x02, 0x0E, 0x0E, 0x00, 0x00, 0x00, 0xF7 };
 /* ch 16 notes (0x9F) and CCs (0xBF), in rekordbox's order */
-/* ...but 9F 47 is the master's mono / stereo (7F stereo, capture_settings): sent as
- * the capture had it (00) before the unit had reported its own, it made the
- * master mono (operator, 2026-10-28). Stereo here. */
+/* (9F 47 is the master's mono / stereo, 7F stereo: sent as the capture had it, 00,
+ * before the unit had reported its own, it made the master mono (2026-10-28). The
+ * unit's audio settings are not sent from here at all now: unit_audio_setting.) */
 static const unsigned char flx10_init_short[][3] = {
      { 0x9F, 0x70, 0x00 },
      { 0x9F, 0x40, 0x7F }, { 0x9F, 0x41, 0x00 }, { 0x9F, 0x42, 0x7F },
@@ -3838,15 +3838,25 @@ static void flx10_unit_setting(int ch, int is_cc, int num, int val)
      unit_set[is_cc][num - UNIT_SET_LO] = val;
 }
 
+/* The unit's audio settings (flx10_unit_tick): kept on the unit, never sent from
+ * the capture -- one the unit has not reported yet is left as the unit has it, so
+ * a slow report cannot put a default over the operator's choice (2026-10-28). */
+static int unit_audio_setting(int is_cc, int num)
+{
+     if (is_cc)
+          return num >= 0x42 && num <= 0x44;
+     return num == 0x3F || num == 0x45 || (num >= 0x47 && num <= 0x4A) || num == 0x4E;
+}
+
 /* What to send for one of rekordbox's setup messages: the unit's own value
- * when it has reported one, the captured value otherwise. */
+ * when it has reported one, the captured value otherwise; -1 for nothing. */
 static int flx10_setup_value(const unsigned char *m)
 {
      int is_cc = (m[0] & 0xF0) == 0xB0;
      if (m[1] >= UNIT_SET_LO && m[1] <= UNIT_SET_HI &&
          unit_set[is_cc][m[1] - UNIT_SET_LO] >= 0)
           return unit_set[is_cc][m[1] - UNIT_SET_LO];
-     return m[2];
+     return unit_audio_setting(is_cc, m[1]) ? -1 : m[2];
 }
 
 static void flx10_display_init(unsigned long long now)
@@ -3891,10 +3901,13 @@ static void flx10_display_init(unsigned long long now)
           const unsigned char *m = flx10_init_short[k];
           if (m[0] == 0x9F && m[1] == 0x70)
                continue;                       /* went out first */
+          int v = flx10_setup_value(m);
+          if (v < 0)
+               continue;                       /* the unit's own, unreported */
           if ((m[0] & 0xF0) == 0x90)
-               midi_note(m[0] & 0x0F, m[1], flx10_setup_value(m));
+               midi_note(m[0] & 0x0F, m[1], v);
           else
-               midi_cc(m[0] & 0x0F, m[1], flx10_setup_value(m));
+               midi_cc(m[0] & 0x0F, m[1], v);
      }
      for (int d = 0; d < 4; d++) {
           flx10_bpm_sysex(d, 0, sx);             /* 0F x6: blank, as rekordbox */
