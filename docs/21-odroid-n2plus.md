@@ -349,7 +349,9 @@ session; details further down):
      the table did. rbp reads the same flag for its own unsorted second column
      (the operator saw it turn to ALBUM). With rbp sorted, the column shows the
      chosen field beside the sort's; unsorted, both would be the same, so ours
-     hides. RB_BROWSE_COLUMNS=0 removes every hook; RB_BROWSE_COLUMN is only the
+     hides. A stick whose MY SETTINGS has no Column (no flagged row), or one not
+     shown here (RATING, GENRE ...), turns the column off (operator, 2026-10-28).
+     RB_BROWSE_COLUMNS=0 removes every hook; RB_BROWSE_COLUMN is only the
      start before a stick or the panel says anything.
    - Lesson (2026-10-28, rbp down ~4 min): a shim must not call stat() -- rbp's
      glibc 2.13 exports no `stat` symbol, so knobshim failed to load ("undefined
@@ -392,7 +394,13 @@ session; details further down):
      (note icon at 442, title from 474, heading) moves 55 px left; the selected
      title's scroll is measured from there too. Decided by what rbp draws there:
      dashes hide it, numbers bring it back, with our column on or off.
-   - **Next** (operator, 2026-10-28):
+   - **Next** (operator, 2026-10-28): the sort options from the stick's MY
+     SETTINGS -- table 18 is the players' SORT list (each row a rekordbox id,
+     rbp's MODULEMAIN_CATESORT category, a flag and a menu position), so COLUMN's
+     submenu could offer the same keys, in the same order, as the stick's SORT
+     (GetSortMenuList @0x2575a8 builds SORT's from it via dbcl_GetRightMenu
+     @0x263674); categories not shown yet (RATING, GENRE, COMMENT, LABEL ...)
+     would need their values in the snapshot;
      BPM and KEY as separate columns rather than rbp's merged "170.0 bpm - 4B";
      the preview waveform switchable off for room; the CDJ's PREVIEW (audition
      from the list) and text size. The toolkit's tap-a-heading sort is not

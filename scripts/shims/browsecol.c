@@ -15,8 +15,9 @@
  * export.pdb, table 18 (the players' SORT list, rows of 8 bytes: rekordbox's id,
  * rbp's MODULEMAIN_CATESORT id, a flag, the menu position), as the one row whose
  * flag is 2: found by exporting ARTIST, then ALBUM, and comparing, 2026-10-28.
- * rbp reads the same flag for its own unsorted second column. With neither,
- * RB_BROWSE_COLUMN.
+ * rbp reads the same flag for its own unsorted second column. A stick with no
+ * Column there, or one not shown here, turns the column off. With no stick and no
+ * choice yet, RB_BROWSE_COLUMN.
  *
  * Adapted from rx3-toolkit (github.com/Tratosca/rx3-toolkit at cc17a1f,
  * MPL-2.0): mod/modules/browse-columns/rx3_browse_columns_module.c. This file
@@ -222,9 +223,10 @@ static void look_at_sticks(void)
         unsigned category = stick_column(path);
         const char *word = browsecol_category_word(category);
         klog("knobshim2: browse column: USB%u's MY SETTINGS column is category %u (%s)\n", s + 1,
-             category, word ? word : "not one shown here");
-        if (word)
-            write_choice(word);
+             category, word ? word : "none shown here -- off");
+        /* no Column set there (no flagged row), or one not shown here: off, not
+         * whatever the last stick chose (operator, 2026-10-28) */
+        write_choice(word ? word : "off");
     }
 }
 
