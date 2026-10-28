@@ -564,6 +564,18 @@ session; details further down):
    rest), which nothing blocks yet -- that needs pointsrc to swallow touches in
    the panel's rectangle on the PERFORMANCE screen. Which of the two is the buggy
    one is to ask; likely both off.
+28. **The deck drawers -- removed** (operator, 2026-10-28: "kill that ... it's
+   useless"). The swipe-in drawers at the screen's left and right edges (a
+   volume/pitch fader, nudges, SYNC / MASTER / CUE / PLAY) are gone: side_zone.c,
+   side_paint.c and test_side.c deleted; pointsrc.c no longer feeds them, sends
+   their keys or reports the second touch contact (it only existed for the two
+   faders); menu_draw.c no longer composites their planes; menu_zone.c's band
+   no longer waits on them. A swipe at either edge reaches rbp as before the
+   drawers. Left behind on purpose: RB_SIDE_NUDGE_PCT in rb.conf and start-rb.sh
+   (dead now; removing it wants a RB_CONF_VERSION bump, and the unit's copies of
+   both files carry another session's uncommitted edits), pitch_state.c (the maps
+   still publish the tempo position), and comments in other modules and in
+   docs/07-touch.md / docs/08-controls.md that name the drawers as history.
 
 How rbp sorts a browse list (read 2026-10-27, for whoever needs it next; a
 default playlist sort was built on it and dropped -- the operator loads the sort

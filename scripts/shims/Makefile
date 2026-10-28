@@ -371,17 +371,12 @@ master_policy.o: master_policy.c master_policy.h
 #                  libasound2-dev out -- so there is no include path and nothing
 #                  to link. The WINDOW is presented on this same plane, handed
 #                  over from the band: DRM master is one per device.
-#   side_zone.o    the left/right edge drawers' geometry, hit test and gesture --
-#                  CUE, PLAY and an absolute channel fader per deck (pure,
-#                  unit-tested). menu_zone.o's shape, rotated onto the x axis
-#   side_paint.o   the drawer's image: title, the two transport boxes, the fader
-#                  and its readout (pure, unit-tested)
 #   fx_zone.o     the BEAT FX panel's two controls: the CH SELECT cycle and the
 #                  effect picker rbp's own effect-name cell raises -- one column,
 #                  fourteen rows, in the order the FLX4's FX SELECT button steps
 FBSHIM_OBJS := fb_shim.o tscfake.o pointsrc.o point_xform.o touch_zone.o \
                fb_cursor.o cursor_paint.o menu_zone.o menu_paint.o menu_draw.o \
-               drmband.o side_zone.o side_paint.o util_zone.o \
+               drmband.o util_zone.o \
                wave_zone.o fx_zone.o fx_paint.o \
                hc_zone.o usb_label.o fxpad_zone.o fxpad_paint.o padmode_zone.o \
                deckbadge_zone.o deckbadge_paint.o deckbadge_plane.o bpmbox_zone.o \
@@ -401,9 +396,9 @@ FBSHIM_HDRS := tscfake.h pointsrc.h point_xform.h touch_zone.h syscalls.h \
                padmode_zone.h hc_zone.h deckbadge_zone.h bpmbox_zone.h deckbadge_paint.h \
                deckbadge_plane.h vidmask.h \
                envutil.h fb_cursor.h cursor_paint.h fbdev.h menu_zone.h \
-               menu_paint.h menu_font.h menu_draw.h drmband.h side_zone.h \
+               menu_paint.h menu_font.h menu_draw.h drmband.h \
                gear_icon.h \
-               side_paint.h rbp_vu.h util_zone.h wave_zone.h \
+               rbp_vu.h util_zone.h wave_zone.h \
                fx_zone.h fx_paint.h hc_zone.h usb_label.h \
                fxpad_zone.h fxpad_paint.h pitch_state.h \
                settings_zone.h settings_paint.h controllers.h usb_devices.h \
@@ -436,7 +431,7 @@ tscfake.o: tscfake.c tscfake.h pointsrc.h
 fb_shim.o: CFLAGS += -Wno-nonnull-compare -Wno-maybe-uninitialized
 
 pointsrc.o: pointsrc.c pointsrc.h point_xform.h tscfake.h touch_zone.h \
-            rbp_key.h rbp_abi.h menu_zone.h side_zone.h rbp_vu.h \
+            rbp_key.h rbp_abi.h menu_zone.h \
             fx_zone.h usb_label.h fxpad_zone.h
 point_xform.o: point_xform.c point_xform.h
 touch_zone.o: touch_zone.c touch_zone.h
@@ -457,15 +452,7 @@ menu_paint.o: menu_paint.c menu_paint.h menu_zone.h menu_font.h gear_icon.h
 # header is listed.
 menu_draw.o: menu_draw.c menu_draw.h menu_paint.h menu_zone.h fbdev.h \
              point_xform.h pointsrc.h drmband.h \
-             side_zone.h side_paint.h rbp_vu.h pitch_state.h \
-             fx_zone.h fx_paint.h fxpad_zone.h fxpad_paint.h
-# side_zone.o and side_paint.o are pure, and their headers carry the whole
-# interface: side_zone.h for the geometry and the gesture, side_paint.h for the
-# view it draws over. side_paint.o takes side_zone.h as well because every
-# rectangle it draws is a SZ_* literal from it -- a dependency that is not written
-# down is a rebuild that silently does not happen.
-side_zone.o: side_zone.c side_zone.h menu_zone.h
-side_paint.o: side_paint.c side_paint.h side_zone.h menu_paint.h menu_font.h
+             pitch_state.h fx_zone.h fx_paint.h fxpad_zone.h fxpad_paint.h
 # util_zone.o is pure in the same way and takes menu_zone.h only for the MZ_FEED_*
 # vocabulary its one door answers in -- it links no rbp symbol and reads no address,
 # which is why the state it needs arrives in a struct and not from rbp. Its own
@@ -493,8 +480,8 @@ settings_paint.o: settings_paint.c settings_paint.h settings_zone.h menu_paint.h
 # answers in, and for nothing else -- it links no rbp symbol and reads no address,
 # which is why rbp's answer about its Beat FX channel is read by pointsrc.c and
 # arrives here as an argument. fx_paint.o takes fx_zone.h as well because every
-# rectangle it draws is an FX_* literal from it, the same dependency side_paint.o
-# has on side_zone.h.
+# rectangle it draws is an FX_* literal from it -- a dependency that is not written
+# down is a rebuild that silently does not happen.
 fx_zone.o: fx_zone.c fx_zone.h menu_zone.h
 fx_paint.o: fx_paint.c fx_paint.h fx_zone.h menu_paint.h menu_font.h
 # hc_zone.o is the seventh of the pure family and is fx_zone.o's shape exactly, right
@@ -665,7 +652,7 @@ pcmprobe: ../../tools/pcmprobe.c
 # fb_cursor.o is linked and the kernel is scripted, so what is pinned is the retry
 # and the rectangle -- see that file's header.
 TESTS := test_point test_g2d test_audio test_midi test_flx4 test_flx10 test_kbd test_cursor \
-         test_evdev test_cursor_dev test_menu test_side \
+         test_evdev test_cursor_dev test_menu \
          test_menu_dev test_util test_wave test_fx test_hc test_fxpad \
          test_led_table test_plinn_scan test_controllers test_usblabel test_netalias \
          test_pitch test_keylog test_padmode test_deckbadge test_bpmbox \
@@ -734,35 +721,10 @@ test_point: test_point.c tscfake.c point_xform.c touch_zone.c $(FBSHIM_HDRS)
 # framebuffer is a local array: there is no device, no thread and no rbp anywhere
 # in it, which is the whole reason both modules are pure. What it stops is a
 # gesture rule or a column boundary that is only ever checked by a finger.
-#
-# side_zone.c is on the link line because menu_zone.c's closed-entry arm now asks
-# side_any_open() -- the ONE SURFACE gate -- so the band does not compile without
-# the drawer's state. It is the REAL object, not a stub: a stub would answer "no
-# drawer is ever open" and quietly make the test agree with a gate that does not
-# work.
-test_menu: test_menu.c menu_zone.c menu_paint.c side_zone.c menu_zone.h gear_icon.h \
-           menu_paint.h menu_font.h side_zone.h
+test_menu: test_menu.c menu_zone.c menu_paint.c menu_zone.h gear_icon.h \
+           menu_paint.h menu_font.h
 	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
-	    -Wall -Wextra -static -o $@ test_menu.c menu_zone.c menu_paint.c \
-	    side_zone.c
-
-# test_side links the PRODUCTION side_zone.c and side_paint.c -- the shipped gesture,
-# the shipped geometry and the shipped pixels -- and menu_zone.c with them, because
-# the ONE SURFACE rule is a statement about two modules at once: the drawer must not
-# arm while the band is open, and the band must not arm while a drawer is open. Driving
-# both real feeders is the only way to pin that. Its surface is a local array: no
-# framebuffer, no plane, no thread, no device. What it stops is a hit boundary, a sweep
-# threshold, a mirror or a fader mapping that is only ever checked by a finger.
-test_side: test_side.c side_zone.c side_paint.c menu_zone.c menu_paint.c gear_icon.h \
-           side_zone.h side_paint.h menu_zone.h menu_paint.h menu_font.h
-	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
-	    -Wall -Wextra -static -o $@ test_side.c side_zone.c side_paint.c \
-	    menu_zone.c menu_paint.c
-
-# side_zone.c is the same story one level down: menu_zone.c -- linked for
-# MZ_LOGICAL_* and MZ_STRIP_Y1 -- calls side_any_open() from its closed-entry arm,
-# so the band's source cannot link without the drawer's state. Real object, not a
-# stub; see test_menu's note.
+	    -Wall -Wextra -static -o $@ test_menu.c menu_zone.c menu_paint.c
 
 # test_util pins the UTILITY screen's gesture. It links the PRODUCTION util_zone.c and
 # nothing else: menu_zone.h is #defines and declarations, so the module needs no other
@@ -899,36 +861,34 @@ test_keylog: test_keylog.c keylog.c keylog.h
 
 # test_settings is the pure pair's shape, for the settings panel. The same
 # five objects are on the line and for the same reasons -- menu_pixel() is the one
-# palette, menu_label()/menu_button_x0/x1() and side_any_open() come out of menu_zone.c,
+# palette, menu_label()/menu_button_x0/x1() come out of menu_zone.c,
 # and the box's surface is a local array with no framebuffer, no plane, no thread and no
 # rbp in it. What it stops is the three things settings_zone.c's header and its own
 # test header name: the value-only target's two halves (a tap on a label must not act
 # AND must not dismiss), the dim row's refusal, and a readout that claims a route the
 # unit is not taking.
 test_settings: test_settings.c settings_zone.c settings_paint.c menu_paint.c gear_icon.h \
-               menu_zone.c side_zone.c settings_zone.h settings_paint.h \
-               menu_paint.h menu_zone.h menu_font.h side_zone.h
+               menu_zone.c settings_zone.h settings_paint.h \
+               menu_paint.h menu_zone.h menu_font.h
 	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
 	    -Wall -Wextra -static -o $@ test_settings.c settings_zone.c \
-	    settings_paint.c menu_paint.c menu_zone.c side_zone.c
+	    settings_paint.c menu_paint.c menu_zone.c
 
 # test_fx links the PRODUCTION fx_zone.c and fx_paint.c, and menu_paint.c and
 # menu_zone.c with them for the family's reasons: the picker's palette
 # comes from menu_pixel(), so the sixth drawn surface cannot drift into colours the
 # other five do not have, and menu_paint.c's layout code calls menu_label() and
-# menu_button_x0/x1(), which live in menu_zone.c. side_zone.c is on the line because
-# menu_zone.c's closed-entry arm calls side_any_open() in turn -- the same chain
-# test_settings and test_side both carry.
+# menu_button_x0/x1(), which live in menu_zone.c.
 #
 # Its surface is a local array: no framebuffer, no plane, no thread, no rbp. What it
 # stops is a tap on rbp's own panel firing the wrong control, a picker that answers a
 # row the finger never anchored to, and above all a box that closes itself or a release
 # that reaches rbp with no press behind it.
-test_fx: test_fx.c fx_zone.c fx_paint.c menu_paint.c menu_zone.c side_zone.c gear_icon.h \
-         fx_zone.h fx_paint.h menu_paint.h menu_zone.h menu_font.h side_zone.h
+test_fx: test_fx.c fx_zone.c fx_paint.c menu_paint.c menu_zone.c gear_icon.h \
+         fx_zone.h fx_paint.h menu_paint.h menu_zone.h menu_font.h
 	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
 	    -Wall -Wextra -static -o $@ test_fx.c fx_zone.c \
-	    fx_paint.c menu_paint.c menu_zone.c side_zone.c
+	    fx_paint.c menu_paint.c menu_zone.c
 
 # test_hc links the PRODUCTION hc_zone.c -- not a copy and not the cross-built .o,
 # so the test needs no arm object to run. hc_zone.c is pure: rbp's pad mode and its
@@ -965,8 +925,8 @@ test_bpmbox: test_bpmbox.c bpmbox_zone.c bpmbox_zone.h
 	    -Wall -Wextra -static -o $@ test_bpmbox.c bpmbox_zone.c
 
 
-# test_fxpad links the PRODUCTION fxpad_zone.c AND fxpad_paint.c -- test_fx.c and
-# test_side.c carry their feature's painter for the same reason: the HUD's two marks are
+# test_fxpad links the PRODUCTION fxpad_zone.c AND fxpad_paint.c -- test_fx.c
+# carries its feature's painter for the same reason: the HUD's two marks are
 # drawn over rbp's own pixels, and "which pixels of the operator's readout survive" is
 # exactly the property a copy of the code would get wrong without anyone noticing. Neither
 # is a copy and neither is the cross-built .o, so the test needs no arm object to run.
@@ -976,13 +936,13 @@ test_bpmbox: test_bpmbox.c bpmbox_zone.c bpmbox_zone.h
 # the three neighbouring rects the cell must not overlap; fx_zone.c is NOT linked, because
 # nothing here calls it. menu_paint.c and menu_zone.c come with fxpad_paint.c for the
 # reasons test_fx names -- the palette is menu_pixel()'s, and menu_paint.c's layout calls
-# into menu_zone.c, which in turn calls side_any_open().
+# into menu_zone.c.
 test_fxpad: test_fxpad.c fxpad_zone.c fxpad_paint.c menu_paint.c menu_zone.c gear_icon.h \
-            side_zone.c fxpad_zone.h fxpad_paint.h fx_zone.h menu_paint.h \
-            menu_zone.h menu_font.h side_zone.h
+            fxpad_zone.h fxpad_paint.h fx_zone.h menu_paint.h \
+            menu_zone.h menu_font.h
 	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
 	    -Wall -Wextra -static -o $@ test_fxpad.c fxpad_zone.c fxpad_paint.c \
-	    menu_paint.c menu_zone.c side_zone.c
+	    menu_paint.c menu_zone.c
 
 test_audio: test_audio.c s24pack.c s24pack.h mirror_policy.c mirror_policy.h \
             master_policy.c master_policy.h pace_policy.c pace_policy.h
@@ -1132,39 +1092,21 @@ test_cursor_dev.o: test_cursor_dev.c fb_cursor.h fbdev.h cursor_paint.h \
 # whose plane cannot be had, so every assertion below is made against the FALLBACK
 # route -- the fb0 path this shipped with. That is exactly the path the tests were
 # written for, and it has to keep working.
-# side_zone.o, side_paint.o and fader_state.o are here because menu_draw.o now calls
-# the drawers: the plane handover and the repaint gate are part of the driver this
-# pins. side_zone.o and side_paint.o are the REAL objects for the same reason
-# drmband.o is -- the shipped geometry, the shipped gesture and the shipped pixels --
-# and fader_state.o is the one default-visibility definition of g_fader that the
-# drawer's handle reads in place, exactly as the shim does.
 MENU_TEST_OBJS := test_menu_dev.o menu_draw.o menu_paint.o menu_zone.o \
-                  point_xform.o drmband.o side_zone.o \
-                  side_paint.o fx_zone.o fx_paint.o \
+                  point_xform.o drmband.o fx_zone.o fx_paint.o \
                   fxpad_zone.o fxpad_paint.o fader_state.o rbp_transport.o \
                   pitch_state.o deckbadge_zone.o deckbadge_paint.o \
                   settings_zone.o settings_paint.o
 
-# The drawer's wrappers, and they are the ONE exception to "drmband.o is the real
-# object". --wrap=drm_band_* lets scenario_drawer() hand the module a plane that
-# exists, so the handover and the repaint gate can be pinned at all -- with no
-# /dev/dri they are both unreachable, and a gate that has degenerated into "always"
-# is invisible when the fallback paints every tick anyway. The wrapper is ARMED only
-# inside that one scenario; everywhere else it delegates to the real drmband.o and
-# the fallback route is untouched. --wrap=side_paint is there for the same scenario:
 test_menu_dev: $(MENU_TEST_OBJS)
 	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
 	    -Wall -Wextra -static -o $@ $(MENU_TEST_OBJS) \
 	    -Wl,--wrap=syscall -Wl,--wrap=malloc -Wl,--wrap=usleep \
-	    -Wl,--wrap=drm_band_setup -Wl,--wrap=drm_band_show \
-	    -Wl,--wrap=drm_band_hide -Wl,--wrap=drm_band_teardown \
-	    -Wl,--wrap=side_paint \
 	    -Wl,--wrap=rbp_perf_screen -Wl,--wrap=deckbadge_plane_sync \
 	    -lpthread -lm -lc
 
 test_menu_dev.o: test_menu_dev.c menu_draw.h menu_paint.h menu_zone.h \
-                 point_xform.h pointsrc.h fbdev.h side_zone.h side_paint.h \
-                 rbp_vu.h
+                 point_xform.h pointsrc.h fbdev.h
 	$(CC) -O2 -march=armv5t -mfloat-abi=soft -fno-stack-protector \
 	    -Wall -Wextra -c -o $@ $<
 

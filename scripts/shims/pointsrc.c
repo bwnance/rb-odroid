@@ -17,7 +17,6 @@
 #include "tscfake.h"
 #include "touch_zone.h"
 #include "menu_zone.h"
-#include "side_zone.h"
 #include "util_zone.h"
 #include "wave_zone.h"
 #include "fx_zone.h"
@@ -53,15 +52,6 @@
 #include "rbp_abi.h"
 #include "rbp_key.h"
 
-/* The channel faders the drawers drive. The *send* is rbp_key's, but a fader is
- * also the meter bridge's input, so the position has to be recorded where the
- * meter (knobshim, rbp_vu.c) will read it -- and fader_state.o is linked into both
- * shims so that "where it reads it" is this same array. fader_state.c says why that
- * object exists at all. */
-#include "rbp_vu.h"
-#include "pitch_state.h"  /* g_pitch_norm: the fader a nudge cell moves from, and the
-                           * shared-object arrangement that lets fbshim read a
-                           * knobshim-published position at all */
 
 #include <errno.h>
 #include <fcntl.h>
@@ -112,8 +102,9 @@ _Static_assert(sizeof(struct ev_absinfo) == 24,
  * panel sends it before every contact's own axes, and reading it is the difference
  * between two fingers and one pointer that teleports. It was read once before, while
  * the waveform gesture was a two-finger pinch; that gesture was rejected and the
- * read went with it (docs/07-touch.md has that history), and it is back now for the
- * drawers' faders, which are the one thing here that genuinely wants two hands. */
+ * read went with it (docs/07-touch.md has that history). It came back for the edge
+ * drawers' two faders and stays now they are gone (2026-10-28): a second finger's
+ * axes must still be told apart from the first's. */
 #define ABS_MT_SLOT           0x2f
 #define ABS_MT_POSITION_X     0x35
 #define ABS_MT_POSITION_Y     0x36
@@ -121,8 +112,8 @@ _Static_assert(sizeof(struct ev_absinfo) == 24,
 
 /* TWO CONTACTS, AND NO MORE. The panel's HID descriptor declares ten fingers, and
  * the reader keeps per-slot state for exactly two of them: slot 0, the PRIMARY
- * contact every other surface in this shim is built around, and slot 1, which the
- * edge drawers take and nothing else does. A third finger's events are recognised
+ * contact every other surface in this shim is built around, and slot 1, which nothing
+ * reads (the edge drawers took it until 2026-10-28). A third finger's events are recognised
  * and DROPPED at their own slot index -- the number is not clamped, because
  * clamping would land a third finger's position in the second one's slot and
  * re-create the very defect this dimension exists to remove. */
@@ -1667,267 +1658,6 @@ static void hc_fire(int deck, int pad)
     send_rx_key(hc_pad_keycode(pad), OP_RELEASE, deck + 1, 0);
 }
 
-/* The drawers' keys and fader, on their way to rbp.
- *
- * THE TWO TRANSPORT KEYS ARE PLAIN PRESS/RELEASE, and that is the difference from
- * menu_fire() above: rbp's CUE and PLAY handlers act on the press alone (the same
- * shape map_flx4.c uses -- one press edge, one release edge, back to back), so there
- * is no synthesized hold here and no usleep. A transport button has no second meaning
- * and nothing to wait for; the band's MENU key has both, which is why it does.
- *
- * The channel is side_channel(): 1 for the left drawer (deck 1) and 2 for the right
- * (deck 2) -- rbp's send-channel argument, which is what keeps one on-screen CUE from
- * being both decks' CUE.
- *
- * THE FADER IS AN ABSOLUTE VALUE, not a move. K_FADER takes the 10-bit position and
- * the normalised float -- exactly what map_flx4.c's CC handler sends for the hardware
- * fader, and the call the operator's own measurement used to take a silent channel to
- * audible (docs/09-audio.md). There is no MIDI and no device in this path at all.
- *
- * The bookkeeping line is not optional. rbp_vu.c seeds BOTH channel faders to unity
- * for ~30 s after rbp starts its mixer, gated on g_fader_seen -- so a fader the
- * operator has moved stops being overridden only if the same array the meter reads
- * says a surface reported one. That is the whole reason fader_state.o exists; writing
- * these two globals directly from this file would have created a second copy
- * invisible to knobshim, and the seed would have won for the first 30 s of every run.
- *
- * SYNC IS PRESS AND RELEASE, like CUE and PLAY, and it is one key on one channel:
- * K_SYNC addressed to this side's deck. It is the same key the FLX4's own SYNC button
- * sends (map_flx4.c), so the drawer and the hardware cannot disagree about what
- * syncing is.
- */
-
-/* ---------------------------------------------------------------------------
- * THE NUDGE, WHICH IS THE TEMPO SLIDER AND NOT A BEND.
- *
- * rbp has no nudge keycode and does not need one: it has a TEMPO SLIDER, and the
- * FLX4's own pitch fader drives it with an absolute position --
- *
- *   send_rx_key_fl(K_TEMPO_SLIDER 0x4109, OP_VALUE, ch, v10, norm, pos)
- *                                                             [-1..+1] 14-bit
- *
- * -- which is map_flx4.c's flx4_pitch(), the call this borrows rather than inventing
- * anything, and the one map_jp21.c makes too. So the drawer's '-' and '+' are, at the
- * wire, a hand on that fader: the press moves it and the release puts it back.
- *
- * THE RELEASE READS THE FADER AT THAT MOMENT rather than restoring a value captured at
- * the press, and the difference is deliberate. If something moves the fader during the
- * hold -- the hardware's own pitch fader, or the DRAWER's when it is in pitch mode, which
- * is a second writer of the same number since 2026-10-12 -- its messages have already
- * taken the tempo there, and a release that restored a stale capture would yank the tempo
- * back and fight the hand that had just moved it. Reading at the release is right in both
- * cases -- and it is the same number when the fader never moved, which is the only case a
- * bench shows. The cost of the second writer is that a nudge and a pitch-fader drag
- * landing on the same deck at the same time resolve to "whichever spoke last", which is
- * the honest answer for two hands on one control.
- *
- * The position comes from pitch_state.o, which exists precisely because the writer is
- * knobshim.so's map and this is fbshim.so, loaded FIRST: see that header. With no
- * controller attached the published value is the fader's centre, which is where rbp's
- * own tempo slider cold-starts, so the pair still works on the machine the drawers
- * exist for.
- *
- * The size is the one soft number, and it is a calibration settled on the glass in one
- * restart rather than in a rebuild: SIDE_NUDGE_PCT, PERCENT OF THE FADER'S TRAVEL --
- * see pitch_state.h for why that unit and not tempo points.
- *
- * `nudge_running[]` is the cell each side is holding RIGHT NOW (-1 back, +1 forward, 0
- * none). It is what makes this idempotent: the edges come from side_zone.c's acts, and
- * side_nudge_sync() reconciles them against side_nudging() on the paths where no report
- * will arrive to deliver an edge. Without it, a finger lost with the touch device would
- * leave the tempo moved with nothing on the glass able to put it back.
- * ------------------------------------------------------------------------- */
-#define SZ_NUDGE_PCT_DEFAULT  5.0
-
-static int nudge_running[2];
-
-static void side_nudge(int side, int want)
-{
-    float pct = (float)env_double("SIDE_NUDGE_PCT", SZ_NUDGE_PCT_DEFAULT);
-    float fader, norm;
-    int ch, v10;
-
-    if (side != SZ_LEFT && side != SZ_RIGHT)
-        return;
-    if (want == nudge_running[side])
-        return;              /* already doing that: one message per edge is the whole
-                              * protocol, and there is no repeat clock here or wanted */
-    nudge_running[side] = want;
-
-    ch = side_channel(side);
-    fader = g_pitch_norm[side];             /* the fader's own position, RIGHT NOW */
-    norm = pitch_nudge_norm(fader, want, pct);
-    v10 = pitch_v10_from_norm(norm);
-
-    /* The log states the fader it moved FROM as well as what it sent, because those
-     * two numbers are the whole diagnosis: a nudge that "does nothing" is usually one
-     * that was clamped at the end of the travel, or one taken from a fader no surface
-     * has ever reported. */
-    pointsrc_log("pointsrc: side %s nudge %s -> key %#x op %d ch%d norm %+.3f"
-                 " (fader %+.3f%s, pct %.2f)",
-                 side ? "right" : "left",
-                 want > 0 ? "forward" : (want < 0 ? "back" : "restore"),
-                 K_TEMPO_SLIDER, OP_VALUE, ch, (double)norm, (double)fader,
-                 g_pitch_seen[side] ? "" : ", no fader seen", (double)pct);
-    send_rx_key_fl(K_TEMPO_SLIDER, OP_VALUE, ch, (long)v10, norm,
-                   (long)pitch_pos_from_norm(norm));
-}
-
-/* The reconciler, for the paths where no report will arrive. Called after
- * side_reset_all(), which is where a finger can stop existing without a release edge:
- * the touch device going away, and the menu being switched off under a held press. In
- * both, side_zone.c has already forgotten the press, so side_nudging() reads 0 and
- * this is what actually puts the tempo back. It is idempotent, so calling it on a
- * quiet system sends nothing. */
-static void side_nudge_sync(void)
-{
-    int i;
-
-    for (i = 0; i < 2; i++)
-        side_nudge(i, side_nudging(i));
-}
-
-/* A BUTTON THAT IS ONE KEYCODE AND NOTHING ELSE: press, release, and the line that says
- * which. Six of the drawer's controls are exactly this -- SYNC, MASTER, CUE, PLAY and the
- * two discs -- and they were six copies of the same four lines until the discs arrived, at
- * which point the copy stopped being shorter than the call. `what` is the word that goes
- * in the log, and it is the LABEL on the glass so that a log line and a button can be
- * matched by eye. */
-static void side_key(int side, int key, const char *what)
-{
-    int ch = side_channel(side);
-
-    pointsrc_log("pointsrc: side %s %s -> key %#x ch%d", side ? "right" : "left",
-                 what, key, ch);
-    send_rx_key(key, OP_PRESS, ch, 0);
-    send_rx_key(key, OP_RELEASE, ch, 0);
-}
-
-static void side_act(int side, int act, int value)
-{
-    int ch = side_channel(side);
-
-    switch (act) {
-    case SZ_ACT_SYNC:
-        side_key(side, K_SYNC, "SYNC");
-        break;
-    case SZ_ACT_MASTER:
-        /* K_MASTER is rbp's "this deck is the master" designation -- the other half of the
-         * beat-match pair SYNC sits beside. It carries no value: which deck is master is
-         * rbp's own state and it is what rbp's screen shows. */
-        side_key(side, K_MASTER, "MASTER");
-        break;
-    case SZ_ACT_CUE:
-        side_key(side, K_CUE, "CUE");
-        break;
-    case SZ_ACT_PLAY:
-        side_key(side, K_PLAY, "PLAY");
-        break;
-    case SZ_ACT_RANGE:
-        /* A CYCLE, not a value: rbp advances +-6 -> +-10 -> +-16 -> WIDE on each press, and
-         * the shim is never told which one it lands on (pitch_state.h), which is why the
-         * disc has no lit state and why the nudge's size is expressed in fader travel. */
-        side_key(side, K_TEMPO_RANGE, "tempo range");
-        break;
-    case SZ_ACT_MT:
-        /* MASTER TEMPO (key lock). A toggle on rbp's side; the disc lights from rbp's own
-         * predicate, through RBP_TRANSPORT_MT. */
-        side_key(side, K_MT, "master tempo");
-        break;
-    case SZ_ACT_NUDGE_REV:
-        side_nudge(side, -1);
-        break;
-    case SZ_ACT_NUDGE_FWD:
-        side_nudge(side, +1);
-        break;
-    case SZ_ACT_NUDGE_STOP:
-        side_nudge(side, 0);
-        break;
-    case SZ_ACT_MODE:
-        /* THE TOGGLE HAS ALREADY HAPPENED. side_zone.c flips its own mode and reports
-         * this as the notification (side_zone.h's side_mode() note), so there is nothing
-         * to send: the mode is the panel's, and rbp is told the fader's VALUE by whichever
-         * of the two messages the next drag produces. The line exists because it is the
-         * only place that says which control the strip is on -- and a drag's own line
-         * does not, since both modes report the same 0..1023 position. */
-        pointsrc_log("pointsrc: side %s fader is now %s", side ? "right" : "left",
-                     side_mode(side) == SZ_MODE_PITCH ? "PITCH" : "VOLUME");
-        break;
-    case SZ_ACT_FADER:
-        /* WHICH MESSAGE THIS IS DEPENDS ON WHAT THE FADER IS, and this arm is the only
-         * place the two modes differ. The drawer reports the same 0..1023 position either
-         * way: its arithmetic does not know about modes, because side_zone.h's contract
-         * is that the module says WHICH control and leaves the message to the caller.
-         *
-         * PITCH sends exactly what the nudge pair sends, from exactly the same place --
-         * the position the finger is on, as the tempo slider's own 10-bit value, with the
-         * norm DERIVED FROM IT rather than the other way round. pitch_state.h's
-         * pitch_norm_from_v10() note says why: the forward map truncates, so re-deriving
-         * v10 from the norm would lose a step for 84 of the 1024 positions, and the value
-         * on the wire would no longer be the deduped one side_zone.c produced.
-         *
-         * AND THE FADER IS TURNED OVER, which is `pitch_norm_for_fader()` and not
-         * `pitch_norm_from_v10()`: the operator's own correction, *"sliding up should
-         * bring the tempo down not up"* (2026-10-12). The top of the track is the slow
-         * end. menu_draw.c draws the handle through the matching `pitch_v10_for_fader()`,
-         * so the two cannot disagree about which way up the control is; the NORM itself
-         * is unchanged, and a nudge's '+' still means forward.
-         *
-         * It then PUBLISHES that position, which is what keeps the nudge pair honest: a
-         * nudge moves FROM where this fader left the tempo, so the two surfaces cannot
-         * come to disagree about the position they are both describing.
-         *
-         * THE CHANNEL FADER IS NOT TOUCHED IN PITCH MODE. fader_state_set() would move
-         * the operator's volume, which is the one thing a pitch control must never do --
-         * and the same reason the readout is suppressed on the glass. */
-        if (side_mode(side) == SZ_MODE_PITCH) {
-            float norm = pitch_norm_for_fader(value);
-
-            pointsrc_log("pointsrc: side %s pitch ch%d -> %d (norm %+.3f)",
-                         side ? "right" : "left", ch, value, (double)norm);
-            send_rx_key_fl(K_TEMPO_SLIDER, OP_VALUE, ch, value, norm,
-                           (long)pitch_pos_from_norm(norm));
-            pitch_state_set(side, norm);
-        } else {
-            /* The value is logged for every change -- a full-height drag is a few hundred
-             * lines and not a few thousand, because side_zone.c only reports a change --
-             * and it is the only line that says what the drawer actually sent. */
-            pointsrc_log("pointsrc: side %s fader ch%d -> %d", side ? "right" : "left",
-                         ch, value);
-            send_rx_key_f(K_FADER, OP_VALUE, ch, value, (float)value / 1023.0f);
-            fader_state_set(ch, value);
-        }
-        break;
-    default:
-        break;
-    }
-}
-
-/* A swallowed drawer tap, given back to rbp -- menu_replay_tap()'s twin, and the
- * same three reasons apply verbatim: the drawer cannot hand rbp the original report
- * (it is gone, and the drawer had to decide the gesture), a bare release would be a
- * release for a press rbp never had, and it is replayed at the point the finger
- * LANDED because that is what the operator aimed at.
- *
- * The one difference is the coordinate: side_tap_point() hands back ABSOLUTE logical
- * px, because the drawer's own frame is panel-local and mirror-reversed and tscfake
- * emits in the pointer's space. Doing the un-mirroring anywhere else would put it in
- * two places. */
-static void side_replay_tap(int side)
-{
-    int tx = 0, ty = 0;
-    int dwell_ms = env_int("POINT_MENU_TAP_MS", POINT_MENU_TAP_DEFAULT_MS);
-
-    side_tap_point(side, &tx, &ty);
-    pointsrc_log("pointsrc: side %s edge tap at (%d,%d) is not a swipe or a button"
-                 " -> replayed to rbp as a press (held %dms)",
-                 side ? "right" : "left", tx, ty, dwell_ms);
-    tscfake_emit(1, tx, ty);
-    if (dwell_ms > 0)
-        usleep((useconds_t)dwell_ms * 1000);
-    tscfake_emit(0, tx, ty);
-}
-
 /* A swallowed strip tap, given back to rbp.
  *
  * The operator's fourth finding on the glass was that the strip's cost was more
@@ -2096,7 +1826,7 @@ static int wave_zoom_ok(int allow_menu)
         am_rbp = is_rbp_process();
     if (!am_rbp)
         return 0;
-    if (menu_is_open() || side_any_open())
+    if (menu_is_open())
         return 0;
 
     return RB_WAVE_ZOOM_OK(rbp_i32(UIBROWSE_GLOBAL + UIBROWSE_OFF_MODE),
@@ -2166,29 +1896,8 @@ static void wave_swipe(int allow_menu, int down, int x, int y)
     }
 }
 
-/* The drawers' open/close, said out loud. side_zone.c is pure and has no log of its
- * own (menu_zone.c's rule), so the transition is noticed here, where the log lives.
- * Two integer compares per report, and one line per transition -- the line the drill
- * reads to know the swipe arrived at all, as opposed to the key it may or may not
- * have produced. */
-static void side_log_transitions(void)
-{
-    static int was[2] = { -1, -1 };
-    int i;
-
-    for (i = 0; i < 2; i++) {
-        int now = side_is_open(i);
-
-        if (now != was[i]) {
-            pointsrc_log("pointsrc: side %s drawer %s", i ? "right" : "left",
-                         now ? "open" : "closed");
-            was[i] = now;
-        }
-    }
-}
-
 /* One report, in the one order that works: the menu decides whether rbp sees this
- * press at all, then a drawer, then rbp's own UTILITY screen if it is the one in
+ * press at all, then rbp's own UTILITY screen if it is the one in
  * front, then the QUANTIZE box interprets it, then it goes to rbp.
  *
  * THE MENU IS FIRST because it owns the whole report when it takes it. rbp gets
@@ -2198,16 +1907,9 @@ static void side_log_transitions(void)
  * press never advances the box's edge state. That is what leaves the next real
  * press on a QUANTIZE box still a fresh press (test_point.c pins it).
  *
- * THE DRAWERS ARE LAST OF THE THREE, and the band's own precedence is inside
- * side_zone.c (its closed-entry arm refuses while the band is open) -- which is why an
- * open band, which swallows at full width, still answers first and a drawer cannot
- * steal the tap that dismisses it. side_feed_any() is the one call and it returns which
- * drawer answered, because only that drawer knows the channel the key or the fader
- * value goes out on.
- *
  * MZ_FEED_TAP is the one swallowed answer rbp does hear, and it hears a *different*
- * press: the swallowing surface's own copy, emitted here (menu_replay_tap /
- * side_replay_tap) rather than forwarded. So even that report takes neither the
+ * press: the swallowing surface's own copy, emitted here (menu_replay_tap)
+ * rather than forwarded. So even that report takes neither the
  * QUANTIZE box nor the original coordinates.
  *
  * `allow_menu` is the caller's answer to "may the menu have this one": the
@@ -2288,7 +1990,6 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
 {
     int button = 0;
     int verdict = MZ_FEED_NONE;
-    int side = -1, sact = SZ_ACT_NONE, svalue = 0;
 
     /* Everything below that turns a finger into a keycode is labelled "touch"
      * for the key dump. Set once, here, rather than beside each of the ~15 sends
@@ -2361,21 +2062,12 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
     if (allow_menu)
         verdict = menu_feed(down, x, y, &button);
 
-    if (verdict == MZ_FEED_NONE && allow_menu)
-        verdict = side_feed_any(SZ_PTR_MAIN, down, x, y, &side, &sact, &svalue);
-
-    /* After the one call that can change it and before any of the three ways out, so
-     * an open and the key it produced land on consecutive lines. */
-    side_log_transitions();
-
     /* THE BEAT FX PANEL'S THREE TAPS, after every shim surface and before rbp's own screen
      * -- the same rung the UTILITY gesture sits on and for the same reason: these are
      * controls rbp PAINTS, so every surface drawn over them must get first refusal. The
      * three rects are the header bar (x 1090..1269, y 57..85) and the two inset boxes
-     * (x 1100..1259, at y 98..137 and y 168..203), which the right-hand drawer
-     * (x 1100..1279, full height) covers completely while it is out, and which the band's
-     * panel is drawn across -- so an open surface of any kind wins, by the rectangle it
-     * already owns through side_feed_any() and by the explicit gates here.
+     * (x 1100..1259, at y 98..137 and y 168..203), which the band's panel is drawn
+     * across -- so an open band wins, by the explicit gates here.
      *
      * NOT GATED ON `allow_menu` and not gated on the drawer being shut for its own sake:
      * POINT_FX_TOUCH is these three controls' own switch, and a press that misses all three
@@ -2385,7 +2077,7 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * leave the performance screen under a press that is already down, and a swallowed
      * press on a screen that no longer has the panel is a control firing on nothing. */
     if (verdict == MZ_FEED_NONE && fx_touch && rbp_perf_screen() &&
-        !menu_is_open() && !side_any_open()) {
+        !menu_is_open()) {
         int fact = FX_ACT_NONE;
 
         if (fx_feed(down, x, y, &fact) != MZ_FEED_NONE) {
@@ -2427,7 +2119,7 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * the band, must never have a pad engaged underneath it. */
     if (verdict == MZ_FEED_NONE && fx_touch &&
         (fxpad_busy() || (rbp_perf_screen() &&
-                          !menu_is_open() && !side_any_open() &&
+                          !menu_is_open() &&
                           !fxlist_is_open() && !settings_is_open()))) {
         struct fxpad_live fl;
         const char *why = 0;
@@ -2487,7 +2179,7 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * refuses the release of a gesture that began off the grid on its own. */
     if (verdict == MZ_FEED_NONE && hc_touch &&
         (hc_latched() || (rbp_perf_screen() &&
-                          !menu_is_open() && !side_any_open()))) {
+                          !menu_is_open()))) {
         int hdeck = -1, hpad = 0;
 
         if (hc_feed(down, x, y, &hdeck, &hpad) != MZ_FEED_NONE) {
@@ -2508,7 +2200,7 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * began still reaches rbp -- the rule the HOT CUE rung above states for its own cells. */
     if (verdict == MZ_FEED_NONE && pm_touch &&
         (pm_latched_deck >= 0 || (rbp_perf_screen() &&
-                                  !menu_is_open() && !side_any_open()))) {
+                                  !menu_is_open()))) {
         int pdeck = -1;
 
         if (!down) {
@@ -2536,7 +2228,7 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * landing on the badge cannot reach rbp as a click before the release decides. */
     if (verdict == MZ_FEED_NONE && db_touch &&
         (db_latched_deck >= 0 || (rbp_perf_screen() &&
-                                  !menu_is_open() && !side_any_open()))) {
+                                  !menu_is_open()))) {
         int bdeck = -1;
 
         if (!down) {
@@ -2563,7 +2255,7 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * landing on the box cannot reach rbp as a click before the release decides. */
     if (verdict == MZ_FEED_NONE && bb_touch &&
         (bb_latched_deck >= 0 || (rbp_perf_screen() &&
-                                  !menu_is_open() && !side_any_open()))) {
+                                  !menu_is_open()))) {
         int sdeck = -1;
 
         if (!down) {
@@ -2606,7 +2298,7 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * which is what keeps the six columns, the keyboard and the mouse working over
      * it. */
     if (verdict == MZ_FEED_NONE && allow_menu &&
-        !menu_is_open() && !side_any_open()) {
+        !menu_is_open()) {
         struct util_state ust;
         int uact = UTIL_ACT_NONE, uvalue = 0;
 
@@ -2617,18 +2309,13 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
     }
 
     if (verdict == MZ_FEED_TAP) {
-        if (side >= 0)
-            side_replay_tap(side);
-        else
-            menu_replay_tap();
-        /* Both replays emit a press AND its release, so rbp ends this report UP
+        menu_replay_tap();
+        /* The replay emits a press AND its release, so rbp ends this report UP
          * whatever it was before. */
         return;
     }
     if (verdict) {
-        if (side >= 0)
-            side_act(side, sact, svalue);
-        else if (button)
+        if (button)
             menu_fire(button, held_ms);
         return;
     }
@@ -2639,75 +2326,6 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
      * never saw it, and its belief is still whatever the last forwarded report said. */
 }
 
-/* THE SECOND CONTACT, AND THE ONLY THING IN THIS SHIM THAT IS TWO-HANDED.
- *
- * WHY IT EXISTS. The operator, on the two edge drawers: *"if i try to drag both
- * volume meters it gets confused and only one of them changes"* (2026-10-06). The
- * drawers carry the two CHANNEL FADERS, and those are the one control pair a DJ rides
- * with both hands -- everything else on the glass is a momentary press that two
- * fingers gain nothing on. Measured on the unit before this path existed: slot 0 down
- * on the left lane, slot 1 dragged alone on the right, and the only line the log
- * produced was `side left fader ch1 -> 198`.
- *
- * IT GOES TO THE DRAWERS AND NOWHERE ELSE, and that is the whole of its scope. rbp
- * has ONE pointer -- the whole rest of this file, the band, the USB STOP chooser and
- * the UTILITY gesture are built around it -- so a second contact that lands anywhere
- * but a drawer is DROPPED, never forwarded. Forwarding it would hand rbp a press it
- * cannot interpret.
- *
- * THE ONE GATE IS THE SURFACE THAT OWNS THE GLASS. The USB STOP chooser takes every
- * report by design while it is up (settings_zone.h); it would otherwise be reachable by
- * a hand the operator did not aim with. The band needs no gate here: a drawer cannot
- * arm while the band is open, which side_zone.h's closed-entry arm already enforces.
- *
- * A TAP IS DROPPED, not replayed. `side_feed_any()` can answer MZ_FEED_TAP for a
- * second finger that tapped a shut drawer's entry column, and the primary path
- * answers that by replaying the press to rbp from side_tap_point(). There is no
- * second pointer to replay -- one would be a press rbp never had a finger for -- so
- * the answer is swallowed and forgotten, and the drawer is simply left as it is.
- *
- * `x` is the raw->logical transform this reader was opened with, and the raw pair is
- * passed rather than the transform's output because the two contacts are transformed
- * independently. */
-static void pointer_report_alt(int down, const struct point_xform *x, int rx, int ry)
-{
-    int lx, ly;
-    int side = -1, act = SZ_ACT_NONE, value = 0;
-
-    /* The second contact's own label, for the same reason pointer_report() sets
-     * one: this path is not reached through it, and its writes (a drawer's fader,
-     * its nudge pair) are commands off the glass like any other. */
-    keylog_from("touch");
-
-    if (!menu_enabled)
-        return;
-    /* The picker and the settings panel own every report while they are up -- each is asked
-     * first in pointer_report() -- so a second contact must not reach a drawer underneath
-     * one: a second finger on a drawer while a box is over the glass is a hand the operator
-     * did not aim with.
-     *
-     * THE BPM CELL'S PAD JOINS THEM for the same reason, and it is the one surface here
-     * that owns the glass for as long as a finger is DOWN rather than while a box is up:
-     * the right-hand drawer's entry column runs the full height of the cell's own panel,
-     * so a second finger landing there while the pad is engaged would open a drawer drawn
-     * straight over the pad the operator is still dragging.
-     *
-     * AND THE SETTINGS PANEL JOINS THEM, because it is a box like the other two: a second
-     * contact reaching a drawer while the panel is over the glass would draw the drawer
-     * under it. The main contact cannot do that -- the panel's own rung in
-     * pointer_report() takes every report while it is up -- but this path does not go
-     * through that rung, which is exactly why the list is written out here. */
-    if (fxlist_is_open() || settings_is_open() || fxpad_busy())
-        return;
-
-    point_xform_abs(x, rx, ry, &lx, &ly);
-    if (side_feed_any(SZ_PTR_ALT, down, lx, ly, &side, &act, &value) == MZ_FEED_NONE)
-        return;
-
-    side_log_transitions();
-    if (act != SZ_ACT_NONE)
-        side_act(side, act, value);
-}
 /* Monotonic milliseconds, 64 bits wide on purpose -- which is the whole reason
  * this is a helper and not a line of arithmetic at the call site.
  *
@@ -2742,21 +2360,12 @@ static void read_loop_abs(int fd, const struct point_xform *x)
 {
     struct ev_input_event ev;
     /* ONE POINTER PER SLOT. Index 0 is the primary contact -- the one rbp, the band,
-     * the USB STOP chooser and the UTILITY gesture all read, and
-     * the only one they are told about. Index 1 exists solely for the edge drawers,
-     * whose two channel faders are the one control pair a DJ rides with both hands;
-     * pointer_report_alt() below is where it goes, and a report it does not take is
-     * dropped rather than forwarded. */
+     * the USB STOP chooser and the UTILITY gesture all read, and the only one anything
+     * is told about. Index 1 is still tracked so a second finger's axes never land in
+     * slot 0; nothing reads it since the edge drawers went (2026-10-28). */
     int rx[POINT_SLOTS]   = { 0 };
     int ry[POINT_SLOTS]   = { 0 };
     int down[POINT_SLOTS] = { 0 };
-    /* HAS THIS SLOT SAID WHERE IT IS YET? Cleared when the slot goes down and set by
-     * its first position report. See the note at pointer_report_alt()'s call below:
-     * the input core de-duplicates an ABS value that has not changed, so the FIRST
-     * position of a contact can be dropped -- and a contact whose position is unknown
-     * must not be taken for one at (0,0), because (0,0) is the left drawer's own
-     * corner. */
-    int seen[POINT_SLOTS] = { 0 };
     int slot = 0;                    /* the slot the MT_* axes below belong to */
     unsigned long long down_ms = 0;  /* when the press now down began, monotonic */
     int have_down = 0;               /* and that the stamp above is THIS press's */
@@ -2962,23 +2571,15 @@ static void read_loop_abs(int fd, const struct point_xform *x)
             } else if (ev.code == ABS_Y) {
                 ry[0] = ev.value;
             } else if (ev.code == ABS_MT_POSITION_X) {
-                if (slot >= 0) {
+                if (slot >= 0)
                     rx[slot] = ev.value;
-                    seen[slot] = 1;
-                }
             } else if (ev.code == ABS_MT_POSITION_Y) {
-                if (slot >= 0) {
+                if (slot >= 0)
                     ry[slot] = ev.value;
-                    seen[slot] = 1;
-                }
             } else if (ev.code == ABS_MT_TRACKING_ID) {
-                /* >= 0 is down, -1 is up, and the DOWN is what allocates the slot. A
-                 * new press has not said where it is yet; the release has no position
-                 * to keep. */
-                if (slot >= 0) {
+                /* >= 0 is down, -1 is up, and the DOWN is what allocates the slot. */
+                if (slot >= 0)
                     down[slot] = (ev.value >= 0) ? 1 : 0;
-                    seen[slot] = 0;
-                }
             }
             break;
         case EV_KEY:
@@ -3022,27 +2623,6 @@ static void read_loop_abs(int fd, const struct point_xform *x)
                 st_cursor_x = lx;
                 st_cursor_y = ly;
                 pointer_report(down[0], lx, ly, menu_enabled, (int)held_ms);
-                /* ...AND THE SECOND CONTACT, to the drawers and to nothing else.
-                 * Reported after the primary, on the same SYN, because the two are
-                 * independent presses and neither may be told about the other. It is
-                 * called unconditionally rather than only while slot 1 is down: the
-                 * RELEASE is the report a latched press cannot go without, and a
-                 * report this path does not want costs one panel test and no state.
-                 *
-                 * AND ONLY ONCE IT HAS SAID WHERE IT IS. The input core drops an
-                 * ABS value that has not changed (input_get_disposition's
-                 * `absinfo[code].value == value` test), and it keeps ONE such value
-                 * per axis -- so a second contact that lands on a row the first
-                 * contact already reported can have that first position dropped
-                 * entirely. Measured on the unit 2026-10-06 with work/poke.py's
-                 * `bothfaders`: both fingers down at the same height delivered
-                 * `MT_SLOT 1, MT_ID 2, SYN` and nothing else, leaving the second
-                 * contact at (0,0) -- which is the LEFT drawer's own corner, so the
-                 * operator's right hand moved the left fader. A contact whose
-                 * position has never been reported is therefore not a contact: it is
-                 * reported as up, and the drawers see a finger that simply starts
-                 * moving from wherever the panel next says it is. */
-                pointer_report_alt(down[1] && seen[1], x, rx[1], ry[1]);
                 if (log_debug)                    /* Both ends of the transform, because they are not the same
                      * value: tscfake_emit reflects x (see tscfake.h's third
                      * quirk), so `wire` is what rbp consumes and `logical` is
@@ -3431,14 +3011,7 @@ static void *reader_thread(void *arg)
          * dismiss -- the gesture that closes it needs a press, and every press is
          * swallowed while it is open. */
         menu_reset();
-        /* The same for the drawers, and for the same reason one level down: a
-         * drawer left open by a finger that went away with the device is a drawer
-         * nothing can dismiss and, worse, one that holds the overlay plane the band
-         * needs. Both edges, because only one drawer can be open and a reset must
-         * not depend on knowing which. */
-        side_reset_all();
-        side_log_transitions();
-        /* ...and the UTILITY gesture, for the same reason as the drawers and with
+        /* ...and the UTILITY gesture, for the same reason as the band and with
          * the same failure behind it: a latched press whose finger went away with
          * the device would make the next press look like a continuation of it --
          * carrying the old anchor, and with it the wrong row for a tap. */
@@ -3474,10 +3047,6 @@ static void *reader_thread(void *arg)
          * continuation of a gesture whose beginning rbp never saw, so the release that
          * follows would fire a pad the operator never aimed at. */
         hc_reset();
-        /* ...and the nudge, which is the one piece of drawer state rbp holds rather
-         * than this process: the finger went away without a release, so no RESTORE
-         * edge will ever be delivered and the tempo would stay moved. */
-        side_nudge_sync();
         if (log_debug)
             pointsrc_log("pointsrc: %s went away; rescanning", path);
     }
@@ -3507,14 +3076,6 @@ int pointsrc_start(void)
     if (!menu_enabled)
         menu_reset();      /* off means closed, whatever the state was */
     if (!menu_enabled)
-        side_reset_all();  /* and the same for the drawers: POINT_MENU=0 is rbp's
-                            * untouched stream, and a drawer cannot be opened while
-                            * it is set -- the funnel never offers it a report */
-    if (!menu_enabled)
-        side_nudge_sync();  /* and put back any tempo a held nudge cell left moved:
-                             * this runs at start-up, where "the drawer was reset"
-                             * has to mean "so was the fader" */
-    if (!menu_enabled)
         util_reset();      /* and the UTILITY gesture: it is offered the same
                             * reports as the rest of the menu, so POINT_MENU=0
                             * turns it off too and must not leave a press latched
@@ -3539,20 +3100,12 @@ int pointsrc_start(void)
 /* The menu's state for the status line. "off" reports the *gate*, so it reads the
  * same whether the panel happens to be closed or was left open by an earlier
  * run; whether an open panel is really on the glass is menu_draw.c's question and
- * not one a text field can answer.
- *
- * The drawers are folded into the same word because they are the same gate
- * (POINT_MENU) and because the two are mutually exclusive on the glass -- the band
- * and a drawer cannot both hold the one overlay plane. `l`/`r` name which edge is
- * out, so a status line taken during a drill says which drawer opened and not just
- * that one did. */
+ * not one a text field can answer. */
 static const char *menu_status_str(char *buf, unsigned long buflen)
 {
     if (!menu_enabled)
         return "off";
-    if (side_any_open())
-        snprintf(buf, buflen, "drawer=%s", side_is_open(SZ_LEFT) ? "l" : "r");
-    else if (!menu_is_open())
+    if (!menu_is_open())
         return "closed";
     else
         snprintf(buf, buflen, "open,pressed=%d", menu_pressed());

@@ -91,20 +91,6 @@
  * repaint is not as complete as docs/13 says, and the answer would be
  * cursor_paint.c's conditional restore rather than a change here.
  *
- * THE DRAWERS TAKE THE SAME TWO ROUTES, and on the plane they get the band's image
- * treatment. A drawer is a `drm_band` of its own, so plane-vs-page is decided per
- * drawer exactly as above; what differs is where the pixels are built. The band is
- * built from three small glyph rows and published by swapping g.front/g.back under
- * g_lock; a drawer is 180x800 and its whole picture is rewritten on every fader
- * move, so the same swap is done for it -- `side_img[which][front,back]`, filled off
- * the lock by menu_side_build() (from menu_thread, just before the tick) and copied
- * into the live plane buffer by menu_side_publish() under it. Before that split the
- * paint ran UNDER g_lock onto the live, single-buffered plane, and the MENU_FILL bed
- * going down first made each repaint a whole-panel flash -- the flicker the operator
- * reported while riding a fader. On the page route the copy is per-tick and per-row,
- * for the reason everything else here is per-tick: rbp repaints over it and a region
- * this large has no damage witness.
- *
  * The framebuffer is measured with real_open/real_ioctl, bypassing the shim's own
  * FBIOGET_* interposition -- the one that makes rbp believe the geometry is its
  * logical 1280x800. That is fb_cursor.c:100-196's pattern and its reason: a panel
@@ -115,8 +101,6 @@
 #include "menu_draw.h"
 #include "menu_paint.h"
 #include "menu_zone.h"
-#include "side_zone.h"         /* the edge drawers: which is out, and its geometry */
-#include "side_paint.h"        /* ...and the image it is drawn with */
 #include "deckbadge_plane.h"  /* the play ring on the deck badge, on its own plane */
 #include "rbp_transport.h"   /* ...and the deck state its SYNC/CUE/PLAY report. NOT rbp_led.h:
                               * that is compiled into knobshim.so, which is loaded AFTER
@@ -128,7 +112,6 @@
 #include "settings_zone.h"     /* the SETTINGS panel: its box, and whether it is up */
 #include "settings_paint.h"    /* ...and the image it is drawn with */
 #include "splash.h"            /* the start-up splash, over the whole page */
-#include "rbp_vu.h"            /* g_fader[]: the value the drawer's handle follows */
 #include "pitch_state.h"       /* ...and g_pitch_norm[], when the fader is a PITCH one */
 #include "drmband.h"           /* the overlay plane, when this machine has one */
 #include "fbdev.h"
@@ -218,80 +201,6 @@ struct menu_map {
     int  band_on;                /* ...and it is on the glass right now */
     int  band_off;               /* MENU_PLANE=0: the fb0 route, deliberately */
     int  band_bx, band_by;       /* where the band's rect goes on the CRTC */
-
-    /* THE EDGE DRAWERS' PLANES -- ONE PER EDGE, and that is the change the operator
-     * asked for: *"allow for both side panels to be visable at the same time and to
-     * accept input"*.
-     *
-     * They USED to be the band's slot a third time -- a single plane, handed over,
-     * because DRM master is one per DEVICE and a second drm_band_setup() in a process
-     * was refused EBUSY (the window's block above). That is no longer true: drmband.c
-     * now holds the fd and master ONCE and REFCOUNTS them, so a second and third band
-     * are a buffer and a plane each. Each drawer therefore has its own plane, and the
-     * two can be out together.
-     *
-     * THE BAND'S PLANE IS STILL MUTUALLY EXCLUSIVE WITH THE DRAWERS', because the two
-     * overlap on the glass at the top corners and two overlays cannot share a zpos.
-     * `side_prev` is "was any drawer out at the last sync", which is what tells
-     * "nothing to undo" from "the drawers just closed, give the band its plane back".
-     *
-     * `side_fail[which]` is the drawers' own per-edge `..._fail` flag, the same shape the
-     * other planes here use: set once when the setup is refused and with the same
-     * lifetime (cleared when that drawer closes, so a later open tries again); on
-     * that route the drawer falls back to the page and keeps working, at the band's
-     * fallback cost -- and per drawer, so one edge losing its plane does not cost the
-     * other edge its own.
-     *
-     * `side_painted_*` are the drawer the PUBLISHED image is for (-1 for "no image
-     * readable yet"), the pressed control and the fader value it holds. They are what
-     * makes the BUILD happen on a CHANGE and not every tick -- the destinations are
-     * single-buffered, so a gate fed anything that alternates by itself would tear or
-     * blink (the paint-when-it-changed rule, and the reason these are real values and not
-     * a counter). They are written under the lock, by the builder that publishes and by
-     * the close that invalidates.
-     *
-     * THE DRAWER'S IMAGE IS DOUBLE-BUFFERED, LIKE THE BAND'S. This is the same fix the
-     * operator's band flicker got, and it exists for the same reason: side_paint()
-     * rewrites every pixel of the 180x800 panel, and it used to do it into the LIVE,
-     * single-buffered plane buffer from under g_lock -- so a vsync tick that could not
-     * wait either showed a half-written panel or, worse, the flat colour the bed goes
-     * down first. Measured: eight full-panel rewrites in one fader drag.
-     *
-     * `side_img[which][0]` is the PUBLISHED image (the only one a blitter reads) and
-     * `[1]` the builder's scratch. The builder writes scratch off the lock and swaps
-     * the two pointers under it; the tick then COPIES the front into whatever the
-     * destination is. `side_pending[which]` says the destination has yet to receive the
-     * current front -- which is what a fresh, uninitialised dumb buffer needs, and what
-     * the page needs every tick.
-     *
-     * `side_buf_*` cache the image's geometry AT ALLOCATION. The builder runs off the
-     * lock and must not read g.view or g.side[]: menu_frame_tick mutates both under it
-     * (the plane teardown on a close, the page rebase on a fallback), so an off-lock read
-     * there can hand side_paint() a dangling pointer. */
-    struct drm_band side[2];
-    int  side_ok[2];             /* this drawer's plane is set up and mapped */
-    int  side_on[2];             /* ...and it is on the glass right now */
-    int  side_fail[2];           /* this machine refused a drawer-sized plane */
-    int  side_prev;              /* ANY drawer out at the last sync */
-    int  side_painted_which[2];  /* the drawer the published image is for, or -1 */
-    int  side_painted_hit[2];    /* ...and the control it is highlighted for */
-    int  side_painted_v[2];      /* ...and the fader value it was drawn at */
-    int  side_painted_led[2];    /* ...and its SYNC/CUE/PLAY state, packed; see
-                                  * menu_side_leds(). -1 for "no image yet", because 0
-                                  * is the real and common "all three dark". */
-    int  side_painted_mode[2];   /* ...and WHICH CONTROL the fader was drawn as,
-                                  * SZ_MODE_VOL/SZ_MODE_PITCH. A mode flip is a picture
-                                  * change -- a different knob, a different title, and
-                                  * the readout appearing or going -- so leaving it out
-                                  * of the gate would swallow the ONE change the toggle
-                                  * exists to make. -1 for "no image yet", because 0 is
-                                  * a real mode. */
-    void  *side_img[2][2];       /* [drawer][front,back]; NULL when none could be had */
-    size_t side_img_bytes;       /* one image, bytes */
-    int    side_buf_w;           /* the image's geometry, cached at allocation ... */
-    int    side_buf_h;
-    int    side_buf_bpp;
-    int    side_pending[2];      /* the destination still needs the front copied in */
 
     /* THE SETTINGS PANEL'S PLANE -- the chooser's arrangement at the panel's own size,
      * and the same publish-a-finished-image rule. What its key holds is every value
@@ -436,8 +345,8 @@ struct menu_map {
 static struct menu_map g;
 
 /* The one lock, defined with its comment further down. Declared here because the
- * drawers' builder -- which sits above that comment -- takes it to publish an image:
- * a tentative definition followed by the real one is one object. */
+ * builders above that comment take it to publish an image: a tentative definition
+ * followed by the real one is one object. */
 static pthread_mutex_t g_lock;
 
 /* Two callers, one image. The thread below ticks far more often than the vsync
@@ -453,7 +362,7 @@ static pthread_mutex_t g_lock;
  * for no gain, and the pass it would be waiting for is the one it wanted. */
 static int  menu_band_setup_from_page(void);
 static int  menu_panel_ph(void);      /* defined below; the band's own height */
-static long menu_now_us(void);        /* ...and this: the drawers time themselves */
+static long menu_now_us(void);        /* ...and this: the builders time themselves */
 
 /* Set the band's plane up from the PAGE's geometry, and point the view at it.
  *
@@ -480,463 +389,6 @@ static int menu_band_setup_from_page(void)
     g.view.bx    = 0;
     g.view.by    = 0;
     return 0;
-}
-
-/* ---------------- THE EDGE DRAWERS' PLANE --------------------------------
- *
- * The newer half of this, and the measurement behind it, is that a second and third
- * plane in one process used to be impossible: DRM master is one per DEVICE, so the
- * band's setup took it and a second drm_band_setup() was refused EBUSY. drmband.c now
- * acquires the fd and the master ONCE and REFCOUNTS them, so a second and third band
- * each get a buffer and a plane of their own -- which is what lets both drawers be out
- * at once (measured: plane 127 and plane 138). What is new beyond that is only that a
- * drawer is FULL HEIGHT, so the band is not merely covered while one is out: there is
- * no band at all until the drawer closes. Opening a drawer tears the band's plane
- * down; closing it tears the drawer's down and sets the band's up again from the page.
- *
- * What is still exclusive is the BAND's plane, because the band and a drawer overlap at
- * the top corners of the glass and two overlays cannot share a zpos.
- *
- * A DRAWER AND THE BAND CANNOT BOTH BE UP, and that reaches further than this file:
- * side_zone.c's closed-entry arm refuses while the band is open, and menu_zone.c's
- * refuses while a drawer is open. One surface, gated in both places the question can be
- * asked. */
-
-/* The drawer's width in fb px -- the panel's SZ_W of logical px at the page's own
- * scale, the same rule menu_panel_ph() applies to the band's height. */
-static int menu_side_pw(void)
-{
-    int pw = (SZ_W * g.view.dw) / MZ_LOGICAL_W;
-
-    return pw < 1 ? 1 : pw;
-}
-
-/* The value the handle is drawn at, IN WHICHEVER SPACE THE MODE IMPLIES.
- *
- * VOLUME is the SHARED channel-fader position, so the drawer follows the hardware fader
- * when there is one and the hardware fader follows the drawer when there is not -- one
- * number, in fader_state.c, written by both (rbp_vu.h). 1023 is both the seed and the
- * legal maximum, so an untouched machine draws the handle at the top, which is exactly
- * what rbp's mixer is doing there.
- *
- * PITCH is the tempo slider's position from pitch_state.h -- the same number a nudge cell
- * moves FROM and the same one the FLX4's own pitch fader publishes. It is 0 (the centre,
- * and rbp's own cold-start tempo position) until some surface has reported a fader, which
- * is why the drawer draws a centred pitch handle on a machine with no controller rather
- * than a guess. `pitch_v10_for_fader()` and not `pitch_v10_from_norm()`: the drawer's
- * pitch fader is drawn the other way up -- top is SLOW -- which is rbp's own convention
- * and the operator's own correction (pitch_state.h carries the quote). The send in
- * pointsrc.c goes through the matching `pitch_norm_for_fader()`, so the handle and the
- * wire cannot disagree about which way up the control is.
- *
- * THE TWO ARRAYS ARE INDEXED DIFFERENTLY AND THIS IS THE ONE PLACE IT SHOWS: g_fader is
- * indexed by CHANNEL (1..2, via side_channel()) and g_pitch_norm by DECK (0..1, which is
- * exactly SZ_LEFT/SZ_RIGHT). side_channel() on the pitch array would read index 2 -- past
- * its end -- for the right drawer.
- *
- * `mode` is PASSED IN rather than read here, and the caller captures it once for the
- * gate, this lookup and the paint. Reading side_mode() twice would let a flip that lands
- * between the two reads draw mode A while recording mode B -- self-correcting a tick
- * later, but free to avoid. */
-static int menu_side_value(int which, int mode)
-{
-    int v;
-
-    if (mode == SZ_MODE_PITCH)
-        v = pitch_v10_for_fader(g_pitch_norm[which]);
-    else
-        v = g_fader[side_channel(which)];
-
-    if (v < 0)
-        v = 0;
-    if (v > 1023)
-        v = 1023;
-    return v;
-}
-
-/* The drawer's three transport LEDs, packed into ONE int so they can be a repaint
- * key like the pressed control and the fader value already are -- the destinations
- * are single-buffered, so the gate has to be fed real values and not a flag that
- * alternates by itself (the paint-when-it-changed rule).
- *
- * THE STATE IS rbp's, read from rbp_led.c, which is the same reading the controller's
- * own SYNC/CUE/PLAY LEDs are sent (rbp_transport.h). A BLINK ARRIVES HERE AS A BLINK: rbp
- * not toggle State, it asks for a blink and leaves it, so rbp_led.c resolves the phase
- * against rbp's own period at the instant of the read. Feeding the drawer a "blinking"
- * flag instead would flash it at the same rate and at whatever phase this thread's
- * clock happened to be in -- two surfaces disagreeing about a deck they are both
- * describing is the one thing reading one source is for.
- *
- * Which means the flash rides on THIS gate: a change in the packed value is a repaint,
- * and the value changes twice per blink period. The builders run per tick
- * (POINT_MENU_MS, shipped at 0.1 ms), so the drawer follows at rbp's own cadence and
- * not at the tick's, and a drawer with nothing blinking never rebuilds at all.
- *
- * `deck` and `side` are the same index by construction: side_zone.h's side_channel() is
- * deck + 1, and rbp_led.c indexes decks the same way. */
-static int menu_side_leds(int which)
-{
-    int tr = rbp_transport_get(which);
-
-    if (tr < 0)
-        return 0;                    /* not read yet: every button dark, as before */
-    return tr;
-}
-
-/* A view over one drawer, whichever route it is being drawn on.
- *
- * ON A PLANE the buffer IS the panel: origin 0,0, and dw/dh its own size, so
- * side_paint.c's pixels are buffer-local and the mirror is the only thing that has to
- * know which edge this is. Deliberately not `g.view`, which describes the page for
- * the band's own path throughout.
- *
- * ON THE PAGE there is no buffer of the drawer's own, so the view's origin is moved to
- * the panel's SCREEN rectangle instead -- the pointer is offset and the pitch stays
- * the page's. That is what makes the same side_paint() call work on both routes: the
- * writer only ever sees a base, a stride and a width. This is the MENU_PLANE=0 route
- * and the side_fail fallback, and it shimmers exactly as the band's does there. */
-static void menu_side_view(struct menu_view *sv, int which)
-{
-    memset(sv, 0, sizeof *sv);
-    if (g.side_ok[which]) {
-        sv->pix   = g.side[which].pix;
-        sv->pitch = g.side[which].pitch;
-        sv->fb_w  = g.side[which].w;
-        sv->fb_h  = g.side[which].h;
-        sv->bpp   = g.side[which].bpp;
-        sv->dw    = g.side[which].w;
-        sv->dh    = g.side[which].h;
-        return;
-    }
-    sv->dw  = menu_side_pw();
-    sv->dh  = g.view.dh;
-    sv->pix = (unsigned char *)g.fb_pix
-              + ((size_t)g.fb_by * (size_t)g.fb_pitch
-                 + (size_t)(g.fb_bx
-                            + (which == SZ_LEFT ? 0 : g.view.dw - menu_side_pw())))
-                * (size_t)(g.view.bpp / 8);
-    sv->pitch = g.fb_pitch;
-    sv->fb_w  = sv->dw;
-    sv->fb_h  = sv->dh;
-    sv->bpp   = g.view.bpp;
-}
-
-/* The drawer's image, and ONLY when it has changed.
- *
- * `which` is the drawer on the glass, its currently pressed control is the highlight
- * and its channel's shared fader value is the handle's position -- three real values,
- * and the difference of any one of them is the repaint. Nothing derived and nothing
- * that alternates by itself: the plane is single-buffered, so a gate that flipped
- * every tick would repaint every tick and blink (the paint-when-it-changed rule, and
- * the trap that cost real time on the band).
- *
- * THIS IS NOW THE NO-CACHE FALLBACK. When the image pair could be allocated the tick
- * publishes with menu_side_publish() instead, and this direct paint is reached only on a
- * unit with no room for the pair. */
-static void menu_side_repaint(int which)
-{
-    struct menu_view sv;
-    int mode = side_mode(which);
-    int hit = side_pressed(which);
-    int v   = menu_side_value(which, mode);
-    int led = menu_side_leds(which);
-
-    if (g.side_painted_which[which] == which && g.side_painted_hit[which] == hit &&
-        g.side_painted_v[which] == v && g.side_painted_led[which] == led &&
-        g.side_painted_mode[which] == mode)
-        return;
-    menu_side_view(&sv, which);
-    if (side_paint_ok(&sv))
-        side_paint(&sv, which, hit, v, mode, led & 1, (led >> 1) & 1, (led >> 2) & 1, (led >> 4) & 1, (led >> 5) & 1);
-    g.side_painted_which[which] = which;
-    g.side_painted_hit[which]   = hit;
-    g.side_painted_v[which]     = v;
-    g.side_painted_led[which]   = led;
-    g.side_painted_mode[which]  = mode;
-}
-
-/* A view over one drawer's SCRATCH image, for the off-lock build. Deliberately not
- * menu_side_view() above: that one reads g.side[which].pix/pitch and g.view, and
- * menu_frame_tick mutates both under g_lock -- so reading them from the builder, which
- * runs off the lock, is a race that can hand side_paint() a pointer into a plane being
- * torn down. Every scalar this needs was cached at allocation.
- *
- * fb_w/fb_h are load-bearing and not decoration: side_paint_ok() rejects a view whose
- * rectangle does not fit inside its framebuffer, and it rejects it SILENTLY -- the paint
- * simply does not happen and the drawer comes out blank. */
-static void menu_side_buf_view(struct menu_view *sv, void *buf)
-{
-    memset(sv, 0, sizeof *sv);
-    sv->pix   = buf;
-    sv->pitch = g.side_buf_w;
-    sv->fb_w  = g.side_buf_w;
-    sv->fb_h  = g.side_buf_h;
-    sv->bpp   = g.side_buf_bpp;
-    sv->dw    = g.side_buf_w;
-    sv->dh    = g.side_buf_h;
-}
-
-/* Build one drawer's image OFF THE LOCK, as menu_build() does for the band, and publish
- * it by swapping the two pointers UNDER it. This is the fix for the flicker the operator
- * reported on the fader.
- *
- * It reads only side_is_open()/side_pressed()/menu_side_value() -- the same off-lock
- * gesture reads menu_build() already makes, and menu_side_value() only ever touches
- * fader_state.c's ints, which nothing here locks. It writes only side_img[which][1],
- * which is never the published front. The swap is the release; the tick's trylock is the
- * acquire. A stale unlocked read of the published tuple costs one redundant or one late
- * build and nothing else, which is the property menu_build() already accepts. */
-static void menu_side_build(int which)
-{
-    struct menu_view sv;
-    int hit, v, led, mode;
-    void *t;
-    long t0;
-
-    if (!g.side_img[which][0])
-        return;                      /* no cache: the tick paints direct, as it shipped */
-
-    if (!side_is_open(which))
-        return;
-
-    mode = side_mode(which);
-    hit  = side_pressed(which);
-    v    = menu_side_value(which, mode);
-    led  = menu_side_leds(which);
-    if (g.side_painted_which[which] == which &&
-        g.side_painted_hit[which] == hit &&
-        g.side_painted_v[which] == v &&
-        g.side_painted_led[which] == led &&
-        g.side_painted_mode[which] == mode)
-        return;                      /* the published image is already this one */
-
-    menu_side_buf_view(&sv, g.side_img[which][1]);
-    if (!side_paint_ok(&sv))
-        return;
-
-    t0 = menu_now_us();
-    side_paint(&sv, which, hit, v, mode, led & 1, (led >> 1) & 1, (led >> 2) & 1, (led >> 4) & 1, (led >> 5) & 1);
-    if (g.verbose)
-        pointsrc_log("side: build %ld us: %s drawer for %d/%d at %d",
-                     menu_now_us() - t0, which == SZ_LEFT ? "left" : "right", hit, v,
-                     led);
-
-    pthread_mutex_lock(&g_lock);
-    t = g.side_img[which][0];
-    g.side_img[which][0] = g.side_img[which][1];
-    g.side_img[which][1] = t;
-    g.side_painted_which[which] = which;
-    g.side_painted_hit[which]   = hit;
-    g.side_painted_v[which]     = v;
-    g.side_painted_led[which]   = led;
-    g.side_painted_mode[which]  = mode;
-    g.side_pending[which]       = 1;
-    pthread_mutex_unlock(&g_lock);
-}
-
-/* Put the published drawer image on whatever is carrying it. The caller holds g_lock.
- *
- * ON A PLANE it copies only when there is something new to copy -- one memcpy when the
- * plane's stride is the image's width (this port's case: a 180 px plane at 16 bpp, pitch
- * 180 px) and a row at a time otherwise, the same split menu_blit() makes for the band.
- *
- * ON THE PAGE it copies EVERY tick, because rbp's own repaint erases the drawer and there
- * is no witness for a region this big. That is the band's degraded rule, and it is why
- * this cannot simply honour side_pending[] on both routes: pending means "the destination
- * has not had the CURRENT front", which on the page is true again one frame later. */
-static void menu_side_publish(int which)
-{
-    const unsigned char *src;
-    int bpp = g.side_buf_bpp / 8;
-
-    if (g.side_painted_which[which] != which)
-        return;                      /* no published image for this drawer yet */
-    src = g.side_img[which][0];
-    if (!src)
-        return;
-
-    if (g.side_ok[which]) {
-        int y;
-        long t0;
-
-        if (!g.side_pending[which])
-            return;
-        t0 = menu_now_us();
-        if (g.side[which].pitch == g.side_buf_w) {
-            memcpy(g.side[which].pix, src, g.side_img_bytes);
-        } else {
-            for (y = 0; y < g.side_buf_h; y++)
-                memcpy((unsigned char *)g.side[which].pix
-                           + (size_t)y * (size_t)g.side[which].pitch * (size_t)bpp,
-                       src + (size_t)y * (size_t)g.side_buf_w * (size_t)bpp,
-                       (size_t)g.side_buf_w * (size_t)bpp);
-        }
-        g.side_pending[which] = 0;
-        if (g.verbose)
-            pointsrc_log("side: blit %ld us: %s drawer", menu_now_us() - t0,
-                         which == SZ_LEFT ? "left" : "right");
-        return;
-    }
-
-    /* Page route. Always, and per row: the page's stride is not the image's. */
-    {
-        int y;
-        unsigned char *dst = (unsigned char *)g.fb_pix
-            + ((size_t)g.fb_by * (size_t)g.fb_pitch
-               + (size_t)(g.fb_bx
-                          + (which == SZ_LEFT ? 0 : g.view.dw - g.side_buf_w)))
-              * (size_t)(g.view.bpp / 8);
-
-        for (y = 0; y < g.side_buf_h; y++)
-            memcpy(dst + (size_t)y * (size_t)g.fb_pitch * (size_t)bpp,
-                   src + (size_t)y * (size_t)g.side_buf_w * (size_t)bpp,
-                   (size_t)g.side_buf_w * (size_t)bpp);
-    }
-}
-
-/* Everything a drawer does per tick. One entry point for both routes so the tick
- * cannot take one and forget the other. */
-static void menu_side_live(int which)
-{
-    /* The buffered route, and the one this ships on: the image was built off the lock by
-     * menu_side_build() and this only COPIES it -- bounded, on both destinations. */
-    if (g.side_img[which][0]) {
-        menu_side_publish(which);
-        return;
-    }
-
-    /* No image pair (the allocation failed): the pre-existing direct routes, unchanged,
-     * with the flicker they always had. A unit with no room for 576 KB still gets its
-     * drawers. */
-    if (!g.side_ok[which]) {
-        /* No plane: the drawer is painted onto the page EVERY tick, because rbp's own
-         * repaint erases it and there is no witness for a region this big to say
-         * whether it survived. That is the band's degraded path exactly, with its cost
-         * and its shimmer, and it is only ever reached on a machine where the plane
-         * cannot be had. */
-        struct menu_view sv;
-        int led  = menu_side_leds(which);
-        int mode = side_mode(which);
-
-        menu_side_view(&sv, which);
-        if (side_paint_ok(&sv))
-            side_paint(&sv, which, side_pressed(which),
-                       menu_side_value(which, mode), mode,
-                       led & 1, (led >> 1) & 1, (led >> 2) & 1, (led >> 4) & 1, (led >> 5) & 1);
-        return;
-    }
-    menu_side_repaint(which);
-}
-
-/* Bring the planes into line with the drawers' state. Called under g_lock from the
- * tick, exactly as every other plane sync here is and for the same reason: one thread
- * mutates the planes and it is the paint thread. pointsrc.c only ever writes the
- * gesture state, which is what side_is_open() reads.
- *
- * EACH DRAWER HAS ITS OWN PLANE and is brought up or given back on its own, which is
- * what makes the operator's "both side panels at the same time" work: nothing here
- * hands a slot over any more. What IS still exclusive is the BAND's plane, because
- * the band and a drawer overlap at the top corners of the glass and two overlays
- * cannot share a zpos -- so the band's goes down while ANY drawer is out and comes
- * back, freshly read off the live page, when the last one goes. */
-static void menu_side_plane_sync(void)
-{
-    int i, any = side_any_open();
-
-    /* Tell the LED thread whether anything on the glass wants rbp's deck state this tick.
-     * Raised on the FIRST line, before any route is decided, because the drawers' LEDs
-     * are a property of a drawer being OPEN and not of the route it happens to be
-     * drawn on: a machine that refused a plane paints the page and still wants them. And
-     * lowered by the same line on the tick after the last one shuts -- a unit with no
-     * controller attached would otherwise pay the LED thread's 1.5 ms LedStat snapshot
-     * forever for a panel that is not there. */
-    rbp_transport_want(any);
-
-    if (any && g.band_ok) {
-        drm_band_teardown(&g.band);
-        g.band_ok = g.band_on = 0;
-        /* Back to the page in the same breath: the band's buffer is gone, so a view
-         * still pointing at it would be a dangling mapping. */
-        g.view.pix   = g.fb_pix;
-        g.view.pitch = g.fb_pitch;
-        g.view.bx    = g.fb_bx;
-        g.view.by    = g.fb_by;
-        pointsrc_log("side: a drawer is out -- the plane is handed over from the band");
-    }
-
-    for (i = 0; i < 2; i++) {
-        if (!side_is_open(i)) {
-            /* Shut: give back whatever this drawer had, and clear the "refused"
-             * latch so a later open tries the plane again. */
-            if (g.side_ok[i]) {
-                drm_band_teardown(&g.side[i]);
-                g.side_ok[i] = g.side_on[i] = 0;
-                pointsrc_log("side: %s drawer closed -- its plane is released",
-                             i == SZ_LEFT ? "left" : "right");
-            }
-            /* The published image is stale the instant the drawer is shut, whether or not
-             * it had a plane of its own: clearing this only inside the branch above would
-             * leave the page route's tuple live across a close, and the next open would
-             * show the previous session's drawer for a tick. */
-            g.side_painted_which[i] = -1;
-            g.side_painted_hit[i]   = SZ_HIT_NONE;
-            g.side_painted_v[i]     = -1;
-            g.side_painted_led[i]   = -1;
-            g.side_painted_mode[i]  = -1;
-            g.side_pending[i]       = 0;
-            g.side_fail[i] = 0;
-            continue;
-        }
-
-        /* Once, not per tick, and for the same one-shot reason every plane here uses:
-         * a plane that will not go up will not go up on the next tick either, and an
-         * unguarded retry would be a setup/teardown pair at the tick period, on the
-         * thread rbp presents from. */
-        if (!g.side_ok[i] && !g.side_fail[i] && !g.band_off) {
-            drm_band_want_rank(DRM_RANK_DRAWER);
-            if (drm_band_setup(&g.side[i], menu_side_pw(), g.view.dh, g.view.bpp) != 0)
-                g.side_fail[i] = 1;
-            else {
-                g.side_ok[i] = 1;
-                g.side_on[i] = 0;
-                /* A fresh dumb buffer holds nothing anyone can read. The image has to be
-                 * COPIED into it before it is shown, and the front that gets copied is
-                 * built on the witness thread -- so mark the copy pending rather than
-                 * resetting the published tuple (which the builder may have just set), and
-                 * let the show below wait for a front to exist. Arming a paint here
-                 * instead would be the old bug back: a flag does not initialise a
-                 * buffer. */
-                g.side_pending[i] = 1;
-            }
-        }
-        /* Painted before it is shown, never after: what goes on the glass the first time
-         * must be the finished drawer and not the uninitialised buffer it was created
-         * with (menu_band_present()'s rule). With a cached image that means waiting for
-         * the witness thread to publish one and menu_side_live() above to copy it in --
-         * `side_painted_which[i] == i` is exactly "there is a real drawer in that buffer
-         * now". The cost is at most one tick of absence, and only when the vsync hook
-         * reaches here before the builder has run. */
-        menu_side_live(i);
-        if (g.side_ok[i] && !g.side_on[i] && g.side_painted_which[i] == i &&
-            drm_band_show(&g.side[i],
-                          g.fb_bx + (i == SZ_LEFT ? 0
-                                     : g.view.dw - menu_side_pw()),
-                          g.fb_by) == 0)
-            g.side_on[i] = 1;
-    }
-
-    /* The band's plane comes back whether or not a drawer ever had one: on the
-     * fallback route the band's was torn down for a setup that then failed. A band
-     * that is not on the glass costs nothing, and this is what makes a swipe-down
-     * work again the moment the last drawer goes. */
-    if (!any && g.side_prev) {
-        if (!g.band_ok && menu_band_setup_from_page() != 0)
-            pointsrc_log("menu: the plane did not come back to the band -- it stays"
-                         " on the page");
-        else
-            pointsrc_log("side: no drawer is out -- the plane goes back to the band");
-    }
-    g.side_prev = any;
 }
 
 /* ---------------- THE SETTINGS PANEL'S PLANE -----------------------------
@@ -1313,7 +765,7 @@ static int menu_fxlist_ph(void)
  * that rectangle and nothing is derived here. It is NOT centred, which is what these two
  * functions did before the operator saw the first build and asked for it to sit on the
  * panel ("the same dimensions of the beatfx box ... you don't need a title menu"). The logical->page
- * scale is the drawers' (menu_side_pw() does the same for SZ_W), with fx_zone.h's
+ * scale is the band's (menu_panel_ph() does the same for its height), with fx_zone.h's
  * FX_X0/FX_Y0 as the logical origin -- the same origin fxlist_paint() subtracts before
  * scaling, so the picture and the plane cannot land one pixel apart. */
 static int menu_fxlist_bx(void)
@@ -1814,60 +1266,7 @@ static int menu_build(int pressed)
         g.front_valid = 0;       /* a new mapping means a new image */
     }
 
-    /* THE DRAWERS' IMAGES, beside the band's and INDEPENDENTLY of them. A failure here
-     * must NOT touch this function's return value: the -1 above is the BAND's "no image
-     * cache" signal, and returning it because a drawer could not get 576 KB would drop
-     * the band to the page as well. A drawer with no image keeps the direct-paint route
-     * it shipped with, and side_painted_which stays -1 for it.
-     *
-     * Retried every call while it fails, exactly as the band's allocation above is; the
-     * log line is the once-only part. A pair is stored WHOLE and never freed once valid,
-     * so the tick -- which reads only side_img[i][0] -- sees either NULL or a pair it can
-     * safely copy from. */
-    if (!g.side_img[SZ_LEFT][0] || !g.side_img[SZ_RIGHT][0]) {
-        static int side_alloc_logged;
-        size_t sn = (size_t)menu_side_pw() * (size_t)g.view.dh
-                    * (size_t)(g.view.bpp / 8);
-        int i;
-
-        g.side_buf_w     = menu_side_pw();
-        g.side_buf_h     = g.view.dh;
-        g.side_buf_bpp   = g.view.bpp;
-        g.side_img_bytes = sn;
-
-        for (i = 0; i < 2; i++) {
-            void *a, *b;
-
-            if (g.side_img[i][0] && g.side_img[i][1])
-                continue;            /* this drawer's pair is already good */
-
-            if (g.side_img[i][0] || g.side_img[i][1]) {
-                /* Half a pair left by a failed attempt. Never published, so safe to
-                 * drop; nothing else frees these. */
-                free(g.side_img[i][0]);
-                free(g.side_img[i][1]);
-                g.side_img[i][0] = g.side_img[i][1] = NULL;
-            }
-
-            a = malloc(sn);
-            b = malloc(sn);
-            if (!a || !b) {
-                free(a);
-                free(b);
-                if (!side_alloc_logged) {
-                    side_alloc_logged = 1;
-                    pointsrc_log("side: no %zu-byte drawer image (%s); the drawer"
-                                 " paints straight onto its plane", sn * 2,
-                                 strerror(errno));
-                }
-                continue;
-            }
-            g.side_img[i][0] = a;
-            g.side_img[i][1] = b;
-        }
-    }
-
-    /* THE PICKER'S IMAGE, on the band's and the drawers' terms: its own pair, its own
+    /* THE PICKER'S IMAGE, on the band's terms: its own pair, its own
      * once-only log, and independent of this function's return value for the same
      * reason. 340 x 535 at the page's own scale is ~364 KB an image, so the pair is
      * ~728 KB -- the largest of the four caches, and still the smallest thing here: a
@@ -2114,21 +1513,6 @@ static int menu_fb_open_unlocked(int loud)
     g.band_by  = g.view.by;
     g.band_ok  = 0;
     g.band_on  = 0;
-    /* `side_prev` is "was any drawer out at the last sync". A zeroed struct would
-     * claim one had been, and the tick's first pass would try to give the band a
-     * plane it had never lost. The per-drawer `side_painted_which` is -1 and not 0
-     * for a different reason: 0 is SZ_LEFT, and these are "which drawer is this
-     * buffer's image for". */
-    g.side_prev = -1;
-    g.side_painted_which[SZ_LEFT] = g.side_painted_which[SZ_RIGHT] = -1;
-    /* ...and the LED triple the same way. -1 and not 0: 0 is a real and the common
-     * reading here -- all three buttons dark -- so a zeroed struct would let the first
-     * gate pass draw a dark drawer over a lit one it had never looked at. */
-    g.side_painted_led[SZ_LEFT] = g.side_painted_led[SZ_RIGHT] = -1;
-    /* ...and the FADER/PITCH mode for the same reason, third time: 0 is SZ_MODE_VOL, a
-     * real mode, so a zeroed struct would record that the buffer already held a VOL
-     * image -- and the drawer's own first paint would be gated away. */
-    g.side_painted_mode[SZ_LEFT] = g.side_painted_mode[SZ_RIGHT] = -1;
     g.band_off = !env_flag("MENU_PLANE", 1);
     if (g.band_off) {
         pointsrc_log("menu: MENU_PLANE=0 -- the band is repaired on the page, as it"
@@ -2337,29 +1721,17 @@ void menu_frame_tick(void)
      * release what it holds before returning early; this one cannot, because what it
      * holds is a rectangle sitting on the operator's own BPM readout and its right to be
      * there expires with a FINGER, not with a box. If the sync were reached only on the
-     * path that no drawer is out, a finger that lifted while a drawer was open -- which
-     * the pad's own gate makes unlikely but which nothing in this file can forbid --
-     * would leave the dot frozen over the panel until something else
-     * happened. Here, one call releases it on the first tick after the finger goes,
+     * path that no other box is up, a finger that lifted while one was would leave the
+     * dot frozen over the panel until something else happened. Here, one call releases it on the first tick after the finger goes,
      * whatever else the tick is about to do. An idle pad costs this one comparison. */
     menu_fxpad_plane_sync();
-
-    /* Then the drawers, and they decide the route: while one is out it owns the plane
-     * (or, on a machine that refused it, paints the page itself), and the band's path
-     * below is not reached. A drawer cannot be open over an open band -- side_zone.h's
-     * closed-entry arm refuses -- so the two are never both up here. */
-    menu_side_plane_sync();
-    if (side_any_open()) {
-        pthread_mutex_unlock(&g_lock);
-        return;
-    }
 
     /* Then the chooser's box, and it decides the route a third time. It is raised from
      * the band's own seventh column, so the band is already shut when it opens -- but
      * the two DO overlap on the glass (the box is centred and the band is at the top
      * edge, and both are opaque planes), so the rule is stated and kept: while the box
      * is up the band's whole path below -- present, witness, blit -- is not reached at
-     * all, exactly as the window's and the drawers' checks above do it.
+     * all, exactly as the window's check above does it.
      *
      * The box is the LAST of the three because it is the newest and the smallest: each
      * check above gives its predecessor the chance to release what it holds, and the
@@ -2555,12 +1927,7 @@ static void *menu_thread(void *arg)
          * menu_frame_tick() alone and never classifies -- that is the whole point of
          * the split (struct menu_map). */
         menu_classify_publish(menu_is_open() ? menu_pressed() : 0);
-        /* Then the drawers' images, off the lock the same way and for the same reason,
-         * and BEFORE the tick so the tick publishes the image this iteration just made.
-         * A drawer that is shut returns immediately. */
-        menu_side_build(SZ_LEFT);
-        menu_side_build(SZ_RIGHT);
-        /* Then the deck badges' play rings, on the page like the drawers and in the same place in
+        /* Then the deck badges' play rings, on the page and in the same place in
          * the loop. See menu_badge_build(). */
         menu_badge_build();
         /* Then the picker, on the same terms and in the same place. It has no rbp read
