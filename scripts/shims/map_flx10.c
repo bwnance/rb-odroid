@@ -2755,8 +2755,33 @@ static void flx10_selector_tick(void)
           flx10_route_deck(d, flx10_selector_ours(selector[d]));
 }
 
+/* ---- SAMPLER CUE as the RX3's LINK CUE (operator, 2026-10-28) -------------------------
+ * The RX3's touch preview (a list row's waveform touched) plays the track on rbp's
+ * preview player, which is mixer input 2 -- heard only with its headphone cue on, the
+ * RX3's LINK CUE. The FLX10 has no LINK CUE; its SAMPLER CUE (rbp has no sampler) is
+ * it: a press toggles the preview channel's cue, and its light shows it. */
+static int link_cue_led = -1;
+
+static void flx10_link_cue_led(void)
+{
+     int on = me_get_preview_cue() == 1;
+     if (on != link_cue_led && midi_note(CH_MIX, N_SAMPLER_CUE, on ? 0x7F : 0x00))
+          link_cue_led = on;
+}
+
 static void flx10_note(int ch, int note, int on)
 {
+     if (ch == CH_MIX && note == N_SAMPLER_CUE) {
+          if (on) {
+               int cur = me_get_preview_cue();
+               if (cur >= 0) {
+                    me_set_preview_cue(!cur);
+                    klog("knobshim2: flx10 SAMPLER CUE -> LINK CUE %s\n", cur ? "off" : "on");
+               }
+               link_cue_led = -1;
+          }
+          return;
+     }
      if (flx10_selector_note(ch, note, on))
           return;
      int deck = IS_DECK(ch) ? ch : -1;
@@ -3438,6 +3463,7 @@ static void flx10_tick(void)
      flx10_push_tick(t);
      flx10_jump_tick(t);
      flx10_selector_tick();
+     flx10_link_cue_led();
      flx10_unit_tick(t);
      flx10_scfx_tick(t);
      flx10_panel_tick(t);

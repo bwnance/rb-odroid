@@ -752,7 +752,7 @@ session; details further down):
    - Checked on the unit with a test hook (/run/rbp/browse.tap, "x y": a tap there):
      BPM up 153 -> 155 and down 230 first; ARTIST up and down; LIST MENU > SORT >
      KEY lights KEY the same way a tap does.
-32. **PREVIEW, the CDJ-3000's button -- done** (operator, 2026-10-28; browserows.c,
+32. **PREVIEW, the CDJ-3000's button -- done, confirmed by the operator** (operator, 2026-10-28; browserows.c,
    browsesort.c). A PREVIEW button on BROWSE's title bar (x 840..956, between the
    list's name and the clock) while a track list is up: rbp's blue with white text
    while the waveforms show, dark grey while they are off; a tap turns them off or on
@@ -853,9 +853,14 @@ session; details further down):
    switch it off, force that ratio to 1. The screen jumps of item 38 looked
    like a display matter in the end (operator): the static UI in rbp's frames never
    shifted, nor did the display plane.
-34. **RX3 touch preview -- not working, to look at** (operator, 2026-10-28). The
-   RX3's own touch preview (touching a list row's waveform to audition the track) is
-   the ask; the CDJ's PREVIEW audition is not (struck from item 11).
+34. **RX3 touch preview -- LINK CUE on SAMPLER CUE, to try** (operator, 2026-10-28).
+   The RX3's touch preview plays on rbp's preview player, heard in the headphones only
+   with LINK CUE on, which the FLX10 has no button for. SAMPLER CUE (rbp has no
+   sampler) now toggles it -- MixerEngine::setPreviewChHeadphoneCue @0x5762c (the
+   preview channel is not in the mixer's channel list, so setMixerChHeadphoneCue
+   does not reach it) -- and its light follows getPreviewChHeadphoneCue. The CDJ's
+   PREVIEW audition is not the ask (struck from item 11). TOUCH DISPLAY CALIBRATION
+   is left out of UTILITY: the touch is the shim's, already mapped.
 
 How rbp sorts a browse list (read 2026-10-27, for whoever needs it next; a
 default playlist sort was built on it and dropped -- the operator loads the sort

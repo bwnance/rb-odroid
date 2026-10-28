@@ -71,6 +71,9 @@ void keyshift_mute(int d, int on) { ks_muted[d] = on; ks_mute_calls++; }
 static int cue[4], mcue, deleted_deck = -1, deleted_pad = -1;
 int me_get_cue(int idx) { return cue[idx]; }
 void me_set_cue(int idx, int on) { cue[idx] = on; }
+static int preview_cue;
+void me_set_preview_cue(int on) { preview_cue = on; }
+int me_get_preview_cue(void) { return preview_cue; }
 int me_get_master_cue(void) { return mcue; }
 void me_set_master_cue(int on) { mcue = on; }
 int hotcue_delete(int deck, int pad) { deleted_deck = deck; deleted_pad = pad; return 0; }
@@ -622,6 +625,11 @@ int main(void)
      ON(1, 98); ms(400); map_flx10.tick(); OFF(1, 95); ms(100); map_flx10.tick();
      CHECK(pj_n == 6 && pj_b[5] == 16.0f, "SHIFT + > held repeats 16s; the plain > coming up ends it too (%d)", pj_n);
      OFF(1, 98);
+     /* SAMPLER CUE: the preview player's headphone cue (the RX3's LINK CUE), toggled */
+     ON(7, 105); OFF(7, 105);
+     CHECK(preview_cue == 1, "SAMPLER CUE: LINK CUE on");
+     ON(7, 105); OFF(7, 105);
+     CHECK(preview_cue == 0, "...pressed again: off");
      /* the input selectors: deck 1's channel off USB B is muted, back on B restored */
      map_flx10.tick();
      CHECK(route_ours[0] == 1 && route_ours[1] == 1, "selectors not reported: both decks routed");

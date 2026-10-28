@@ -47,6 +47,9 @@ int me_channel_input(void *engine, int idx);
 int me_channel_count(void);
 void me_set_cue(int idx, int on);
 int me_get_cue(int idx);
+/* The preview player's headphone cue: the RX3's LINK CUE. */
+void me_set_preview_cue(int on);
+int me_get_preview_cue(void);
 void me_set_stereo(int type);
 void me_set_master_cue(int on);
 int me_get_master_cue(void);

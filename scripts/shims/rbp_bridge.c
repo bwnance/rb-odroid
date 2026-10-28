@@ -124,6 +124,27 @@ void me_set_cue(int idx, int on)
      ((void (*)(void *, int, int))ME_SET_CUE)(engine, input, on);
 }
 
+/* The preview player's headphone cue -- the RX3's LINK CUE. Not one of the mixer's
+ * channel list (setMixerChHeadphoneCue does not reach it): MixerEngine keeps the
+ * preview channel apart, with its own setter and getter. */
+#define ME_SET_PREVIEW_CUE 0x0005762cUL   /* MixerEngine::setPreviewChHeadphoneCue(bool) */
+#define ME_GET_PREVIEW_CUE 0x0005764cUL   /* MixerEngine::getPreviewChHeadphoneCue() */
+
+void me_set_preview_cue(int on)
+{
+     void *engine = mixer_engine();
+     if (engine)
+          ((void (*)(void *, int))ME_SET_PREVIEW_CUE)(engine, on ? 1 : 0);
+}
+
+int me_get_preview_cue(void)
+{
+     void *engine = mixer_engine();
+     if (!engine)
+          return -1;
+     return ((int (*)(void *))ME_GET_PREVIEW_CUE)(engine) & 0xff;
+}
+
 int me_get_cue(int idx)
 {
      void *engine = mixer_engine();
