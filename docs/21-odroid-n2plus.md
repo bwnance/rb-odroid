@@ -764,7 +764,7 @@ session; details further down):
    of browserows.c's drawing. The switch redraws at once through
    Pub_GuiCom_SndDispInvalidate(0x1000) (BrowseUpdateList). Checked on the unit, both
    ways, and the button is absent on folder lists.
-33. **The swipe-down menu flickered -- fixed, to confirm by eye** (operator,
+33. **The swipe-down menu flickered -- fixed, confirmed by the operator's eye** (operator,
    2026-10-28; fb_shim.c, menu_draw.c, drmband.c). On this board the band is painted
    onto rbp's own page: the plane route cannot be had (meson's one overlay plane takes
    YUV and sits under the primary; with fb_shim's vblank fd holding DRM master the
