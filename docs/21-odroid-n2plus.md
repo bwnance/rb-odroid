@@ -421,9 +421,13 @@ session; details further down):
    headphones as well. rbp's master stays at its +5 dB pin, and
    RB_AUDIO_MASTER_BOOST_DB=3.7 lifts master and cue after rbp: rbp's trim
    centre is -8.7 dB, so the pin alone left us 3.7 dB under rekordbox on the
-   same unit (matched by ear with +3.71 dB of trim). Watch clips_m. Still open: the
-   headphone pair came up as 3,2 (left/right swapped) from the pairs memory on
-   two restarts that day, 2,3 on others.
+   same unit (matched by ear with +3.71 dB of trim). Watch clips_m.
+   The headphone pair: 3,2 is right for the FLX10 (measured, see the DDJ-FLX10
+   section; the pairs memory carries it). Some starts came up 2,3 because three
+   re-resolve paths dropped the memory -- the cold plug-in (rbp up before the
+   unit's audio) re-laid the configured map, and a device change and the live
+   map looked the memory up by card id instead of USB id. All three now use
+   lay_base_pairs(g_dev_key). The cold path is not yet seen on the unit.
 
 How rbp sorts a browse list (read 2026-10-27, for whoever needs it next; a
 default playlist sort was built on it and dropped -- the operator loads the sort

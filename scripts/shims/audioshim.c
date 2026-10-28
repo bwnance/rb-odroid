@@ -3360,7 +3360,9 @@ static void reopen_try(void)
         if (moved) {
             adecide("audioshim: the audio device is now \"%s\" (%s); the pair map is "
                     "being re-resolved against it\n", g_cfg.dev, dwhy);
-            restore_pairs_for(g_cfg.card_id);
+            /* g_dev_key, not g_cfg.card_id: the memory is keyed by USB id
+             * (apply_audio_device() has just set it for the new device). */
+            restore_pairs_for(g_dev_key);
         }
     }
 
@@ -3400,10 +3402,11 @@ static void reopen_try(void)
      * about. Both conditions matter: the loss count says no handle was ever open,
      * the frame count says nothing was ever routed. */
     if (!g_master_losses && g_master_frames_delivered == 0) {
-        g_cfg.master = g_cfg_map0.master;
-        g_cfg.headphones = g_cfg_map0.headphones;
-        g_cfg.booth = g_cfg_map0.booth;
-        g_cfg.monitor = g_cfg_map0.monitor;
+        /* The base for THIS device -- its memory where it has one, else the
+         * configured map -- and not g_cfg_map0 alone, which dropped the memory on
+         * every unit that started before its controller's audio was up: the FLX10's
+         * remembered headphones=3,2 came back as the configured 2,3 (2026-10-27). */
+        lay_base_pairs(g_dev_key);
         g_pairs_resolved = 0;
         g_channels_assumed = 0;
         /* Zeroed so the replay's own set_channels() derives the count from the card
@@ -3926,7 +3929,7 @@ static void pairs_tick(void)
     g_map_rejects = 0;
     /* The base AND the file in one call -- lay_base_pairs() reads the file itself, so every
      * path that resolves a map (this one, the constructor, a device change) agrees. */
-    lay_base_pairs(g_cfg.card_id);
+    lay_base_pairs(g_dev_key);       /* the memory's key: the USB id, not the card id */
 
     {
         const struct pair *now[6];
