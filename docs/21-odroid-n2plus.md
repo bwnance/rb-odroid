@@ -600,10 +600,24 @@ session; details further down):
    150 ms until it comes up (~12x through a 128 BPM track with 4 beats, four times
    that with SHIFT's 16). Checked on the unit: held 2 s on a 170 BPM track, REMAIN
    4:08 -> 3:52, eleven 4-beat jumps. test_flx10 covers the timing.
-26. **Touch scrolling is jerky -- to fix after the BROWSE column** (operator,
-   2026-10-28, with the touchscreen newly connected: a "CXDIS" panel, 1920x1080
-   raw, picked up by pointsrc without a restart). Dragging a list moves it in
-   steps rather than smoothly.
+26. **Touch scrolling is jerky -- fixed, by measurement; to feel at the glass**
+   (operator, 2026-10-28, the "CXDIS" capacitive panel; touchscroll.c). Measured on
+   the unit with touches injected through pointsrc (a drag of 8 rows at 1,000 px/s,
+   samples every 8 ms) while sampling rbp's list position: the list moved 2-3 rows at
+   a time every ~130 ms, because every sample passes rbp's
+   TouchAdValueHysteresis::procAdaptValue @0x363a74, a resistive panel's filter that
+   holds a moving finger inside a dead band, creeps it one unit every six samples and
+   takes a big move only after four samples beyond it -- TouchListScrollProc's y
+   changed every ~120 ms though samples came every 8 ms. Once a touch is under way
+   (filter state 2) the sample now passes as it is (its first sample is still rbp's to
+   drop); after, the list moves a row every ~50 ms, in step with the finger. Also, rbp
+   STORED each drag's row difference (UiKey_BrowseTouchListScroll @0x121490) for
+   Ui_EventTask's TouchScroll to make, so two row changes between its rounds lost the
+   first; it is now added. A drag of 8 rows moves the list 7 (the first row change is
+   the drag's own start) at ordinary speeds; very fast flicks (60+ rows a second) still
+   drop one or two. Taps are unchanged (a row selects, the headings sort).
+   For checks like this pointsrc reads touches from a FIFO while one exists at
+   /run/rbp/touch.inject ("down x y" a line, logical 1280x800; none exists normally).
 27. **No touch on the BEAT FX area -- wished for, not started** (operator,
    2026-10-28: "it is buggy and i don't like it"). Two layers there: the shim's
    own zone (fx_zone.c: tap CH SELECT to cycle 1/2/MASTER, tap the effect name

@@ -3061,6 +3061,34 @@ static void *reader_thread(void *arg)
     return NULL;
 }
 
+/* ---- touches from a FIFO, for checking gestures with nobody at the glass ----------
+ * Opt-in by presence: while a FIFO exists at INJECT_FIFO, each line written to it,
+ * "down x y" (logical 1280x800, down 1 or 0), is reported exactly as a reading from the
+ * panel is (pointer_report). Nothing is created here: no FIFO, no input. Used to drag
+ * BROWSE's list on the unit (docs/21 item 26). */
+#define INJECT_FIFO "/run/rbp/touch.inject"
+
+static void *inject_thread(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        /* no stat(): rbp's glibc 2.13 has none. Opening a FIFO waits for a writer;
+         * no file fails at once. */
+        FILE *f = fopen(INJECT_FIFO, "r");
+        if (!f) {
+            sleep(2);
+            continue;
+        }
+        char line[64];
+        int d, x, y;
+        while (fgets(line, sizeof line, f))
+            if (sscanf(line, "%d %d %d", &d, &x, &y) == 3)
+                pointer_report(d != 0, x, y, menu_enabled, 0);
+        fclose(f);
+    }
+    return NULL;
+}
+
 int pointsrc_start(void)
 {
     log_debug = env_flag("POINT_DEBUG", 0);
@@ -3102,6 +3130,11 @@ int pointsrc_start(void)
     if (pthread_create(&reader_tid, NULL, reader_thread, NULL) != 0)
         return -1;
     reader_started = 1;
+    {
+        pthread_t inject_tid;
+        if (pthread_create(&inject_tid, NULL, inject_thread, NULL) == 0)
+            pthread_detach(inject_tid);
+    }
     return 0;
 }
 
