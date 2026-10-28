@@ -136,6 +136,7 @@ static int route_ours[2] = { -1, -1 };
 void flx10_route_deck(int d, int ours) { if (d >= 0 && d < 2) route_ours[d] = ours; }
 static int rbp_setting[3] = { -1, -1, -1 };
 int flx10_rbp_setting(int which) { return which >= 0 && which < 3 ? rbp_setting[which] : -1; }
+void flx10_rbp_set(int which, int index) { (void)which; (void)index; }
 int flx10_unit_want(int is_cc, int num, int rbp_value);
 /* the rbp mode each FLX10 pad page belongs to */
 static int pmode(int pg) { static const int m[8] = { 0, 2, 3, 5, 4, 6, 1, 7 }; return pg < 0 ? 0 : m[(pg >> 4) & 7]; }
@@ -660,19 +661,13 @@ int main(void)
      CHECK(flx10_unit_want(1, 0x42, 3) == -1 && flx10_unit_want(1, 0x42, -1) == -1, "...nothing for an unknown one");
      CHECK(flx10_unit_want(0, 0x45, 0) == 0x00 && flx10_unit_want(0, 0x45, 1) == 0x7F,
            "POWER MANAGEMENT NEVER / 20min -> 9F 45 00 / 7F");
-     /* the four rows kept on this machine: rekordbox's defaults until set */
+     /* rbp's rows from the unit's values (UTILITY's row index) */
      {
-          extern int flx10_setting_get(int num);
-          extern int flx10_setting_set(int num, int val);
-          CHECK(flx10_setting_get(0x47) == 0x7F && flx10_setting_get(0x49) == 0x7F &&
-                flx10_setting_get(0x45) == -1, "kept settings: stereo / on by default, only the four");
-          CHECK(flx10_setting_set(0x47, 0x00) == 1 && flx10_setting_get(0x47) == 0x00 &&
-                flx10_setting_set(0x47, 0x10) == 0, "master mono kept; a value not 00 / 7F refused");
-          flx10_setting_set(0x47, 0x7F);
-          CHECK(flx10_setting_get(0x44) == 0x00 && flx10_setting_set(0x44, 0x40) == 1 &&
-                flx10_setting_get(0x44) == 0x40 && flx10_setting_set(0x44, 0x7F) == 0 &&
-                flx10_setting_set(0x44, 0x15) == 0, "demo / screen saver: disabled by default, 00..40 by 10s");
-          flx10_setting_set(0x44, 0x00);
+          extern int flx10_rbp_index(int which, int uv);
+          CHECK(flx10_rbp_index(0, 0x00) == 2 && flx10_rbp_index(0, 0x20) == 0 &&
+                flx10_rbp_index(1, 0x10) == 1, "attenuators: 0 dB is index 2, -12 dB index 0");
+          CHECK(flx10_rbp_index(2, 0x7F) == 1 && flx10_rbp_index(4, 0x00) == 0 &&
+                flx10_rbp_index(3, -1) == -1, "on/off rows; unknown: none");
      }
      /* the panel's own long press: 113 / 112, on once it is held, off at the release */
      pj_n = 0; ON(1, 113);

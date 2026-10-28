@@ -237,14 +237,20 @@ session; details further down):
    samples are no longer scaled. So do MIC OUT TO BOOTH (9F 4E), MIC OUT TO
    MASTER REC (9F 3F, the unit's "mix the MIC audio to REC OUT") and POWER
    MANAGEMENT (9F 45, the unit's auto power off; 7F on). What rbp has no row for
-   are four rows of the shim's in MIXER after the attenuators, kept on this
-   machine (/root/settings/flx10.dat in the chroot, beside rbp's XdjSettings.dat;
-   rekordbox's defaults until changed) and sent at every start like rbp's own --
-   the connect sequence never sends any of these from the capture: MASTER / BOOTH MONO/STEREO (9F 47 / 48, 7F stereo; master checked by ear 2026-10-28), PEAK
+   are four rows of the shim's in MIXER after the attenuators: MASTER / BOOTH
+   MONO/STEREO (9F 47 / 48, 7F stereo; master checked by ear 2026-10-28), PEAK
    LIMITER (9F 49) and MIC OUT TO MASTER (9F 4A). BF 44 is the unit's demo /
    screen saver (00 disable, 10 / 20 / 30 demo after 1 / 5 / 10 min, 40 screen
-   saver): GENERAL's FLX10 DEMO/SCREEN SAVER row, kept and sent the same way
-   (disabled by default). rbp's own SCREEN SAVER dims the RX3's LCD backlight
+   saver): GENERAL's FLX10 DEMO/SCREEN SAVER row.
+   **The FLX10 is where all of these live** (operator, 2026-10-28: the unit keeps
+   them through a power-off and rekordbox reads them back). Nothing is kept on
+   this machine (the first flx10.dat was dropped): the shim's rows show the
+   value from the unit's settings report (its answer to 9F 70 00 at connect,
+   seen 2026-10-28 with all five present) and a change goes straight to the
+   unit; rbp's own five rows above take the unit's values 500 ms after that
+   report (flx10_unit_tick), and from then on rbp's changes go to the unit. The
+   one exception is MIC OUT TO MASTER REC (9F 3F): the unit leaves it out of
+   its report, so rbp's stored value is sent to it at connect. rbp's own SCREEN SAVER dims the RX3's LCD backlight
    (LcdBacklightPwm::setScreenSaverOn), which this machine does not have: its
    row is left out of UTILITY and the setting is put to OFF at start
    (utility_rows.c; operator, 2026-10-28). The MASTER / BOOTH / headphone knobs are

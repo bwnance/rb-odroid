@@ -346,8 +346,9 @@ static int ut_gen_isgrey(struct ut_entry *e)
 /* ---- the DDJ-FLX10's own audio settings -------------------------------------
  * What rekordbox sets on the unit and rbp has no row for (operator, 2026-10-28):
  * master and booth mono / stereo, the master's peak limiter, the mic to the master.
- * Kept on this machine and sent to the unit at every start (map_flx10.c's
- * flx10_setting_get / flx10_setting_set, knobshim.so: WEAK, greyed without it).
+ * The unit keeps them (through a power-off; rekordbox reads them back): each row shows
+ * the unit's own value and sets it (map_flx10.c's flx10_setting_get / flx10_setting_set,
+ * knobshim.so: WEAK; greyed until the unit has reported).
  * Index 1 is the note at 7F. */
 __attribute__((weak)) int flx10_setting_get(int num);
 __attribute__((weak)) int flx10_setting_set(int num, int val);
