@@ -129,6 +129,8 @@ int flx10_bfxq_panel(void) { return bfxq_panel; }
 void flx10_beat_jump(int d, int type) { if (bj_n < 16) { bj_deck[bj_n] = d; bj_t[bj_n] = type; } bj_n++; }
 static int pj_n, pj_deck[16]; static float pj_b[16];
 int flx10_plain_jump(int d, float b) { if (pj_n < 16) { pj_deck[pj_n] = d; pj_b[pj_n] = b; } pj_n++; return 1; }
+static int route_ours[2] = { -1, -1 };
+void flx10_route_deck(int d, int ours) { if (d >= 0 && d < 2) route_ours[d] = ours; }
 static int rbp_setting[3] = { -1, -1, -1 };
 int flx10_rbp_setting(int which) { return which >= 0 && which < 3 ? rbp_setting[which] : -1; }
 int flx10_unit_want(int is_cc, int num, int rbp_value);
@@ -620,6 +622,19 @@ int main(void)
      ON(1, 98); ms(400); map_flx10.tick(); OFF(1, 95); ms(100); map_flx10.tick();
      CHECK(pj_n == 6 && pj_b[5] == 16.0f, "SHIFT + > held repeats 16s; the plain > coming up ends it too (%d)", pj_n);
      OFF(1, 98);
+     /* the input selectors: deck 1's channel off USB B is muted, back on B restored */
+     map_flx10.tick();
+     CHECK(route_ours[0] == 1 && route_ours[1] == 1, "selectors not reported: both decks routed");
+     ON(1, 86); map_flx10.tick();
+     CHECK(route_ours[0] == 0 && route_ours[1] == 1, "channel 1 to LINE: deck 1 muted, deck 2 not");
+     OFF(1, 86); ON(1, 85); map_flx10.tick();
+     CHECK(route_ours[0] == 0, "...to USB A: still muted");
+     OFF(1, 85); ON(1, 87); map_flx10.tick();
+     CHECK(route_ours[0] == 1, "...back to USB B: routed again");
+     ON(2, 86); map_flx10.tick();
+     CHECK(route_ours[1] == 0, "channel 2 to LINE: deck 2 muted");
+     ON(2, 87); map_flx10.tick();
+     CHECK(route_ours[1] == 1, "...back: routed");
      /* near an end, a jump goes as far as whole beats allow (120 BPM: 500 ms a beat) */
      {
           extern int flx10_jump_clamp(int beats, int pos_ms, int total_ms, int bpm_x100);

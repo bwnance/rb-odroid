@@ -2691,8 +2691,61 @@ static unsigned long long sb_again_at;
 
 static void flx10_keysync_press(int deck);
 
+/* ---- each channel's input selector (operator, 2026-10-28; docs/21 item 24) ---------
+ * The FLX10's four channels each have a USB A / LINE (PHONO) / USB B selector. The unit
+ * does not switch the channel's audio itself -- it plays back the computer's master --
+ * it only tells the computer, as rekordbox expects, and rekordbox drops the deck from
+ * its mix. Measured: the channel's own MIDI channel (0..3), note 85 USB A, 86 LINE, 87
+ * USB B; a move is the old position's note-off and the new one's note-on, and the unit
+ * answers the controls query with every channel's position (so it is right at start).
+ * This unit is USB B. A deck whose channel is turned off it is routed to rbp's aux mixer
+ * input (input 4, which audioshim feeds silence) instead of its player -- the RX3's own
+ * DECK/LINE switch does the same with these words -- and back when it returns. */
+#define N_SEL_A    85
+#define N_SEL_LINE 86
+#define N_SEL_B    87
+#define MIXER_ROUTE_SILENT (MIXER_ROUTE_INPUT0 + 8u * 4u)   /* input 4, aux */
+static int selector[4] = { -1, -1, -1, -1 };   /* the note last seen, -1 none yet */
+
+/* Is channel `ch` (0..3) on this unit's input? Unknown counts as yes. Pure. */
+int flx10_selector_ours(int note)
+{
+     return note < 0 || note == N_SEL_B;
+}
+
+static int flx10_selector_note(int ch, int note, int on)
+{
+     if (ch < 0 || ch > 3 || note < N_SEL_A || note > N_SEL_B)
+          return 0;
+     if (on && selector[ch] != note) {
+          selector[ch] = note;
+          klog("knobshim2: flx10 channel %d selector: %s\n", ch + 1,
+               note == N_SEL_A ? "USB A" : note == N_SEL_LINE ? "LINE" : "USB B (ours)");
+     }
+     return 1;
+}
+
+/* The two decks' routing words, kept to the selectors (rbp itself writes them too). */
+__attribute__((weak)) void flx10_route_deck(int deck, int ours)
+{
+     volatile uint32_t *word = (volatile uint32_t *)(ADDR_MIXER_ROUTE_PLAYER0 + 4u * (unsigned)deck);
+     uint32_t want = ours ? (deck ? MIXER_ROUTE_INPUT1 : MIXER_ROUTE_INPUT0) : MIXER_ROUTE_SILENT;
+     if (*word != want) {
+          *word = want;
+          klog("knobshim2: flx10 deck%d %s\n", deck + 1, ours ? "routed to its player" : "muted (selector off USB B)");
+     }
+}
+
+static void flx10_selector_tick(void)
+{
+     for (int d = 0; d < 2; d++)
+          flx10_route_deck(d, flx10_selector_ours(selector[d]));
+}
+
 static void flx10_note(int ch, int note, int on)
 {
+     if (flx10_selector_note(ch, note, on))
+          return;
      int deck = IS_DECK(ch) ? ch : -1;
 
      if (ch == CH_MIX && flx10_panel_note(note, on))
@@ -3360,6 +3413,7 @@ static void flx10_tick(void)
           browsed = 0;
      flx10_push_tick(t);
      flx10_jump_tick(t);
+     flx10_selector_tick();
      flx10_unit_tick(t);
      flx10_scfx_tick(t);
      flx10_panel_tick(t);
