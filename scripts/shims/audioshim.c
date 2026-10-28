@@ -3650,16 +3650,23 @@ static void startup_scale_pair(const struct pair *pair, unsigned frames,
 }
 
 static void fold_stage(const struct stage *st, const struct pair *pair,
-                       unsigned frames)
+                       unsigned frames, float gain)
 {
     unsigned n, i;
 
     if (!pair_mapped(pair) || st->frames == 0)
         return;
     n = st->frames < frames ? st->frames : frames;
+    if (gain >= 1.0f) {
+        for (i = 0; i < n; i++) {
+            g_out[i * g_out_channels + pair->a] = st->buf[i * 2 + 0];
+            g_out[i * g_out_channels + pair->b] = st->buf[i * 2 + 1];
+        }
+        return;
+    }
     for (i = 0; i < n; i++) {
-        g_out[i * g_out_channels + pair->a] = st->buf[i * 2 + 0];
-        g_out[i * g_out_channels + pair->b] = st->buf[i * 2 + 1];
+        g_out[i * g_out_channels + pair->a] = (int32_t)((float)st->buf[i * 2 + 0] * gain);
+        g_out[i * g_out_channels + pair->b] = (int32_t)((float)st->buf[i * 2 + 1] * gain);
     }
 }
 
@@ -4120,8 +4127,11 @@ static snd_pcm_sframes_t flush_master(const int32_t *src, snd_pcm_uframes_t size
      * interceptors -- staging is cheap and unconditional, and a mode that also
      * changed what rbp is allowed to write would be a second thing to keep true. */
     if (!external) {
-        fold_stage(&g_phone_stage, &g_cfg.headphones, (unsigned)size);
-        fold_stage(&g_booth_stage, &g_cfg.booth, (unsigned)size);
+        /* The headphones take MASTER ATT. too where the surface blends our
+         * master into them itself (g_hp_att, shmstate.h). */
+        fold_stage(&g_phone_stage, &g_cfg.headphones, (unsigned)size,
+                   g_hp_att ? master_att : 1.0f);
+        fold_stage(&g_booth_stage, &g_cfg.booth, (unsigned)size, 1.0f);
         if (fading) {
             startup_scale_pair(&g_cfg.headphones, (unsigned)size, t0, mute, fade);
             startup_scale_pair(&g_cfg.booth, (unsigned)size, t0, mute, fade);

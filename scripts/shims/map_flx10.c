@@ -2752,11 +2752,8 @@ static void flx10_note(int ch, int note, int on)
      }
 
      if (ch == CH_MIX) {
-          if (note == N_MASTER_CUE) {
-               if (on)
-                    me_set_master_cue(me_get_master_cue() == 0 ? 1 : 0);
+          if (note == N_MASTER_CUE)        /* the unit's own: flx10_startup() */
                return;
-          }
           /* VIEW (operator, 2026-10-25): from the player it opens SOURCE;
            * on the SOURCE menu it is SOURCE again, which closes it (BROWSE
            * there opened the source's browser, and BACK did nothing); from
@@ -2951,10 +2948,13 @@ static void flx10_cc_abs(int ch, int cc, int val)
           if (key == K_FADER && sch >= 1 && sch <= 2) {
                g_fader[sch] = v;
                g_fader_seen[sch] = 1;
-          } else if (key == K_HPMIX) {
-               g_cue_mix = fval;
-          } else if (key == K_HPLEVEL) {
-               g_cue_gain = fval;
+          } else if (key == K_HPMIX || key == K_HPLEVEL) {
+               /* The unit's own: see flx10_startup(). Not sent to rbp. */
+               if (key == K_HPMIX)
+                    g_cue_mix = fval;
+               else
+                    g_cue_gain = fval;
+               return;
           }
           send_rx_key_f(key, OP_VALUE, sch, v, fval);
           return;
@@ -3017,8 +3017,12 @@ static void flx10_cc(int ch, int cc, int val)
 
 /* ---- the tables ----------------------------------------------------------- */
 
+/* rbp's MASTER LEVEL at 0 dB: its knob table x 1.778 is 1.000 at 820/1023. */
+#define MASTERLVL_0DB 820
+
 static void flx10_build(void)
 {
+     g_masterlvl_pin = MASTERLVL_0DB;     /* see flx10_startup() */
      /* Additive, like every map: see ctrl_bindings_reset() in ctrl_map.h. */
      knob_scale = env_num("KNOB_SCALE", 1);
      if (knob_scale < 1) knob_scale = 1;
@@ -3111,15 +3115,57 @@ static void flx10_build(void)
      add_note(CH_FX, N_FX_RELEASE, 0, CH_GLOBAL);
 }
 
+/* rbp's headphone stream as a plain cue bus: see flx10_startup(). */
+#define HP_ASSERT_MS 40000
+/* rbp's HP LEVEL for that bus: 277/1023 -> its level table's entry 69 of 255,
+ * -29.8 dB. Set by ear against the unit's own master in the headphones
+ * (operator, 2026-10-27, MASTER ATT. at 0 dB): -24.7 dB with rbp's master at
+ * +5 dB, then 5 dB down with it when the master went to 0 dB. rbp's top (0 dB)
+ * was far too loud. */
+#define HP_LEVEL_RBP 277
+static unsigned long long hp_until, hp_next;
+
+static void flx10_hp_tick(unsigned long long t)
+{
+     if (!hp_until || t > hp_until || t < hp_next)
+          return;
+     hp_next = t + 2000;
+     send_rx_key_f(K_HPMIX, OP_VALUE, CH_GLOBAL, 0, 0.0f);
+     send_rx_key_f(K_HPLEVEL, OP_VALUE, CH_GLOBAL, HP_LEVEL_RBP,
+                   (float)HP_LEVEL_RBP / 1023.0f);
+}
+
 static void flx10_startup(void)
 {
-     /* Mixer channel 1 -> deck 1, channel 2 -> deck 2, and rbp's master level at
-      * unity: both for the reasons map_flx4.c's startup gives. Sound Color FX is
-      * NOT forced to a type here (the FLX4 forces FILTER because it has no SCFX
-      * buttons); the FLX10's buttons select one. */
+     /* Mixer channel 1 -> deck 1, channel 2 -> deck 2, and rbp's master level
+      * pinned, for the reasons map_flx4.c's startup gives. Sound Color FX is NOT
+      * forced to a type here (the FLX4 forces FILTER because it has no SCFX
+      * buttons); the FLX10's buttons select one.
+      *
+      * The pin is MASTERLVL_0DB, not the other maps' 1023: rbp's top is +5 dB
+      * (MasterOut::setVolume: the knob's table x 1.778), and on this unit that
+      * boost ran the master hot ahead of UTILITY's MASTER ATT. (operator,
+      * 2026-10-27). rbp_vu.c re-asserts g_masterlvl_pin, set in flx10_build(). */
      *(volatile uint32_t *)ADDR_MIXER_ROUTE_PLAYER0 = MIXER_ROUTE_INPUT0;
      *(volatile uint32_t *)ADDR_MIXER_ROUTE_PLAYER1 = MIXER_ROUTE_INPUT1;
-     send_rx_key_f(K_MASTERLVL, OP_VALUE, CH_GLOBAL, 1023, 1.0f);
+     send_rx_key_f(K_MASTERLVL, OP_VALUE, CH_GLOBAL, MASTERLVL_0DB,
+                   (float)MASTERLVL_0DB / 1023.0f);
+     /* The headphones are the unit's own mix (measured 2026-10-27): it blends
+      * the cue it is sent on outputs 3/4 with the master on 1/2 by its own
+      * HP MIX, gates the master with its own MASTER CUE (its light is its own
+      * latch) and sets the level with its own HP LEVEL. So rbp's headphone
+      * stream must be a plain cue bus: rbp's HP MIX at full CUE (no master in
+      * it) and its HP LEVEL fixed (HP_LEVEL_RBP). Forwarding the knobs as well
+      * applied each twice -- the cue turned down in rbp and again in the unit,
+      * the master only once ("every channel cue too quiet, master too loud").
+      * The knobs and MASTER CUE are therefore not sent to rbp. rbp's mixer
+      * comes up after this runs and drops keys until then, so flx10_hp_tick()
+      * sends the two again, as rbp_vu.c does the master level. The unit's
+      * headphone master is our master output, which UTILITY's MASTER ATT.
+      * turns down, so the cue bus takes MASTER ATT. too (g_hp_att): the
+      * balance below was set at 0 dB. */
+     hp_until = shim_now_ms() + HP_ASSERT_MS;
+     g_hp_att = 1;
      /* The HDMI mirror's level (flx10_mastervol) starts as the MASTER knob all
       * the way down, not shmstate.c's full: the unit does not report the knob
       * until it moves, and a mirror at full while the knob sits at zero was the
@@ -3219,6 +3265,7 @@ static void flx10_tick(void)
      flx10_link_tick(t);
      flx10_fxscreen_tick(t);
      flx10_bfxq_tick(t);
+     flx10_hp_tick(t);
      flx10_splash_tick();
      flx10_keysync_tick();
      flx10_master_tick(t);

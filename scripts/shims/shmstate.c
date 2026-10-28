@@ -34,6 +34,9 @@ volatile float g_mirror_gain = 1.0f;
  * 0 dB until rbp sets it (it does, at start, with the saved setting). */
 volatile float g_master_att = 1.0f;
 
+/* 1 = the headphone pair takes g_master_att too (shmstate.h). */
+volatile int g_hp_att = 0;
+
 /* headphone cue mix (0 = cue only, 1 = main only) / level (0..1). */
 volatile float g_cue_gain = 1.0f;
 volatile float g_cue_mix  = 1.0f;

@@ -243,7 +243,8 @@ static void mixer_defaults_tick(unsigned long t)
           int asked = led_query_absolute();
           /* rbp's mixer inits after we load, so the one-shot unity master
            * level in init() is dropped - re-assert it for ~30 s. */
-          send_rx_key_f(K_MASTERLVL, OP_VALUE, CH_GLOBAL, 1023, 1.0f);
+          send_rx_key_f(K_MASTERLVL, OP_VALUE, CH_GLOBAL, g_masterlvl_pin,
+                        (float)g_masterlvl_pin / 1023.0f);
           /* ...and seed the two channel faders, when nobody is going to report
            * them. rbp's mixer engine builds with them at ZERO -- the safe
            * default for a panel that reports where its faders are, which is

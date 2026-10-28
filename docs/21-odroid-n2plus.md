@@ -414,6 +414,14 @@ session; details further down):
    periods for the master, not rbp's 2"). To check: play a while and listen
    for clicks at 4, then at 0; if 4 is clean, make it the ODROID's default.
 
+20. **Headphones: cue vs master -- fixed** (2026-10-27, by ear). Every
+   channel cue was too quiet and the master too loud. The FLX10 builds the
+   headphone mix in hardware, and rbp was mixing too (docs/09, Cue / PFL), with
+   its master at +5 dB. Now rbp sends a plain cue bus at -29.8 dB, its master
+   at 0 dB, and MASTER ATT. scales the headphones as well. Still open: the
+   headphone pair came up as 3,2 (left/right swapped) from the pairs memory on
+   two restarts that day, 2,3 on others.
+
 How rbp sorts a browse list (read 2026-10-27, for whoever needs it next; a
 default playlist sort was built on it and dropped -- the operator loads the sort
 from the stick's MY SETTINGS instead):

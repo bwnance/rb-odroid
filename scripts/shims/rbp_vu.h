@@ -36,6 +36,7 @@ void *vu_thread(void *arg);
  * default visibility so knobshim's copy is the same memory. fader_state.c says why. */
 extern int g_fader[3];
 extern int g_fader_seen[3];   /* set once a surface has reported a fader */
+extern int g_masterlvl_pin;   /* rbp's MASTER LEVEL as pinned (fader_state.c) */
 
 /* Record a fader position, and that one was reported -- the two are one fact, so
  * they are written together. `ch` is 1 or 2; anything else is ignored, and `v` is

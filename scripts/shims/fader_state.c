@@ -27,6 +27,11 @@
 int g_fader[3]      = { 1023, 1023, 1023 };
 int g_fader_seen[3];      /* set once a surface has reported a fader */
 
+/* rbp's MASTER LEVEL as the shim pins it (rbp_vu.c re-asserts it for ~30 s).
+ * 1023 is rbp's top, +5 dB in rbp; 820 is 0 dB. A surface's build() may lower
+ * it (map_flx10.c). Here, beside the faders, for the same one-copy reason. */
+int g_masterlvl_pin = 1023;
+
 void fader_state_set(int ch, int v)
 {
     if (ch < 1 || ch > 2)

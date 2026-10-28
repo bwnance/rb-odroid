@@ -52,9 +52,10 @@
  * symptom but a dead knob. The bump is what makes that direction loud too, which
  * is the whole reason to bump for an addition.
  *
- * v3: g_master_att added (UTILITY's MASTER ATT., masteratt.c). */
+ * v3: g_master_att added (UTILITY's MASTER ATT., masteratt.c).
+ * v4: g_hp_att added (the headphone pair takes MASTER ATT. too, map_flx10.c). */
 #ifndef SHMSTATE_ABI_VERSION
-#define SHMSTATE_ABI_VERSION 3
+#define SHMSTATE_ABI_VERSION 4
 #endif
 
 /* The preload order that satisfies this contract; quoted in error messages so
@@ -79,6 +80,12 @@ extern volatile float g_mirror_gain;
  * by masteratt.c when rbp sets it. The RX3 attenuates in hardware; here
  * audioshim.c scales the master output by it, after the meters. */
 extern volatile float g_master_att;
+
+/* 1 = the headphone pair is scaled by g_master_att as well. Set by a surface
+ * whose own hardware blends the master it is sent into its headphones (the
+ * DDJ-FLX10): MASTER ATT. turns that master down there too, so the cue has to
+ * follow it or the balance set at 0 dB is lost. 0 everywhere else. */
+extern volatile int   g_hp_att;
 
 /* headphone cue mix and level. g_cue_mix: 0 = cue only, 1 = main only.
  * g_cue_gain: 0..1.
@@ -123,6 +130,7 @@ extern const int shmstate_abi_version;
     X("g_master_gain")          \
     X("g_mirror_gain")          \
     X("g_master_att")           \
+    X("g_hp_att")               \
     X("g_cue_gain")             \
     X("g_cue_mix")              \
     X("g_speaker_gain")         \

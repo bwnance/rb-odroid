@@ -680,6 +680,20 @@ setHeadphoneStereoType(type)            @0x0005768c
 * a split-cue switch, where the target has one, is
   `HeadPhone::setStereoType` (0 = split, 1 = stereo).
 
+**The DDJ-FLX10 is different: it makes the headphone mix itself** (measured
+2026-10-27). It blends the cue it is sent on outputs 3/4 with the master on 1/2 by
+its own HP MIX, gates the master with its own MASTER CUE (the light is the unit's
+own latch) and sets the level with its own HP LEVEL. So `map_flx10.c` makes rbp's
+headphone stream a plain cue bus -- rbp's HP MIX at full CUE, its HP LEVEL fixed
+at -29.8 dB (`HP_LEVEL_RBP`, by ear) -- and sends neither knob nor MASTER CUE to
+rbp. Forwarding them applied each twice: the cue was turned down in rbp and again
+in the unit, the master only once ("every channel cue too quiet, master too
+loud"). rbp's master level is pinned at 0 dB there (820, `g_masterlvl_pin`), not
+the other maps' 1023, which is +5 dB in rbp (`MasterOut::setVolume`: the knob's
+table x 1.778). And since the unit's headphone master is our master output,
+UTILITY's MASTER ATT. scales the headphone pair too (`g_hp_att`), or the balance
+set at 0 dB would move with it.
+
 ## Audibility: rbp builds the channel faders at ZERO
 
 The port was silent from the day it first played a track, and the reason is not

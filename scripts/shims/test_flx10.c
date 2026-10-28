@@ -37,6 +37,7 @@ static int checks, failures;
 /* ---- stubs for what the map reaches in rbp ---- */
 int verbose = 0;
 int g_fader[3];
+int g_masterlvl_pin = 1023;
 int g_fader_seen[3];
 static int looping[2];
 int aloop_is_looping(int deck) { return looping[deck]; }
@@ -719,8 +720,11 @@ int main(void)
      /* channel CUE latches; master CUE */
      ON(1, 84); OFF(1, 84);
      CHECK(cue[0] == 1, "ch1 CUE on");
-     ON(7, 99);
-     CHECK(mcue == 1, "master CUE on");
+     /* master CUE and the headphone knobs are the unit's own mix: none reaches rbp */
+     reset(); mcue = 0; ON(7, 99); OFF(7, 99);
+     CHECK(mcue == 0 && sent_n == 0, "master CUE: not sent to rbp");
+     reset(); CC(7, 12, 100); CC(7, 13, 100);
+     CHECK(sent_n == 0, "HP MIX / HP LEVEL: not sent to rbp (%d sent)", sent_n);
 
      /* browse: both knobs scroll; pushes load their own deck; hold = fast scroll */
      reset(); CC(7, 64, 1); CC(7, 64, 127);
