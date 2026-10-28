@@ -190,6 +190,9 @@ static int send_browse_hooked(uint8_t *context, void *mbx, uint8_t *request)
 
 static int select_hooked(uint8_t *context, void *mbx, uint8_t *request)
 {
+    int taken;
+    if (browsesort_select(context, mbx, request, &taken))
+        return taken;       /* a heading tapped (browsesort.c) */
     if (!column_menu(context))
         return select_right_menu(context, mbx, request);
     /* the list as SendSortedBrwsList finds it: its sort's id at +0x10, name at +24 */

@@ -437,17 +437,22 @@ session; details further down):
      (note icon at 442, title from 474, heading) moves 55 px left; the selected
      title's scroll is measured from there too. Decided by what rbp draws there:
      dashes hide it, numbers bring it back, with our column on or off.
-   - **Next** (operator, 2026-10-28): the sort options from the stick's MY
-     SETTINGS -- table 18 is the players' SORT list (each row a rekordbox id,
-     rbp's MODULEMAIN_CATESORT category, a flag and a menu position), so COLUMN's
-     submenu could offer the same keys, in the same order, as the stick's SORT
-     (GetSortMenuList @0x2575a8 builds SORT's from it via dbcl_GetRightMenu
-     @0x263674); categories not shown yet (RATING, GENRE, COMMENT, LABEL ...)
-     would need their values in the snapshot;
-     BPM and KEY as separate columns rather than rbp's merged "170.0 bpm - 4B";
-     the preview waveform switchable off for room; the CDJ's PREVIEW (audition
-     from the list) and text size. The toolkit's tap-a-heading sort is not
-     ported.
+   - **COLUMN stays OFF / ARTIST / ALBUM / BPM / KEY / TIME** (operator,
+     2026-10-28: not every sort option). For reference, rbp's own second column
+     under each SORT, probed on the unit with every sort enabled (sort id at db+16,
+     its rows' kind, its heading image): ARTIST 2/7/2032, ALBUM 3/2/2024, BPM
+     4/13/2045, RATING 5/100/2574 (stars, U+2606), GENRE 6/6/2392, COMMENTS
+     7/35/2747, TIME 8/11/2598, REMIXER 9/41/2591, LABEL 10/14/2420, ORIGINAL
+     ARTIST 11/40/2557, KEY 12/15/2409, BITRATE 13/16/2039, COLOR 15/19/2309, DJ
+     PLAY COUNT 16/42/2380, DATE ADDED 17/46/2341; DEFAULT is sort 0, BPM
+     (UNSORTED) 21. SortTrackSetListBuf @0x171908 reads each from djdbContent
+     (artist col 5, album 6, genre 7, BPM 8, time 9, bitrate 11, comment 13 as a
+     string, rating 15, remixer 17, label 18, original artist 19, key 20, date added
+     21, colour 22, play count 23) should a field ever be wanted. Table 18 (MY
+     SETTINGS) also lists the stick's SORT menu: flag 0 or 2 rows are on it, in
+     their position byte's order; flag 1 rows are off.
+   - The preview waveform switch and text size are off the list (operator,
+     2026-10-28). The CDJ's PREVIEW button is item 32.
    - test_browse: the row rewrite on a synthetic rbp context (folder lists
      left alone), the column's transport, the literal relocation, and COLUMN's
      LIST MENU entry and submenu on a synthetic menu block.
@@ -629,10 +634,41 @@ session; details further down):
    on SOURCE by itself, and a real plug worked on the retry.
 30. **The sort should survive going back to SOURCE -- wished for** (operator,
    2026-10-28). A sort chosen in a list is lost when BROWSE goes back to SOURCE.
-31. **Sort triangles on the headings -- wished for** (operator, 2026-10-28). As on
-   the CDJ-3000 (the operator's photo): a small triangle by each column heading
-   (#, TRACK, ARTIST, BPM, KEY), tapped to sort the list by that column. The
-   toolkit's tap-a-heading sort (not ported, item 11) is the starting point.
+31. **Sort triangles on the headings -- done** (operator, 2026-10-28; browsesort.c,
+   browserows.c). As on a CDJ-3000 (the operator's photos): every heading has a
+   triangle just after its text, grey as the text (189,190,189); the heading the list
+   is sorted by is drawn blue (0,125,231, rbp's selected row) with a blue triangle,
+   pointing down when the sort runs downwards. A tap on a heading sorts by it (rbp's
+   own sort, the one LIST MENU > SORT sends); a tap on the sorted one turns it round.
+   - How: a tap posts a UI event of our own into rbp's BrowseComm mailbox (pool
+     0x03268be0, mailbox 0x03267230, as SendMessage_ToBrowseComm), from the touch
+     thread itself (get_mpf/snd_mbx are pthread primitives). On the database client
+     task UiBrowseComm_IsUIMsgValid_ListReq @0x104edc sees it and asks
+     Ui_BrowseComm_ReqMenuSelect @0x110c50 for item 0x7e00|sort, which reaches
+     SelectRightMenu (browsemenu.c's hook hands it on) and SendSortedBrwsList. A
+     direction: sort | 0x4000 (| 0x8000 down), kept per task across
+     DBSMain_OnListClientCmd @0x153530 (which narrows the sort to a byte) and turned
+     into the comparator's bit 7 in ListStructSortKeySet @0x171780 (LBGrp_SetSortType).
+     rbp's own BPM sort runs up; RATING, TIME, BITRATE, PLAY COUNT and DATE ADDED
+     run down (flags 0x84). Adapted from rx3-toolkit (MPL).
+   - Drawing: rectangle colours are 5-6-5 in the colour word's low three bytes
+     (red's 5 bits in the low byte, green's 6, blue's 5; each byte's top bits
+     ignored -- probed bit by bit), drawn filled (byte 0x31 = 1) with the outline
+     pass off (byte 0x24). Headings are RGB16 bitmaps (image table [0x05a14f60], 44
+     bytes an id; format 2) with the grey text baked onto (49,48,49) and magenta as
+     key, and rbp cannot tint them (the image model's word 0x48 is the key), so the
+     sorted heading is a blue copy of its bitmap made once, answered under a private
+     id from a hook on NS_GetImageInfoByID @0x1d192c.
+   - The # column stays (it used to go when rbp filled it with dashes) and, in a
+     playlist sorted any way but its own, shows each track's entry in the playlist
+     (operator: a CDJ-3000 keeps them), read from the stick's export.pdb table 8
+     (entry, track, playlist) on a thread of browsecol.c's own; the playlist is
+     getRowset_Playlist's last id (0x0243b574), a playlist's track list is db+12
+     0x11xx. Four digits are drawn right-aligned in a wider rectangle (rbp drops
+     what does not fit).
+   - Checked on the unit with a test hook (/run/rbp/browse.tap, "x y": a tap there):
+     BPM up 153 -> 155 and down 230 first; ARTIST up and down; LIST MENU > SORT >
+     KEY lights KEY the same way a tap does.
 
 How rbp sorts a browse list (read 2026-10-27, for whoever needs it next; a
 default playlist sort was built on it and dropped -- the operator loads the sort

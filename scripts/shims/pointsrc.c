@@ -1986,6 +1986,8 @@ static void bb_fire(int deck)
     send_rx_key(K_SYNC, OP_RELEASE, deck + 1, 0);
 }
 
+extern int browse_heading_touch(int down, int x, int y) __attribute__((weak));
+
 static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
 {
     int button = 0;
@@ -2054,6 +2056,12 @@ static void pointer_report(int down, int x, int y, int allow_menu, int held_ms)
             return;
         }
     }
+
+    /* THE BROWSE HEADINGS: a tap on a track list's heading sorts it by that column, as
+     * on a CDJ-3000 (knobshim's browsesort.c, which also says which heading). Weak: an
+     * fbshim without knobshim beside it has no headings to sort. */
+    if (browse_heading_touch && browse_heading_touch(down, x, y))
+        return;
 
     /* THE WAVEFORM SWIPE, which takes nothing and therefore goes first -- wave_swipe()
      * says why that is a rule and not a preference. */

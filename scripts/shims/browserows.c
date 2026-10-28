@@ -24,6 +24,8 @@
  */
 #include "browserows.h"
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
 
@@ -93,6 +95,11 @@ static unsigned native_field;
  * numbers rbp draws */
 static unsigned number_blank;
 static const uint8_t *list_context;
+/* the page's sort as rbp keeps it (db+16): its sort id, 0x4000 and 0x8000 on one
+ * browsesort.c asked for with a direction */
+static unsigned sort_now;
+/* the list's drive while it is a playlist's track list, else 0 */
+static unsigned list_playlist;
 
 /* rbp's track-row kinds: a list of these is a track list; anything else is the
  * two-pane folder/category navigator, left alone */
@@ -681,7 +688,11 @@ void browserows_process(uint8_t *context, uint8_t *message, const struct browse_
         return;
     }
     unsigned native_sort = word((uint8_t *)db + 16);
-    /* a folder/category list stays rbp's own two-pane navigator */
+    __atomic_store_n(&sort_now, native_sort, __ATOMIC_SEQ_CST);
+    /* db+12: 0x11xx is a playlist's track list (0x10xx a category, 0x12xx an artist's
+     * tracks; read on the unit 2026-10-28) -- the # column's numbers are its entries */
+    __atomic_store_n(&list_playlist, ((word((uint8_t *)db + 12) >> 8) & 0xffu) == 0x11u ?
+                     word((uint8_t *)db + 4) : 0u, __ATOMIC_SEQ_CST);
     for (unsigned i = 0; i < count - 1; i++)
         if (!track(half(context + rows + i * 532 + 4))) {
             __atomic_store_n(&track_list, 0u, __ATOMIC_SEQ_CST);
@@ -845,6 +856,7 @@ static int ensure(void)
 #define TITLE_NATIVE_RIGHT 844
 #define TEXT_INSET  7           /* heading and text after a divider, as rbp's */
 #define TEXT_NUDGE  2           /* rows' text and icons lowered (nudged(), below) */
+#define LIST_TOP    50          /* the headings' top on screen; the rows start 50 below */
 #define LIST_LEFT   108         /* the list's left edge: BROWSE's source buttons, left of
                                  * it, share its layer and stay put */
 #define HEADING_BPM 2045
@@ -1155,6 +1167,9 @@ void browserows_traffic_light(int on)
 }
 
 static uint32_t row_rect[LIST_ROWS][21];
+/* any row rectangle of the list, for the headings' sort triangles (heading_mark) */
+static uint32_t mark_rect[21];
+static unsigned mark_rect_ok;
 static unsigned row_rect_ok[LIST_ROWS];
 
 static void keep_row_rect(const uint8_t *m)
@@ -1164,6 +1179,8 @@ static void keep_row_rect(const uint8_t *m)
     if (row < LIST_ROWS) {
         memcpy(row_rect[row], m, sizeof(row_rect[row]));
         row_rect_ok[row] = 1;
+        memcpy(mark_rect, m, sizeof(mark_rect));    /* the triangles' model */
+        mark_rect_ok = 1;
     }
 }
 
@@ -1288,6 +1305,72 @@ static unsigned row_track(const void *model)
     return 0;
 }
 
+/* rbp's sort ids, and which way each runs before anyone turns it round: the toolkit's
+ * reading of rbp's comparator (rating, time, bitrate, play count, date added: most
+ * first) */
+static unsigned sort_base(unsigned sort) { return sort & 127u; }
+static int sort_down(unsigned sort)
+{
+    unsigned base = sort_base(sort);
+    if (sort & 0x4000u)
+        return (sort & 0x8000u) != 0;
+    return base == 5 || base == 8 || base == 13 || base == 16 || base == 17;
+}
+
+/* The track of the list row a model at layer y is drawn in. */
+static unsigned row_at(const void *model)
+{
+    const uint8_t *context = __atomic_load_n(&list_context, __ATOMIC_SEQ_CST);
+    int y = (int)half((const uint8_t *)model + 0x1a);
+    if (!context || y < 50)
+        return 0;
+    unsigned index = word(context + 4), row = (unsigned)(y - 50) / 50u;
+    if (index > 4 || row >= 12 || row >= word(context + 0x17eac + index * 0x1d1c - 4))
+        return 0;
+    return word(context + 0x17eac + index * 0x1d1c + row * 532);
+}
+
+/* A row's # text: in a playlist sorted any way but its own, the track's entry in the
+ * playlist (browsecol_playlist_number: the stick's export.pdb), three digits at least
+ * as rbp writes them; rbp's own shows dashes there, or the row's place under a sort
+ * with its own direction. A CDJ-3000 keeps the playlist's numbers whatever the sort
+ * (operator, 2026-10-28), and the # column is no longer taken away when rbp fills it
+ * with dashes, so number_blank stays 0. 1 = drawn. */
+#define PLAYLIST_NOW 0x0243b574u    /* getRowset_Playlist's last playlist id (0x0243b538 +0x3c) */
+static int number_draw(void *render, void *text)
+{
+    unsigned now = __atomic_load_n(&sort_now, __ATOMIC_SEQ_CST),
+             drive = __atomic_load_n(&list_playlist, __ATOMIC_SEQ_CST);
+    if (!drive || (sort_base(now) == 0 && !(now & 0x4000u)))
+        return 0;                       /* not a playlist, or in its own order: rbp's */
+    unsigned number = browsecol_playlist_number(drive, word((const void *)PLAYLIST_NOW),
+                                                row_at(text));
+    if (!number)
+        return dashes((const uint8_t *)text);   /* not known yet: blank rather than "---" */
+    uint16_t digits[8];
+    unsigned v = number, width = number > 999 ? (number > 9999 ? 5 : 4) : 3;
+    for (unsigned i = width; i-- > 0; v /= 10)
+        digits[i] = (uint16_t)('0' + v % 10);
+    digits[width] = 0;
+    uint32_t clone[21];
+    memcpy(clone, text, sizeof(clone));
+    uint32_t at = (uint32_t)(unsigned long)digits;
+    memcpy((uint8_t *)clone + 0x34, &at, 4);
+    ((uint8_t *)clone)[0x38] = (uint8_t)width;
+    if (width > 3) {
+        /* four digits (~53 px; 13 a digit, measured) are wider than rbp's room from
+         * its left inset, and rbp drops what does not fit its rectangle: a wider one,
+         * right-aligned 3 px before the divider (alignment byte 0x3c: 3 x horizontal +
+         * vertical, 2 = right), so the digits still start inside the cell */
+        uint8_t *c = (uint8_t *)clone;
+        put_half(c + 0x18, NUMBER_LEFT - 12);
+        put_half(c + 0x1c, NUMBER_RIGHT - 3);
+        c[0x3c] = (uint8_t)(6u + c[0x3c] % 3u);
+    }
+    original_draw_text(render, clone);
+    return 1;
+}
+
 static int column_draw(void *render, void *model)
 {
     uint8_t *m = model;
@@ -1331,12 +1414,8 @@ static void draw_text_row(void *render, void *text)
         }
     }
     if (listed(text) && half((uint8_t *)text + 0x18) >= NUMBER_LEFT &&
-        half((uint8_t *)text + 0x18) < NUMBER_RIGHT) {
-        int blank = dashes(text);
-        __atomic_store_n(&number_blank, (unsigned)blank, __ATOMIC_RELAXED);
-        if (blank)
-            return;
-    }
+        half((uint8_t *)text + 0x18) < NUMBER_RIGHT && number_draw(render, text))
+        return;
     if (moving(text))
         scroll_observe(text);
     if (moving(text) && half((uint8_t *)text + 0x18) >= NATIVE_EDGE &&
@@ -1370,6 +1449,236 @@ static void draw_text_row(void *render, void *text)
     original_draw_text(render, text);
 }
 
+/* ---- the sort triangles on the headings (operator, 2026-10-28) ---------------------
+ * As on a CDJ-3000 (the operator's photo): a small triangle just after every heading
+ * the list can be sorted by, grey as the heading's text, and rbp's selection blue on
+ * the heading the list is sorted by, pointing down when that sort runs downwards. A
+ * tap on a heading sorts by it; on the sorted one, the other way (browsesort.c).
+ *
+ * Each heading is one of rbp's images; where its text ends, measured on the unit from
+ * the image's left edge (every sort, 2026-10-28): the triangle goes MARK_GAP after. */
+static const struct { unsigned image, sort, text; } headings[] = {
+    { 2603, 1, 57 },    /* TRACK */          { 2032, 2, 58 },    /* ARTIST */
+    { 2024, 3, 59 },    /* ALBUM */          { 2045, 4, 36 },    /* BPM */
+    { 2574, 5, 62 },    /* RATING */         { 2392, 6, 59 },    /* GENRE */
+    { 2747, 7, 89 },    /* COMMENTS */       { 2598, 8, 40 },    /* TIME */
+    { 2591, 9, 75 },    /* REMIXER */        { 2420, 10, 53 },   /* LABEL */
+    { 2557, 11, 144 },  /* ORIGINAL ARTIST */ { 2409, 12, 34 },  /* KEY */
+    { 2039, 13, 69 },   /* BITRATE */        { 2309, 15, 60 },   /* COLOR */
+    { 2380, 16, 134 },  /* DJ PLAY COUNT */  { 2341, 17, 105 },  /* DATE ADDED */
+};
+#define HEADINGS (sizeof(headings) / sizeof(*headings))
+#define NUMBER_TEXT_END 396     /* the # heading's text, wherever its image starts */
+#define MARK_GAP    8
+#define MARK_W      13          /* a triangle 13 wide, 9 tall: about the headings' */
+#define MARK_H      9           /* capitals (12 px), as the CDJ-3000's */
+/* A rectangle's colour word is 5-6-5: red's five bits in the low byte, green's six in
+ * the next, blue's five in the third, each byte's top bits ignored (probed bit by bit
+ * on the unit, 2026-10-28). */
+#define RGB565(r, g, b) (0xff000000u | ((unsigned)(b) >> 3) << 16 | ((unsigned)(g) >> 2) << 8 | \
+                         (unsigned)(r) >> 3)
+#define MARK_GREY   RGB565(189, 190, 189)   /* the headings' text */
+#define MARK_BLUE   RGB565(0, 125, 231)     /* rbp's selected row: its rect's 0xff1c1f00 */
+
+/* The sort a row kind is (rbp's own second column, read from its rows). */
+static unsigned kind_sort(unsigned kind)
+{
+    switch (kind) {
+    case 7: return 2;   case 2: return 3;   case 13: return 4;  case 10: case 100: return 5;
+    case 6: return 6;   case 35: return 7;  case 11: return 8;  case 41: return 9;
+    case 14: return 10; case 40: return 11; case 15: return 12; case 16: return 13;
+    case 19: return 15; case 42: return 16; case 46: return 17;
+    default: return 0;
+    }
+}
+
+/* One triangle, its left edge at x, centred on y: stacked one-pixel rectangles (the
+ * toolkit's way) in a copy of one of rbp's own row rectangles, filled (byte 0x31 = 1:
+ * DrawRectangle fills with word 0x28) and with no outline (byte 0x24 set: the outline
+ * pass, drawn over a one-pixel line, would be all of it). */
+static void draw_mark(void *render, int x, int y, int down, unsigned colour)
+{
+    if (!mark_rect_ok)
+        return;
+    uint32_t clone[21];
+    uint8_t *c = (void *)clone;
+    memcpy(clone, mark_rect, sizeof(clone));
+    memcpy(c + 0x28, &colour, 4);
+    c[0x31] = 1;
+    c[0x24] = 1;
+    for (int line = 0; line < MARK_H; line++) {
+        int half_w = (line * (MARK_W / 2) + (MARK_H - 1) / 2) / (MARK_H - 1);
+        int top = y - MARK_H / 2 + (down ? MARK_H - 1 - line : line);
+        put_half(c + 0x18, x + MARK_W / 2 - half_w);
+        put_half(c + 0x1c, x + MARK_W / 2 + half_w + 1);
+        put_half(c + 0x1a, top);
+        put_half(c + 0x1e, top + 1);
+        original_draw_rect(render, c);
+    }
+}
+
+/* ---- the sorted heading in blue ------------------------------------------------
+ * rbp's headings are bitmaps (image table at [0x05a14f60], 44 bytes an id, ids up to
+ * 0x15cc: width/height +4/+6, format +0x18 -- 2 is RGB16 -- pixels at base + word
+ * +0x20; NS_GetImageInfoByID @0x1d192c fills +0xc/+0x10/+0x14 from it). Their text
+ * is grey (189,190,189) baked onto the list's (49,48,49), magenta the transparent
+ * key. The sorted heading is drawn as a copy of its bitmap made once, each pixel moved
+ * from grey toward rbp's blue as far as it was toward the text (operator, 2026-10-28:
+ * "make a new colored bitmap"), under a private id: BLUE_ID | the heading's id. */
+#define BLUE_ID     0x10000u
+#define IMAGE_LAST  0x15ccu
+#define KEY565      0xf81fu
+enum { BLUE_SLOTS = 24 };
+static struct { unsigned id; uint8_t entry[44]; uint16_t *pixels; } blue_images[BLUE_SLOTS];
+static uint8_t *(*original_image_info)(unsigned);
+
+static unsigned c565(uint16_t p, unsigned shift, unsigned bits)
+{
+    unsigned v = (p >> shift) & ((1u << bits) - 1u);
+    return bits == 5 ? (v << 3 | v >> 2) : (v << 2 | v >> 4);
+}
+
+/* One RGB16 pixel of a heading, from grey-on-grey to blue-on-grey. Pure. */
+unsigned int browserows_blue_pixel(unsigned int p)
+{
+    if (p == KEY565)
+        return p;
+    int g = (int)c565((uint16_t)p, 5, 6), t = (g - 48) * 256 / (190 - 48);
+    t = t < 0 ? 0 : t > 256 ? 256 : t;
+    unsigned r = (unsigned)(49 + (0 - 49) * t / 256), gg = (unsigned)(48 + (125 - 48) * t / 256),
+             b = (unsigned)(49 + (231 - 49) * t / 256);
+    return (r >> 3) << 11 | (gg >> 2) << 5 | b >> 3;
+}
+
+static uint8_t *image_info_hooked(unsigned id)
+{
+    if (!(id & BLUE_ID))
+        return original_image_info(id);
+    unsigned own = id & ~BLUE_ID;
+    for (unsigned i = 0; i < BLUE_SLOTS; i++) {
+        if (blue_images[i].id == own)
+            return blue_images[i].entry;
+        if (blue_images[i].id)
+            continue;
+        uint8_t *e = original_image_info(own);
+        if (!e || e[0x18] != 2)
+            return e;               /* not RGB16: rbp's own, grey */
+        unsigned w = half(e + 4), h = half(e + 6), stride = half(e + 0x10);
+        const uint16_t *from = (const uint16_t *)(unsigned long)word(e + 0xc);
+        uint16_t *to = malloc((size_t)stride * h);
+        if (!to || !from || stride < w * 2)
+            return e;
+        for (unsigned y = 0; y < h; y++)
+            for (unsigned x = 0; x < stride / 2; x++)
+                to[y * (stride / 2) + x] =
+                    (uint16_t)browserows_blue_pixel(from[y * (stride / 2) + x]);
+        memcpy(blue_images[i].entry, e, 44);
+        put_word(blue_images[i].entry + 0xc, (unsigned)(unsigned long)to);
+        blue_images[i].pixels = to;
+        blue_images[i].id = own;
+        return blue_images[i].entry;
+    }
+    return original_image_info(own);
+}
+
+/* The id the heading `m` is drawn with when the list is sorted by it, or 0. */
+static unsigned heading_blue(const uint8_t *m)
+{
+    if (!original_image_info || half(m + 0x1a) >= 50 || !listed(m))
+        return 0;
+    unsigned id = word(m + 0x44), now = __atomic_load_n(&sort_now, __ATOMIC_SEQ_CST);
+    if (!id || id > IMAGE_LAST || (now & 127u) == 21u)
+        return 0;
+    int x = (int)half(m + 0x18), known = 0;
+    for (unsigned i = 0; i < HEADINGS; i++)
+        if (headings[i].image == id) {
+            if (headings[i].sort != sort_base(now))
+                return 0;
+            known = 1;
+            break;
+        }
+    if (!known && !(x >= NUMBER_LEFT && x < NUMBER_RIGHT && sort_base(now) == 0))
+        return 0;
+    return BLUE_ID | id;
+}
+
+/* After a heading image is drawn (where it ends up, by whatever moved it): its mark. */
+static void heading_mark(void *render, const uint8_t *m)
+{
+    if (half(m + 0x1a) >= 50 || !listed(m))
+        return;
+    int x = (int)half(m + 0x18), end = 0;
+    unsigned sort = 0, id = word(m + 0x44), now = __atomic_load_n(&sort_now, __ATOMIC_SEQ_CST);
+    for (unsigned i = 0; i < HEADINGS; i++)
+        if (headings[i].image == id) {
+            end = x + (int)headings[i].text;
+            sort = headings[i].sort;
+            break;
+        }
+    /* the #: the list's own order, sort 0 -- known by where it is, after TRACK's image
+     * (moved into the #'s room when the # goes) has had its say */
+    if (!end && x >= NUMBER_LEFT && x < NUMBER_RIGHT)
+        end = NUMBER_TEXT_END;
+    if (!end)
+        return;
+    int active = sort_base(now) == sort && (now & 127u) != 21u;
+    int y = (half(m + 0x1a) + half(m + 0x1e)) / 2;
+    draw_mark(render, end + MARK_GAP, y, active && sort_down(now), active ? MARK_BLUE : MARK_GREY);
+}
+
+static void heading_drawn(void *render, void *image)
+{
+    unsigned blue = heading_blue(image);
+    if (blue) {
+        uint32_t clone[21];
+        memcpy(clone, image, sizeof(clone));
+        memcpy((uint8_t *)clone + 0x44, &blue, 4);
+        original_draw_image(render, clone);
+    } else
+        original_draw_image(render, image);
+    heading_mark(render, image);
+}
+
+/* The sort a tap on the headings at screen (x, y) asks for, or -1: the heading's sort,
+ * and on the heading already sorted by, the other way (0x4000, plus 0x8000 for down). */
+int browserows_heading_sort(int x, int y)
+{
+    if (y < LIST_TOP || y >= LIST_TOP + 50 || x < NUMBER_LEFT || !track_layout() ||
+        !browse_visible() || menu_visible() || !__atomic_load_n(&track_list, __ATOMIC_SEQ_CST))
+        return -1;
+    struct layout l = layout_now();
+    int blank = (int)__atomic_load_n(&number_blank, __ATOMIC_SEQ_CST);
+    unsigned sort;
+    if (!blank && x < NUMBER_RIGHT)
+        sort = 0;
+    else if (x < first_cell(&l))
+        sort = 1;
+    else if (x >= l.key)
+        sort = 12;
+    else if (x >= l.bpm)
+        sort = 4;
+    else if (l.native && x >= l.native)
+        sort = kind_sort(__atomic_load_n(&native_field, __ATOMIC_SEQ_CST));
+    else {
+        const struct browse_column *c = column;
+        sort = c ? kind_sort(c->field) : 0;
+        if (!sort)
+            return -1;
+    }
+    if (l.native && x >= l.native && x < l.bpm && !sort)
+        return -1;
+    return (int)browserows_sort_for_tap(__atomic_load_n(&sort_now, __ATOMIC_SEQ_CST), sort);
+}
+
+/* A tap on the heading of `sort` with the list sorted by `now`: that sort its own way,
+ * or the sort turned round when it is already the list's. Pure, for the test. */
+unsigned int browserows_sort_for_tap(unsigned int now, unsigned int sort)
+{
+    if (sort_base(now) != sort || (now & 127u) == 21u)
+        return sort;
+    return 0x4000u | sort | (sort_down(now) ? 0u : 0x8000u);
+}
+
 static void draw_image_row(void *render, void *image)
 {
     uint8_t *m = image;
@@ -1387,7 +1696,7 @@ static void draw_image_row(void *render, void *image)
         uint32_t clone[21];
         memcpy(clone, image, sizeof(clone));
         shift_x((uint8_t *)clone, -NUMBER_W);       /* the note icon, the TRACK heading */
-        original_draw_image(render, clone);
+        heading_drawn(render, clone);
         return;
     }
     if (moving(m) && x >= NATIVE_EDGE && x < NATIVE_EDGE + 50) {
@@ -1408,7 +1717,7 @@ static void draw_image_row(void *render, void *image)
             shift_x(c, l.native - NATIVE_EDGE);
             if (own)
                 memcpy(c + 0x44, &own, 4);
-            original_draw_image(render, c);
+            heading_drawn(render, c);
         }
         if (half(m + 0x1a) < 50) {
             const struct { int at; unsigned id; } headings[] = {
@@ -1421,12 +1730,12 @@ static void draw_image_row(void *render, void *image)
                 memcpy(clone, image, sizeof(clone));
                 shift_x(c, headings[i].at + TEXT_INSET - (int)x);
                 memcpy(c + 0x44, &headings[i].id, 4);
-                original_draw_image(render, c);
+                heading_drawn(render, c);
             }
         }
         return;
     }
-    original_draw_image(render, image);
+    heading_drawn(render, image);
 }
 
 static void draw_rect_hooked(void *render, void *rect)
@@ -1535,6 +1844,10 @@ int browserows_install(void)
     original_draw_text = (draw_fn)rbp_hook(0x1d23e4, text_guard, (void *)draw_text_hooked);
     original_draw_image = (draw_fn)rbp_hook(0x1d3284, image_guard, (void *)draw_image_hooked);
     original_draw_rect = (draw_fn)rbp_hook(0x1d2dec, rect_guard, (void *)draw_rect_hooked);
+    /* movw r3,#0x15cc ; cmp r0,r3: NS_GetImageInfoByID, for the blue headings only */
+    static const uint8_t info_guard[8] = { 0xcc, 0x35, 0x01, 0xe3, 0x03, 0x00, 0x50, 0xe1 };
+    if (!memcmp((const void *)0x1d192cul, info_guard, 8))
+        original_image_info = rbp_hook(0x1d192c, info_guard, (void *)image_info_hooked);
     if (!original_load[0] || !original_load[1] || !original_scroll_prepare ||
         !original_scroll_start || !original_scroll_run || !original_draw_text ||
         !original_draw_image || !original_draw_rect)

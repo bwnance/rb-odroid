@@ -26,8 +26,10 @@
  * RB_BROWSE_COLUMNS=0 leaves BROWSE exactly as rbp ships it (no hook at all).
  */
 #include <fcntl.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/time.h>
@@ -148,6 +150,157 @@ static unsigned stick_column(const char *path)
     return found;
 }
 
+/* ---- the # column: a playlist's own numbers ------------------------------------
+ * export.pdb's table 8 holds every playlist's entries, 12-byte rows: the entry's number,
+ * the track's id, the playlist's id (crate-digger's playlist_entry_row; checked on the
+ * unit 2026-10-28: playlist 1's entry 5 is track 139, rbp's #005). The open playlist's
+ * are read on a thread of this file's own -- a big stick's table is a few hundred pages,
+ * not to be read on rbp's render or database threads -- and kept sorted by track. */
+#define PDB_ENTRY_TABLE 8u
+enum { ENTRIES_MAX = 16384 };
+struct entry { unsigned track, number; };
+
+void browsecol_page_entries(const uint8_t *page, unsigned int size, unsigned int playlist,
+                            void (*found)(unsigned int, unsigned int, void *), void *arg)
+{
+    unsigned small = page[0x18], large = rd16(page + 0x22);
+    unsigned rows = large > small && large != 0x1fff ? large : small;
+    if (size < 0x100 || (page[0x1b] & 0x40) || rows > 16 * ((size - 0x28) / 0x24))
+        return;
+    for (unsigned g = 0; g * 16 < rows; g++) {
+        unsigned base = size - g * 0x24, present = rd16(page + base - 4);
+        for (unsigned r = 0; r < 16 && g * 16 + r < rows; r++) {
+            unsigned off = rd16(page + base - 6 - r * 2);
+            if (!(present >> r & 1) || 0x28 + off + 12 > size - (g + 1) * 0x24)
+                continue;
+            const uint8_t *row = page + 0x28 + off;
+            if (rd32(row + 8) == playlist)
+                found(rd32(row), rd32(row + 4), arg);
+        }
+    }
+}
+
+static struct {
+    unsigned drive, playlist, count, ready, loading, generation;
+    struct entry *list;
+} entries;
+static pthread_mutex_t entries_lock = PTHREAD_MUTEX_INITIALIZER;
+
+struct gather { struct entry *list; unsigned count; };
+static void gather(unsigned number, unsigned track, void *arg)
+{
+    struct gather *g = arg;
+    if (g->count < ENTRIES_MAX) {
+        g->list[g->count].track = track;
+        g->list[g->count].number = number;
+        g->count++;
+    }
+}
+
+static int by_track(const void *a, const void *b)
+{
+    const struct entry *x = a, *y = b;
+    if (x->track != y->track)
+        return x->track < y->track ? -1 : 1;
+    return x->number < y->number ? -1 : x->number > y->number;      /* first entry first */
+}
+
+static int open_pdb(unsigned slot, char *path, unsigned size);
+
+static void *entries_thread(void *arg)
+{
+    (void)arg;
+    pthread_mutex_lock(&entries_lock);
+    unsigned drive = entries.drive, playlist = entries.playlist, generation = entries.generation;
+    pthread_mutex_unlock(&entries_lock);
+    struct gather g = { malloc(sizeof(struct entry) * ENTRIES_MAX), 0 };
+    static uint8_t page[8192], head[0x200];
+    char path[96];
+    int fd = g.list ? open_pdb(drive - 2u, path, sizeof path) : -1;
+    if (fd >= 0 && pread(fd, head, sizeof head, 0) == (ssize_t)sizeof head) {
+        unsigned size = rd32(head + 4), tables = rd32(head + 8);
+        for (unsigned t = 0; size >= 0x100 && size <= sizeof page && t < tables && t < 30; t++) {
+            const uint8_t *e = head + 0x1c + t * 16;
+            if (rd32(e) != PDB_ENTRY_TABLE)
+                continue;
+            unsigned at = rd32(e + 8), last = rd32(e + 12);
+            for (unsigned n = 0; n < 4096 && at; n++) {
+                if (pread(fd, page, size, (off_t)at * size) != (ssize_t)size)
+                    break;
+                browsecol_page_entries(page, size, playlist, gather, &g);
+                if (at == last)
+                    break;
+                at = rd32(page + 12);
+            }
+            break;
+        }
+    }
+    if (fd >= 0)
+        close(fd);
+    if (g.list)
+        qsort(g.list, g.count, sizeof *g.list, by_track);
+    pthread_mutex_lock(&entries_lock);
+    if (entries.generation == generation) {
+        free(entries.list);
+        entries.list = g.list;
+        entries.count = g.count;
+        entries.ready = 1;
+        g.list = NULL;
+    }
+    entries.loading = 0;
+    pthread_mutex_unlock(&entries_lock);
+    free(g.list);
+    klog("knobshim2: browse #: USB%u playlist %u has %u entries\n", drive - 1u, playlist, g.count);
+    return NULL;
+}
+
+unsigned int browsecol_playlist_number(unsigned int drive, unsigned int playlist,
+                                       unsigned int track)
+{
+    unsigned number = 0;
+    if (drive < 2 || drive > 3 || !playlist || !track || pthread_mutex_trylock(&entries_lock))
+        return 0;
+    if (entries.drive != drive || entries.playlist != playlist) {
+        entries.drive = drive;
+        entries.playlist = playlist;
+        entries.ready = 0;
+        entries.generation++;
+    }
+    if (entries.ready) {
+        unsigned lo = 0, hi = entries.count;
+        while (lo < hi) {
+            unsigned mid = (lo + hi) / 2;
+            if (entries.list[mid].track < track)
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+        if (lo < entries.count && entries.list[lo].track == track)
+            number = entries.list[lo].number;
+    } else if (!entries.loading) {
+        pthread_t thread;
+        pthread_attr_t attr;
+        entries.loading = 1;
+        pthread_attr_init(&attr);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+        if (pthread_create(&thread, &attr, entries_thread, NULL))
+            entries.loading = 0;
+        pthread_attr_destroy(&attr);
+    }
+    pthread_mutex_unlock(&entries_lock);
+    return number;
+}
+
+/* A stick went in, out or was re-exported: its playlists are read again. */
+static void forget_entries(void)
+{
+    pthread_mutex_lock(&entries_lock);
+    entries.ready = 0;
+    entries.drive = 0;
+    entries.generation++;
+    pthread_mutex_unlock(&entries_lock);
+}
+
 /* ---- the choice ------------------------------------------------------------- */
 static char choice_path[128];
 /* UTILITY's TRAFFIC LIGHT row (utility_rows.c, in fbshim) writes on or off here; no
@@ -155,6 +308,7 @@ static char choice_path[128];
 static char traffic_path[128];
 static const char *start_word = "";
 static unsigned tick_gate;
+static int sort_in;          /* tap-to-sort installed (browsesort.c) */
 static unsigned last_tick_ms;     /* 32 bits: armv5 has no 64-bit atomics */
 static char current[16] = "-";
 /* each stick's export.pdb as last seen: its header page's first 0x40 bytes (DeviceSQL
@@ -196,19 +350,28 @@ static void write_choice(const char *word)
         rename(tmp, choice_path);
 }
 
-/* A stick put in or re-exported: its Column becomes the choice. */
-static void look_at_sticks(void)
+/* Slot `slot`'s export.pdb (0 = USB1), opened; its path in `path`. -1 if none. */
+static int open_pdb(unsigned slot, char *path, unsigned size)
 {
     static const char *const pdb[2] = { "/media/usb1/%s/PIONEER/rekordbox/export.pdb",
                                         "/media/usb2/%s/PIONEER/rekordbox/export.pdb" };
     static const char *const parts[] = { "sda1", "sdb1", "sdc1", "sdd1", "sda", "sdb" };
+    int fd = -1;
+    if (slot > 1)
+        return -1;
+    for (unsigned p = 0; p < sizeof parts / sizeof *parts && fd < 0; p++) {
+        snprintf(path, size, pdb[slot], parts[p]);
+        fd = open(path, O_RDONLY);
+    }
+    return fd;
+}
+
+/* A stick put in or re-exported: its Column becomes the choice. */
+static void look_at_sticks(void)
+{
     for (unsigned s = 0; s < 2; s++) {
         char path[96];
-        int fd = -1;
-        for (unsigned p = 0; p < sizeof parts / sizeof *parts && fd < 0; p++) {
-            snprintf(path, sizeof path, pdb[s], parts[p]);
-            fd = open(path, O_RDONLY);
-        }
+        int fd = open_pdb(s, path, sizeof path);
         if (fd < 0) {
             sticks[s].there = 0;
             continue;
@@ -221,6 +384,7 @@ static void look_at_sticks(void)
         if (same)
             continue;
         browserows_forget();        /* its track ids are not the last stick's */
+        forget_entries();
         memcpy(sticks[s].head, head, sizeof head);
         sticks[s].size = size;
         sticks[s].there = 1;
@@ -278,6 +442,8 @@ static void tick(void)
         traffic[n > 0 ? n : 0] = 0;
     }
     browserows_traffic_light(strncmp(traffic, "off", 3) != 0);
+    if (sort_in)
+        browsesort_poll();
     __sync_lock_release(&tick_gate);
 }
 
@@ -304,4 +470,7 @@ __attribute__((constructor)) static void browsecol_init(void)
     if (browsemenu_install())
         klog("knobshim2: browse column: rbp's LIST MENU is not the one measured -- no "
              "COLUMN there\n");
+    else if (!(sort_in = !browsesort_install()))
+        klog("knobshim2: browse sort: rbp's BrowseComm or sort is not the one measured -- "
+             "the headings do not sort\n");
 }

@@ -40,6 +40,15 @@ unsigned int browsecol_field(const char *value, const uint16_t **caption);
 /* Make `word` the choice, from the next page on; the word in effect. */
 void browsecol_choose(const char *word);
 const char *browsecol_current(void);
+/* Track `track`'s entry in playlist `playlist` on the stick behind rbp's drive `drive`
+ * (2 = USB1, 3 = USB2), from its export.pdb; 0 while not read yet (a thread reads it). */
+unsigned int browsecol_playlist_number(unsigned int drive, unsigned int playlist,
+                                       unsigned int track);
+/* One page of export.pdb's playlist entries (table 8: entry, track, playlist), each row
+ * of `playlist` handed to `found`. Pure, for the test. */
+void browsecol_page_entries(const uint8_t *page, unsigned int size, unsigned int playlist,
+                            void (*found)(unsigned int entry, unsigned int track, void *arg),
+                            void *arg);
 /* COLUMN in LIST MENU, beside SORT; once. 0 = in. */
 int browsemenu_install(void);
 /* LIST MENU as rbp just built it in `context` gets COLUMN as its third entry;
@@ -49,6 +58,23 @@ int browsemenu_add_column(uint8_t *context);
 void browsemenu_fill(uint8_t *context, unsigned int first, const char *current);
 /* The word of that menu's item `item`, or NULL. */
 const char *browsemenu_word(unsigned int item);
+
+/* ---- the headings' sort (browserows.c draws, browsesort.c asks) ------------ */
+/* The sort a tap at screen (x, y) on a heading asks for, or -1. */
+int browserows_heading_sort(int x, int y);
+/* ...given the list's sort `now` and the heading's `sort`. Pure. */
+unsigned int browserows_sort_for_tap(unsigned int now, unsigned int sort);
+/* A heading's RGB16 pixel recoloured for the sorted heading's blue copy. Pure. */
+unsigned int browserows_blue_pixel(unsigned int p);
+/* Tap-to-sort, once. 0 = in. */
+int browsesort_install(void);
+/* SelectRightMenu's item 0x7e00|n is a tap's sort: 1 = taken, its answer in *result. */
+int browsesort_select(uint8_t *context, void *mbx, uint8_t *request, int *result);
+/* A press, drag or release from the touchscreen (pointsrc.c): 1 = a heading took it. */
+int browse_heading_touch(int down, int x, int y);
+void browsesort_request(unsigned int sort);
+/* A few times a second from the chooser's tick: the test tap file. */
+void browsesort_poll(void);
 
 /* ---- for the test --------------------------------------------------------- */
 /* rbp's track-key lookup the KEY column calls, reassignable */

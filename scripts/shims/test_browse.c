@@ -263,6 +263,40 @@ static void test_stick_column(void)
     CHECK(browsecol_page_column(page, 4096) == 0, "an index page is not read");
 }
 
+static unsigned found_entry[8], found_track[8], found_n;
+static void found(unsigned entry, unsigned track, void *arg)
+{
+    (void)arg;
+    if (found_n < 8) {
+        found_entry[found_n] = entry;
+        found_track[found_n] = track;
+    }
+    found_n++;
+}
+
+static void test_playlist_entries(void)
+{
+    static uint8_t page[4096];
+    /* entry, track, playlist -- as export.pdb's table 8 holds them */
+    static const unsigned rows[][3] = { { 1, 135, 1 }, { 2, 136, 1 }, { 1, 40, 2 }, { 5, 139, 1 } };
+    unsigned n = sizeof rows / sizeof *rows, present = 0;
+    page[0x18] = (uint8_t)n;
+    for (unsigned r = 0; r < n; r++) {
+        for (unsigned k = 0; k < 3; k++)
+            put32(page + 0x28 + r * 12 + k * 4, rows[r][k]);
+        put16(page + 4096 - 6 - r * 2, r * 12);
+        present |= 1u << r;
+    }
+    put16(page + 4096 - 4, present & ~(1u << 1));
+    browsecol_page_entries(page, 4096, 1, found, NULL);
+    CHECK(found_n == 2 && found_entry[0] == 1 && found_track[0] == 135 && found_entry[1] == 5 &&
+          found_track[1] == 139, "playlist 1's present entries, with their tracks");
+    found_n = 0;
+    page[0x1b] = 0x40;
+    browsecol_page_entries(page, 4096, 1, found, NULL);
+    CHECK(found_n == 0, "an index page holds no entries");
+}
+
 /* rbp's browse context around its popup menus, as browsemenu.c reads it */
 #define M 0x43378u
 #define ENTRY(i) (M + 0x22cu + (i) * 0x210u)
@@ -356,6 +390,22 @@ static void test_menu(void)
     }
 }
 
+static void test_sort_tap(void)
+{
+    CHECK(browserows_sort_for_tap(12, 4) == 4, "a tap on BPM in a KEY list: BPM, rbp's way");
+    CHECK(browserows_sort_for_tap(4, 4) == (0x4000u | 0x8000u | 4u),
+          "BPM again: BPM turned round, down");
+    CHECK(browserows_sort_for_tap(0x4000u | 0x8000u | 4u, 4) == (0x4000u | 4u),
+          "and again: up");
+    CHECK(browserows_sort_for_tap(17, 17) == (0x4000u | 17u),
+          "DATE ADDED runs down in rbp: turned round is up");
+    CHECK(browserows_sort_for_tap(21, 4) == 4, "BPM (UNSORTED) is not BPM's sort");
+    CHECK(browserows_sort_for_tap(4, 0) == 0, "the #: the list's own order");
+    CHECK(browserows_blue_pixel(0xf81f) == 0xf81f, "the transparent key stays");
+    CHECK(browserows_blue_pixel(0x3186) == 0x3186, "the heading's grey ground stays");
+    CHECK(browserows_blue_pixel(0xbdf7) == 0x03fc, "its text becomes rbp's blue (0,125,231)");
+}
+
 int main(void)
 {
     test_relocate();
@@ -364,6 +414,8 @@ int main(void)
     test_transport();
     test_config();
     test_menu();
+    test_sort_tap();
+    test_playlist_entries();
     printf("%s: %d checks, %d failures\n", failures ? "FAIL" : "ok", checks, failures);
     return failures ? 1 : 0;
 }
