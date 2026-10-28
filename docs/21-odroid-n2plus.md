@@ -361,6 +361,39 @@ session; details further down):
    with it. Probably a copy of each loaded track (audio and analysis) held off
    the stick -- in RAM or on the eMMC -- and rbp kept reading that copy; how
    rbp reacts to its media going away is the first thing to read.
+16. **Beat FX quantize -- WIP, built, to hear on the decks** (2026-10-27,
+   commit ad91f4e). TRANS played off then on, half a beat out. Read on the
+   unit: the touch panel's Beat FX quantize was ON (MasterInnards+0x45) but
+   the engine's flag was 0 -- onEv_FxQuantize sets it to the panel's state AND
+   isBeatEffectQuantizeValid(), false with no track loaded, and rbp applies it
+   only at start and on FX type / channel / TAP / beat changes. map_flx10.c now
+   sends the panel's state back through its key (K_EFFECTQUANT 0x0493) 1.5 s
+   after each load, an OFF as ON the first time after a start; the touch panel
+   stays the switch. To check: with the FLX10 on, load a track, see "Beat FX
+   quantize on again after a load" in /tmp/knobshim.log, and hear TRANS on the
+   beat. Open: a /tmp/rb_load load turned the engine flag on by itself while
+   an FLX10 browse load had left it off; whether the FLX10 times its own FX ON
+   press to the beat is unmeasured. TRANS's gate itself is the right way
+   round (BeatEffectTrans::execute: on for the first part of each cycle).
+17. **MASTER ATT. on the FLX10's own attenuator -- paused, probe staged**
+   (2026-10-27). Instead of scaling the samples (masteratt.c), drive the
+   unit's master attenuator like CC 13 drives its booth one -- if it has one
+   among its settings BF 41..4A (item 6). /tmp/flx10-settings-probe.sh on the
+   unit (tmpfs: gone after a reboot) stops rbp, opens the session itself,
+   checks CC 13 drops booth, then steps BF 41..4A over a tone while master and
+   booth are listened to. Send the setting only on a change, never repeated --
+   the lesson of the booth fix.
+18. **MY SETTINGS: check a load applies -- to do on the decks** (2026-10-27).
+   rbp loads them only on request (MY SETTINGS -> LOAD, or the browse right
+   menu); never at mount. The stick's four files decode cleanly (rekordbox
+   7.2.8; MYSETTING: quantize on, +-16, master tempo on, vinyl, remain; DJM:
+   Beat FX quantize on). Unloaded on 2026-10-27 (deck 1 at +-6). After a LOAD,
+   read rbp's state back and compare field by field. rbp keeps its settings in
+   the chroot's /root/settings/XdjSettings.dat; deploys leave it alone.
+19. **RB_AUDIO_PERIODS -- experiment, uncommitted.** audioshim.c / rb.conf /
+   start-rb.sh in the working tree; a deeper master ring for the clicks. It
+   did not fix the booth flipping (that was the time CCs) -- whether it helps
+   the clicks is untested. The unit's own rb.conf still has it at 4.
 
 How rbp sorts a browse list (read 2026-10-27, for whoever needs it next; a
 default playlist sort was built on it and dropped -- the operator loads the sort
