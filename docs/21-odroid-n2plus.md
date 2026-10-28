@@ -390,6 +390,17 @@ session; details further down):
    Beat FX quantize on). Unloaded on 2026-10-27 (deck 1 at +-6). After a LOAD,
    read rbp's state back and compare field by field. rbp keeps its settings in
    the chroot's /root/settings/XdjSettings.dat; deploys leave it alone.
+   Tried from the bench 2026-10-27 (RB_KEY_REPLAY, no one at the decks), not
+   done: the SHORTCUT view's LOAD button sends 0x0222 (ch 0, the touch
+   button's +0x18/+0x1c in ShortcutMode's constructor) to browse-key record
+   134, UiKey_Shortcut_MySettingLoad @0x116820. It loads only with browse
+   mode 10 (SHORTCUT, K_SHORTCUT opens it) AND that view's media record set
+   (getLastBrowseModeMediaPointer(10) -> 0x326f9b8, then the mount's
+   MySetting flag) before Pub_Total_MySettingExec_Load. After a restart that
+   record is 0, and BROWSE alone does not fill it (browse device stays 0),
+   so SHORTCUT -> LOAD did nothing and XdjSettings.dat stayed as it was.
+   At the decks: open the stick in BROWSE first, then SHORTCUT -> LOAD (or
+   MENU -> MY SETTINGS -> LOAD).
 19. **RB_AUDIO_PERIODS -- committed, off by default, to hear on the decks**
    (2026-10-27). A deeper master ring for the clicks (docs/09). It did not
    fix the booth flipping (that was the time CCs); whether it helps the
