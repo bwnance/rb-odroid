@@ -35,6 +35,8 @@ int menu_draw_start(void);
  * own render loop from (measured 57.1/s). Safe to call from both: every step is
  * idempotent. */
 void menu_frame_tick(void);
+/* The same from the vsync hook: the band painted whole whatever the witness says. */
+void menu_frame_tick_vsync(void);
 
 /* The first screen row below the band while it is open on the page route, else 0
  * (fb_shim.c's band hold). */

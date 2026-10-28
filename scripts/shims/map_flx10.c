@@ -1166,15 +1166,16 @@ __attribute__((weak)) int flx10_plain_jump(int deck, float beats)
 
 /* HELD, a jump repeats (operator, 2026-10-28, item 25: to seek): the press jumps
  * once, and from BJ_DELAY_MS on the same jump again every BJ_REPEAT_MS until the
- * button comes up -- a key repeat. 4 beats every 150 ms is ~12x through a 128 BPM
- * track; SHIFT's 16, four times that. Any of the deck's jump notes ending the
+ * button comes up -- a key repeat. 4 beats every 100 ms (150 until the operator asked
+ * for a little faster, 2026-10-28) is ~19x through a 128 BPM track; SHIFT's 16, four
+ * times that. Any of the deck's jump notes ending the
  * hold ends it, SHIFT let go under it or not.
  * Unshifted, the panel does its own long press (measured 2026-10-28): a tap is sent
  * as 94/95 on and off together at the release, and a hold as 112/113 instead, on
  * once the panel calls it held and off at the release -- so that one jumps at once
  * and repeats from BJ_REPEAT_MS. SHIFT's 97/98 come at the press and the release. */
 #define BJ_DELAY_MS  400
-#define BJ_REPEAT_MS 150
+#define BJ_REPEAT_MS 100
 static int bj_held[2];
 static unsigned long long bj_next[2];
 

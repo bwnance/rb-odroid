@@ -1717,14 +1717,36 @@ int menu_page_band_bottom(void)
     return g.fb_by + menu_panel_ph();
 }
 
+/* From the vsync hook, after each rbp frame: the band painted whole, damaged or not.
+ * The witness reads a couple of dozen points, and rbp redraws small parts of its title
+ * bar (a clock, a scrolling title) that can miss every one of them -- so a band left
+ * "intact" went to the glass with a patch of rbp's in it, the flicker the operator
+ * still saw now and then after the band hold (2026-10-28; measured: every repair the
+ * witness DID see came 1-3 ms after the vblank, i.e. once the scan was past the band).
+ * One blit, ~0.3 ms, on rbp's render thread, only while the band is open on the page;
+ * the lock waited for rather than tried, so the frame never goes without it. */
+static int force_blit;
+
+void menu_frame_tick_vsync(void)
+{
+    if (!g.ok)
+        return;
+    pthread_mutex_lock(&g_lock);
+    force_blit = 1;
+    pthread_mutex_unlock(&g_lock);
+    menu_frame_tick();
+}
+
 void menu_frame_tick(void)
 {
-    int open, fp;
+    int open, fp, forced;
 
     if (!g.ok)
         return;
     if (pthread_mutex_trylock(&g_lock) != 0)
         return;
+    forced = force_blit;
+    force_blit = 0;
 
     /* THE PAD'S PLANE FIRST, before any route is decided, and it is the only one here
      * that goes first. The five boxes below each give their predecessor the chance to
@@ -1829,7 +1851,7 @@ void menu_frame_tick(void)
          * turning into a repaint storm. */
         fp = g.front_pressed;
         if (!g.painted_open || fp != g.painted_pressed ||
-            !menu_intact(&g.view, fp)) {
+            (forced && !g.band_ok) || !menu_intact(&g.view, fp)) {
             long t0 = menu_now_us();
             long us;
 

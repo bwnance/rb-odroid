@@ -663,7 +663,7 @@ session; details further down):
    for item 12.
 25. **BEAT JUMP held repeats, to seek -- done** (operator, 2026-10-28; map_flx10.c).
    The press jumps once as before; held, the same jump repeats from 400 ms every
-   150 ms until it comes up (~12x through a 128 BPM track with 4 beats, four times
+   100 ms (150 until 2026-10-28: "a little faster") until it comes up (~12x through a 128 BPM track with 4 beats, four times
    that with SHIFT's 16). Checked on the unit: held 2 s on a 170 BPM track, REMAIN
    4:08 -> 3:52, eleven 4-beat jumps. test_flx10 covers the timing.
 26. **Touch scrolling is jerky -- fixed, by measurement; to feel at the glass**
@@ -776,6 +776,11 @@ session; details further down):
    blank's lines + the band's + 8, at the live mode's line time (1280x800, 828 lines,
    20.1 us a line: ~1.85 ms of rbp's 16.7). FB_BAND_HOLD=0 turns it off. The centred
    boxes (SETTINGS, the chooser, the FX picker) are page-painted too and not held.
+   A little flicker now and then remained (operator): measured, every repair the
+   witness saw came 1-3 ms after the vblank, past the band -- so what still reached
+   the glass was damage the witness's points miss (rbp redraws small parts of its
+   title bar). The vsync hook now paints the band whole after every rbp frame
+   (menu_frame_tick_vsync, ~0.3 ms), whatever the witness says.
 34. **RX3 touch preview -- not working, to look at** (operator, 2026-10-28). The
    RX3's own touch preview (touching a list row's waveform to audition the track) is
    the ask; the CDJ's PREVIEW audition is not (struck from item 11).
