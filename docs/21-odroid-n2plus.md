@@ -219,7 +219,18 @@ session; details further down):
    ref_mpf's -18 every 300 ms for good, and the watcher thread with it. A
    line already there is now not replayed, a load waits for the pool, and
    the watcher runs only in rbp.
-6. **Booth and master outputs**, by ear.
+6. **Booth and master outputs -- done** (2026-10-27), by ear. The FLX10 plays
+   back four channels (master, headphones) and makes its booth output from its
+   master mix in hardware; booth was silent only because the speakers were
+   off. UTILITY's MASTER ATT. scales the master samples (masteratt.c). Its
+   BOOTH MONITOR ATT. does nothing: a pass-through to the unit's own booth
+   attenuator (ch 16 CC 13, 0 / 1 / 2, the 0 in rekordbox's connect sequence)
+   from a detour of BoothMonitor::setATT @0x5a44c was built and reverted; the
+   FLX10's BOOTH knob sets the level. Booth flipping between two levels at
+   fixed points in a track was the jog time CCs landing on the unit's own
+   settings -- fixed, see the jog display table. Still open: MASTER ATT. on the
+   FLX10's own master attenuator, if it has one among BF 41..4A, instead of
+   in the samples.
 7. **Key sync -- built, to try on the unit** (2026-10-26). KEY SYNC (short
    press; held is still MASTER TEMPO) latches like a CDJ: the deck that is not
    the tempo MASTER is shifted by the fewest semitones (-5..+6) onto the
@@ -885,7 +896,7 @@ documents a display channel, **MIDI ch 16**, whose fields the unit renders itsel
 | BPM (two decimals) | SysEx `F0 00 40 05 00 00 04 01 00 <11+d> n5..n0 F7` | hex digits of BPM x 100, high first (82.00 = `00 00 02 00 00 08`); `0F` x6 blanks. What rekordbox sends (captured 2026-10-25, decoded from a tempo-range sweep). **Ignored outside rekordbox's HID session** -- sent by hand alone and after its `00 0A`/`0B`/`0C` setup messages, no change; not sent (HID phase) |
 | BPM (one decimal) | CC 0x14+d / 0x34+d | BPM x 10, 14-bit (Pioneer's list); rekordbox never sends it; **what we send** |
 | playing speed | CC 0x18+d / 0x38+d | (percent + 100) x 10, 14-bit |
-| time | CC 0x42+2d min, 0x43+2d sec | 0..99 |
+| time | CC 0x42+2d min, 0x43+2d sec | 0..99 -- **not sent** (2026-10-27): the same numbers are the unit's own utility settings (`BF 41..4A`, what it reports to `9F 70 00`), and the remaining time written into them flipped the booth output between two levels at fixed points in each track (louder at 0:25 in a 4:25 track, as the seconds wrapped). rekordbox never sends them; the jog's time comes from the HID state packet's position |
 | time mode | Note 0x14+d | 0x7F remaining |
 | marker | CC 0x10+d / 0x30+d | 0..359 deg -- the clock arm; works (deck 2, after a load), but a deck can hide it -- condition still open |
 | cue marker | CC 0x1C+d / 0x3C+d | 0..359; 0x7F/0x7F hides -- **ignored** |

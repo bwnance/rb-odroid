@@ -3450,8 +3450,14 @@ static void flx10_event(const struct snd_seq_event *ev)
  * itself: no HID, no session. d = deck - 1.
  *   BPM            CC 0x14+d / 0x34+d   BPM x 10, 14-bit (0.0 .. 999.9)
  *   playing speed  CC 0x18+d / 0x38+d   (percent + 100) x 10, 14-bit
- *   time           CC 0x42+2d minutes, 0x43+2d seconds, 0..99 each
- *   time mode      Note 0x14+d          0x7F = remaining (the unit draws the -)
+ *   time           CC 0x42+2d minutes, 0x43+2d seconds, 0..99 each -- NOT
+ *                  sent: those numbers are also the unit's own settings
+ *                  (BF 41..4A in rekordbox's connect sequence below, which
+ *                  never sends them as a time), and the remaining time
+ *                  written into them flipped the booth output between two
+ *                  levels at fixed points in a track (2026-10-27). The
+ *                  time shows from the HID state packet's position.
+ *   time mode     Note 0x14+d          0x7F = remaining (the unit draws the -)
  *   marker         CC 0x10+d / 0x30+d   0..359 degrees (the clock arm; shown or
  *                                       hidden per deck on the unit itself, with
  *                                       a double tap of SHIFT)
@@ -3852,8 +3858,9 @@ static void flx10_deck_display(int deck, const struct deck_info *di)
      }
      flx10_jog_values(di, &bpm10, &speed10, &min, &sec, &deg);
      jd_note(deck, 4, 0x14 + d, di->time_remain ? 0x7F : 0x00, force);   /* rbp's time mode */
-     jd_cc(deck, 5, 0x42 + 2 * d, min, force);
-     jd_cc(deck, 6, 0x43 + 2 * d, sec, force);
+     /* min / sec are not sent: CC 0x42..0x45 are unit settings (above) */
+     (void)min;
+     (void)sec;
      /* The CC BPM (x10, tenths only). Kept: on its own the BPM SysEx is
       * ignored in this mode (sent by hand 2026-10-25, nothing changed), so
       * dropping the CC left the jog frozen on its last value. */
