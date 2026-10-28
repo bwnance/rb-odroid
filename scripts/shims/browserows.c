@@ -400,8 +400,20 @@ static void *local_record(void *context, const uint32_t *record, unsigned drive,
             item.key = local_key(item.id, drive);
             item.has_key = 1;
             if (local_lock()) {
-                local_page[local_next] = item;
-                local_next = (local_next + 1u) % LOCAL_SLOTS;
+                /* a track already kept is replaced where it is: a column change
+                 * fetches it again, and the old field's record must not answer */
+                unsigned slot = LOCAL_SLOTS;
+                for (unsigned i = 0; i < LOCAL_SLOTS; i++)
+                    if (local_page[i].valid && local_page[i].id == item.id &&
+                        local_page[i].drive == item.drive) {
+                        slot = i;
+                        break;
+                    }
+                if (slot == LOCAL_SLOTS) {
+                    slot = local_next;
+                    local_next = (local_next + 1u) % LOCAL_SLOTS;
+                }
+                local_page[slot] = item;
                 local_unlock();
             }
         }
@@ -2062,8 +2074,20 @@ void browserows_set(const struct browse_column *c)
     if (!c)
         c = &none;
     const struct browse_column *was = __atomic_exchange_n(&column, c, __ATOMIC_SEQ_CST);
-    if (was != c)
+    if (was != c) {
         invalidate_metadata();      /* the next page decides the layout afresh */
+        /* A new field is not in the snapshot until the server reads the page again,
+         * and a redraw does not ask it (rows showed dashes until a scroll, operator
+         * 2026-10-28): the list's own sort is asked for again, as a heading tap
+         * would, which fetches the page where it stands. */
+        if (original_jpeg && was && was->field != c->field &&
+            __atomic_load_n(&track_list, __ATOMIC_SEQ_CST) && browse_visible()) {
+            unsigned sort = __atomic_load_n(&sort_now, __ATOMIC_SEQ_CST);
+            klog("knobshim2: browse column: field %u -> %u, the list fetched again (sort %#x)\n",
+                 was->field, c->field, sort);
+            browsesort_request(sort);
+        }
+    }
 }
 
 /* rbp's list rows set their text 2-3 px above the middle (capitals 13..31 of 50,

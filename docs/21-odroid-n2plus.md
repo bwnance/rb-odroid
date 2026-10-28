@@ -382,8 +382,11 @@ session; details further down):
      BITRATE, DJ PLAY COUNT, DATE ADDED; RATING showed five empty stars (no
      track on this stick is rated). LABEL, COLOR, REMIXER and ORIGINAL ARTIST
      are not seen with a value -- the stick has 3 labels and none of the others.
-     After the column changes, rows show a dash until their page is fetched
-     again (a scroll). Not covered: under SORT by TRACK rbp sends no second
+     When the column changes, the list's own sort is asked for again (as a
+     heading tap), which fetches the page where it stands: every row shows the
+     new field at once, the cursor where it was (a redraw alone does not refetch;
+     rows had shown dashes until a scroll). A track's snapshot record is replaced
+     in place, so an old field's record cannot answer. Not covered: under SORT by TRACK rbp sends no second
      column's rows at all, so that list has no BPM / KEY / chosen column.
      RB_BROWSE_COLUMNS=0 removes every hook; RB_BROWSE_COLUMN is only the
      start before a stick or the panel says anything.
