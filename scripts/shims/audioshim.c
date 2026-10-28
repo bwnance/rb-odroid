@@ -4037,6 +4037,41 @@ static void fill_deck_taps(snd_pcm_uframes_t size)
     }
 }
 
+/* THE MASTER, ONE BLOCK LATE (2026-10-28, the operator: "headphone mix is comb
+ * filtering when set to the middle"). rbp writes each period's streams master first,
+ * then headphones, then booth -- measured: M P B M P B ..., 64 frames a block -- and
+ * the headphone and booth blocks are staged and folded into the master's write. So
+ * the master went out with the PREVIOUS period's cue, 64 frames (1.45 ms) apart, and
+ * the FLX10 blending the two in the headphones (its HP MIX) combed them: notches every
+ * ~690 Hz with the knob in the middle. The master is now held one block and sent with
+ * the cue and booth rbp writes after it -- one period together, for one block of
+ * latency (1.45 ms). The first block, and one whose size changes, goes out silent.
+ * AUDIO_MASTER_ALIGN=0 sends it as it comes, as before. */
+static int32_t g_master_held[MAX_FRAMES * 2], g_master_out[MAX_FRAMES * 2];
+static unsigned g_master_held_frames;
+
+static const int32_t *master_aligned(const int32_t *src, snd_pcm_uframes_t size)
+{
+    static int align = -1;
+    const char *e;
+
+    if (align < 0) {
+        e = getenv("AUDIO_MASTER_ALIGN");
+        align = !(e && e[0] == '0');
+        alog("audioshim: master %s\n", align ? "held one block, sent with its own period's cue"
+                                             : "sent as written (AUDIO_MASTER_ALIGN=0)");
+    }
+    if (!align || size > MAX_FRAMES)
+        return src;
+    if (g_master_held_frames == size)
+        memcpy(g_master_out, g_master_held, (size_t)size * 2 * sizeof(int32_t));
+    else
+        memset(g_master_out, 0, (size_t)size * 2 * sizeof(int32_t));
+    memcpy(g_master_held, src, (size_t)size * 2 * sizeof(int32_t));
+    g_master_held_frames = (unsigned)size;
+    return g_master_out;
+}
+
 static snd_pcm_sframes_t flush_master(const int32_t *src, snd_pcm_uframes_t size)
 {
     /* This process is the one playing, so it -- and not a bring-up helper -- owns the state
@@ -4381,7 +4416,7 @@ snd_pcm_sframes_t snd_pcm_writei(snd_pcm_t *pcm, const void *buffer, snd_pcm_ufr
                             (const int32_t *)buffer, size);
 
     if (is_master(pcm))
-        return flush_master((const int32_t *)buffer, size);
+        return flush_master(master_aligned((const int32_t *)buffer, size), size);
 
     if (is_fake(pcm)) {
         /* The capture and the dummy: there is nowhere for this to go. The old code

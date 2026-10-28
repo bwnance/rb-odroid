@@ -645,8 +645,8 @@ session; details further down):
    SOURCE then, as it used to be. test_flx10 has both.
 23. **EQ knobs vs rekordbox on the laptop -- closed** (operator, 2026-10-28):
    they felt more aggressive at first; on a second listen they match.
-24. **Switching a channel's input away from the RX3 mutes the deck -- built, to
-   hear at the unit** (operator, 2026-10-28; map_flx10.c). rbp mixes in software and
+24. **Switching a channel's input away from the RX3 mutes the deck -- done,
+   confirmed by the operator** (operator, 2026-10-28; map_flx10.c). rbp mixes in software and
    the FLX10 plays back only four channels (master and headphones, item 6), so the
    unit cannot mute one deck itself: its per-channel selector only tells the
    computer, as with rekordbox. Measured: each channel's own MIDI channel (0..3),
@@ -782,6 +782,14 @@ session; details further down):
    the glass was damage the witness's points miss (rbp redraws small parts of its
    title bar). The vsync hook now paints the band whole after every rbp frame
    (menu_frame_tick_vsync, ~0.3 ms), whatever the witness says.
+35. **The headphone mix combed with HP MIX in the middle -- fixed, to hear**
+   (operator, 2026-10-28; audioshim.c). rbp writes each period master, headphones,
+   booth (measured: M P B ..., 64 frames a block), and the headphone and booth blocks
+   are staged and folded into the master's write -- so the master went out with the
+   previous period's cue, 1.45 ms apart, and the FLX10's own HP MIX blending the two
+   combed them (notches every ~690 Hz). The master is now held one block and sent
+   with the cue written after it (master_aligned): one block more latency, 1.45 ms.
+   AUDIO_MASTER_ALIGN=0 for the old way.
 34. **RX3 touch preview -- not working, to look at** (operator, 2026-10-28). The
    RX3's own touch preview (touching a list row's waveform to audition the track) is
    the ask; the CDJ's PREVIEW audition is not (struck from item 11).
