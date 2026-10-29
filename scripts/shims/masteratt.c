@@ -144,6 +144,9 @@ __attribute__((visibility("default"))) int headroom_get(void)
      return headroom_db;
 }
 
+/* mixlevels.c's meters, on either side of rbp's EQ and fader */
+void mixlevels_channel(void *channel, int frames, int after) __attribute__((weak));
+
 static void hooked_filter(void *self, int frames)
 {
      float g = headroom_gain, *out = *(float **)((char *)self + CHANNEL_OUT);
@@ -151,7 +154,11 @@ static void hooked_filter(void *self, int frames)
      if (g != 1.0f && out && frames > 0 && frames <= 4096)
           for (int i = 0; i < frames * 2; i++)
                out[i] *= g;
+     if (mixlevels_channel)
+          mixlevels_channel(self, frames, 0);
      original_filter(self, frames);
+     if (mixlevels_channel)
+          mixlevels_channel(self, frames, 1);
 }
 
 static void headroom_load(void)

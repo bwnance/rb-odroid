@@ -245,7 +245,7 @@ CTRL_OBJS  := ctrlshim.o ctrl_map.o map_flx4.o map_flx10.o map_jp21.o map_kbd.o 
               mididump.o rbp_bridge.o rbp_led.o led_table.o plinn_scan.o \
               rbp_vu.o midi_io.o controllers.o shimutil.o usb_label.o rbp_load.o \
               flx10_hid.o flx10_media.o keyshift.o rbp_hook.o searchfold.o keydisp.o \
-              doublelock.o masteratt.o browserows.o browsecol.o browsemenu.o browsesort.o touchscroll.o touchpreview.o
+              doublelock.o masteratt.o browserows.o browsecol.o browsemenu.o browsesort.o touchscroll.o touchpreview.o mixlevels.o
 CTRL_HDRS  := rbp_abi.h rbp_bridge.h rbp_key.h rbp_led.h led_table.h rbp_vu.h \
               midi_io.h shimutil.h ctrl_map.h mididump.h evdev_io.h syscalls.h \
               shmstate.h plinn_scan.h controllers.h usb_label.h pitch_state.h \

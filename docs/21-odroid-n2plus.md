@@ -877,6 +877,26 @@ session; details further down):
    touches and a peak of rbp's headphone stream: a held touch on any row's
    waveform plays (about -12 dBFS peaks) with LINK CUE on, is silent with it off,
    stops on release; a re-touch 0.3 s later plays.
+41. **"Tracks get drowned out too easily" -- the mix path read, a level log built**
+   (operator, 2026-10-28). rbp's mix, deck to card, read off 1.20 and its live
+   memory: trim (masteratt.c's curve, 0 dB centre) -> a fixed -3.39 dB for any
+   player source (MixerChannel::getGain @0x9de60, 0.6769) -> OUTPUT HEADROOM
+   (-12 dB set) -> EQ (EQ mode, not isolator; the FLX10's 7-bit centre lands a
+   step either side of 0.5) -> channel fader (curve 1 of rbp's three: -4.1 dB at
+   3/4, -10.1 at half) -> crossfader (both decks THRU) -> MasterOutChannel::update
+   @0x59490, a plain float sum, the analogue bus's own arithmetic -> Beat FX ->
+   MicTalkOver (no mic signal here, so no ducking) -> master level pinned at 0 dB
+   -> the card. No compressor (rbp's mixerengine::Compressor is the recorder's
+   only), no limiter, no auto gain. A deck at trim centre reaches the sum about
+   15 dB under full scale, so two loud tracks peak near -9 dBFS: nothing clips.
+   Nothing found that favours one deck. The FLX10 reports its master as MONO
+   (9F 47 = 00), which cancels wide stereo content -- the operator downmixes in
+   the DSP anyway. To see what really happens while playing, mixlevels.c logs
+   once a second, while anything sounds, to /tmp/mixlevels.log (4 MB, then .1):
+   each deck's peak / RMS after its fader, its peak before EQ, the trim, fader
+   and crossfader gains and the EQ knobs, then the master's peak / RMS and the
+   samples over full scale. Checked 2026-10-28 with deck 1 playing alone: the
+   master equals deck 1, the trims match the knobs.
 
 How rbp sorts a browse list (read 2026-10-27, for whoever needs it next; a
 default playlist sort was built on it and dropped -- the operator loads the sort
